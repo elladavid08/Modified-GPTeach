@@ -8,6 +8,7 @@ global.Response = Response;
 import express from 'express';
 import cors from 'cors';
 import { VertexAI } from '@google-cloud/vertexai';
+import { GoogleAuth } from 'google-auth-library';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -18,10 +19,14 @@ app.use(express.json());
 
 console.log('🔧 Initializing Vertex AI with Application Default Credentials...');
 
+const PROJECT_ID = process.env.GOOGLE_CLOUD_PROJECT || 'gen-lang-client-0375164944';
+const LOCATION = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
+const ENABLE_CREDENTIAL_DEBUG = process.env.ENABLE_DEBUG_CREDENTIALS === 'true';
+
 // Initialize Vertex AI with Application Default Credentials
 const vertexAI = new VertexAI({
-  project: 'gen-lang-client-0375164944',
-  location: 'us-central1'
+  project: PROJECT_ID,
+  location: LOCATION
 });
 
 const model = vertexAI.getGenerativeModel({
@@ -29,6 +34,52 @@ const model = vertexAI.getGenerativeModel({
 });
 
 console.log('✅ Vertex AI initialized successfully');
+
+const auth = new GoogleAuth({
+  scopes: ['https://www.googleapis.com/auth/cloud-platform']
+});
+
+async function fetchCredentialDetails() {
+  try {
+    const client = await auth.getClient();
+    const [resolvedProjectId, accessToken] = await Promise.all([
+      auth.getProjectId().catch(() => null),
+      client.getAccessToken().catch(() => null)
+    ]);
+
+    const tokenValue = typeof accessToken === 'string' ? accessToken : accessToken?.token;
+    const tokenExpiry = accessToken && typeof accessToken === 'object' ? accessToken.expiry_date ?? null : null;
+
+    return {
+      projectId: resolvedProjectId,
+      credentialType: client.constructor?.name ?? 'UnknownCredential',
+      clientEmail: client.email ?? client.subject ?? null,
+      tokenAvailable: Boolean(tokenValue),
+      tokenLength: tokenValue?.length ?? 0,
+      tokenExpiry
+    };
+  } catch (error) {
+    return {
+      error: error.message
+    };
+  }
+}
+
+(async () => {
+  const details = await fetchCredentialDetails();
+  if (details.error) {
+    console.error('⚠️  Unable to load ADC details:', details.error);
+  } else {
+    console.log('🔐 ADC project ID:', details.projectId ?? '(unknown)');
+    console.log('🔐 Credential type:', details.credentialType);
+    console.log('🔐 Client email:', details.clientEmail ?? '(not provided)');
+    console.log('🔐 Access token available:', details.tokenAvailable);
+    console.log('🔐 Access token length:', details.tokenLength);
+    if (details.tokenExpiry) {
+      console.log('🔐 Access token expiry (ms since epoch):', details.tokenExpiry);
+    }
+  }
+})();
 
 /**
  * Convert OpenAI message format to Google GenAI format
@@ -193,11 +244,12 @@ app.post('/api/completion', async (req, res) => {
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   console.log('🏥 Health check requested');
-  res.json({ 
-    status: 'OK', 
+  res.json({
+    status: 'OK',
     service: 'GPTeach Backend',
     timestamp: new Date().toISOString(),
-    project: 'cloud-run-455609',
+    project: PROJECT_ID,
+    location: LOCATION,
     model: 'gemini-1.5-flash'
   });
 });
@@ -235,6 +287,33 @@ app.get('/api/test', async (req, res) => {
   }
 });
 
+if (ENABLE_CREDENTIAL_DEBUG) {
+  console.log('🛡️  Credential debug route enabled via ENABLE_DEBUG_CREDENTIALS=true');
+
+  app.get('/api/debug/credentials', async (req, res) => {
+    const details = await fetchCredentialDetails();
+    if (details.error) {
+      console.error('❌ Credential debug error:', details.error);
+      return res.status(500).json({
+        success: false,
+        error: details.error
+      });
+    }
+
+    res.json({
+      success: true,
+      projectId: details.projectId,
+      credentialType: details.credentialType,
+      clientEmail: details.clientEmail,
+      tokenAvailable: details.tokenAvailable,
+      tokenLength: details.tokenLength,
+      tokenExpiry: details.tokenExpiry
+    });
+  });
+} else {
+  console.log('🛡️  Credential debug route disabled (set ENABLE_DEBUG_CREDENTIALS=true to enable)');
+}
+
 // Error handling middleware
 app.use((error, req, res, next) => {
   console.error('🚨 Unhandled error:', error);
@@ -258,13 +337,16 @@ app.use((req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 GPTeach backend running on http://localhost:${PORT}`);
   console.log('🔐 Using Application Default Credentials from gcloud');
-  console.log('🎯 Project: cloud-run-455609');
-  console.log('🌍 Location: us-central1');
+  console.log('🎯 Project:', PROJECT_ID);
+  console.log('🌍 Location:', LOCATION);
   console.log('🤖 Model: gemini-1.5-flash');
   console.log('');
   console.log('Available endpoints:');
   console.log('  GET  /api/health - Health check');
   console.log('  GET  /api/test   - Test AI connection');
+  if (ENABLE_CREDENTIAL_DEBUG) {
+    console.log('  GET  /api/debug/credentials - Inspect ADC identity');
+  }
   console.log('  POST /api/generate - Chat completions');
   console.log('  POST /api/completion - Text completions');
 });
