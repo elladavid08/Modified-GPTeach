@@ -21,6 +21,7 @@ console.log('🔧 Initializing Vertex AI with Application Default Credentials...
 
 const PROJECT_ID = process.env.GOOGLE_CLOUD_PROJECT || 'gen-lang-client-0375164944';
 const LOCATION = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
+const ENABLE_CREDENTIAL_DEBUG = process.env.ENABLE_DEBUG_CREDENTIALS === 'true';
 
 // Initialize Vertex AI with Application Default Credentials
 const vertexAI = new VertexAI({
@@ -286,26 +287,32 @@ app.get('/api/test', async (req, res) => {
   }
 });
 
-app.get('/api/debug/credentials', async (req, res) => {
-  const details = await fetchCredentialDetails();
-  if (details.error) {
-    console.error('❌ Credential debug error:', details.error);
-    return res.status(500).json({
-      success: false,
-      error: details.error
-    });
-  }
+if (ENABLE_CREDENTIAL_DEBUG) {
+  console.log('🛡️  Credential debug route enabled via ENABLE_DEBUG_CREDENTIALS=true');
 
-  res.json({
-    success: true,
-    projectId: details.projectId,
-    credentialType: details.credentialType,
-    clientEmail: details.clientEmail,
-    tokenAvailable: details.tokenAvailable,
-    tokenLength: details.tokenLength,
-    tokenExpiry: details.tokenExpiry
+  app.get('/api/debug/credentials', async (req, res) => {
+    const details = await fetchCredentialDetails();
+    if (details.error) {
+      console.error('❌ Credential debug error:', details.error);
+      return res.status(500).json({
+        success: false,
+        error: details.error
+      });
+    }
+
+    res.json({
+      success: true,
+      projectId: details.projectId,
+      credentialType: details.credentialType,
+      clientEmail: details.clientEmail,
+      tokenAvailable: details.tokenAvailable,
+      tokenLength: details.tokenLength,
+      tokenExpiry: details.tokenExpiry
+    });
   });
-});
+} else {
+  console.log('🛡️  Credential debug route disabled (set ENABLE_DEBUG_CREDENTIALS=true to enable)');
+}
 
 // Error handling middleware
 app.use((error, req, res, next) => {
@@ -337,7 +344,9 @@ app.listen(PORT, () => {
   console.log('Available endpoints:');
   console.log('  GET  /api/health - Health check');
   console.log('  GET  /api/test   - Test AI connection');
-  console.log('  GET  /api/debug/credentials - Inspect ADC identity');
+  if (ENABLE_CREDENTIAL_DEBUG) {
+    console.log('  GET  /api/debug/credentials - Inspect ADC identity');
+  }
   console.log('  POST /api/generate - Chat completions');
   console.log('  POST /api/completion - Text completions');
 });
