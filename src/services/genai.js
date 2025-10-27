@@ -1,0 +1,183 @@
+// Backend API base URL
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
+
+console.log('🔗 GenAI service initialized with backend URL:', API_BASE_URL);
+
+/**
+ * Generate content using backend with Google's Vertex AI
+ * @param {Array} messages - OpenAI format messages
+ * @param {Object} options - Additional options like stop sequences
+ * @returns {Promise<string>} - Generated text response
+ */
+export async function generateWithGenAI(messages, options = {}) {
+  try {
+    console.log('🚀 Calling backend API for chat completion...');
+    console.log('📝 Messages count:', messages.length);
+    console.log('📝 Options:', options);
+    
+    const response = await fetch(`${API_BASE_URL}/api/generate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messages,
+        options
+      })
+    });
+
+    console.log('📥 Backend response status:', response.status);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+      console.error('❌ Backend error:', errorData);
+      throw new Error(`Backend error (${response.status}): ${errorData.error || 'Unknown error'}`);
+    }
+
+    const result = await response.json();
+    console.log('📦 Backend response received:', result);
+    
+    if (result.success) {
+      console.log('✅ Backend response successful, text length:', result.text.length);
+      console.log('✅ Response preview:', result.text.substring(0, 200) + '...');
+      return result.text;
+    } else {
+      console.error('❌ Backend returned error:', result.error);
+      throw new Error(result.error || 'Backend returned unsuccessful response');
+    }
+  } catch (error) {
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      console.error('❌ Network error - is the backend running on', API_BASE_URL + '?');
+      console.error('❌ Make sure to start the backend server with: cd server && npm start');
+      throw new Error('Backend server not available. Please start the backend server.');
+    }
+    
+    console.error('❌ Error calling backend API:', error);
+    throw error;
+  }
+}
+
+/**
+ * Generate completion using backend (GPT-3 style)
+ * @param {string} prompt - The prompt string
+ * @param {Object} options - Additional options
+ * @returns {Promise<string>} - Generated text response  
+ */
+export async function generateWithGenAICompletion(prompt, options = {}) {
+  try {
+    console.log('🚀 Calling backend API for completion...');
+    console.log('📝 Prompt length:', prompt.length);
+    console.log('📝 Options:', options);
+    
+    const response = await fetch(`${API_BASE_URL}/api/completion`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        prompt,
+        options
+      })
+    });
+
+    console.log('📥 Backend completion response status:', response.status);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+      console.error('❌ Backend completion error:', errorData);
+      throw new Error(`Backend error (${response.status}): ${errorData.error || 'Unknown error'}`);
+    }
+
+    const result = await response.json();
+    console.log('📦 Backend completion response received:', result);
+    
+    if (result.success) {
+      console.log('✅ Backend completion successful, text length:', result.text.length);
+      console.log('✅ Completion response preview:', result.text.substring(0, 200) + '...');
+      return result.text;
+    } else {
+      console.error('❌ Backend returned completion error:', result.error);
+      throw new Error(result.error || 'Backend returned unsuccessful response');
+    }
+  } catch (error) {
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      console.error('❌ Network error - is the backend running on', API_BASE_URL + '?');
+      console.error('❌ Make sure to start the backend server with: cd server && npm start');
+      throw new Error('Backend server not available. Please start the backend server.');
+    }
+    
+    console.error('❌ Error calling backend completion API:', error);
+    throw error;
+  }
+}
+
+/**
+ * Test the backend connection
+ * @returns {Promise<boolean>} - True if backend is available
+ */
+export async function testBackendConnection() {
+  try {
+    console.log('🧪 Testing backend connection...');
+    
+    const response = await fetch(`${API_BASE_URL}/api/health`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      console.log('✅ Backend health check passed:', result);
+      return true;
+    } else {
+      console.error('❌ Backend health check failed:', response.status);
+      return false;
+    }
+  } catch (error) {
+    console.error('❌ Backend connection test failed:', error);
+    return false;
+  }
+}
+
+/**
+ * Run a simple test to verify the AI is working
+ * @returns {Promise<string>} - Test response
+ */
+export async function testAI() {
+  try {
+    console.log('🧪 Testing AI functionality...');
+    
+    const response = await fetch(`${API_BASE_URL}/api/test`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      console.log('✅ AI test passed:', result);
+      return result.test_response;
+    } else {
+      const errorData = await response.json();
+      console.error('❌ AI test failed:', errorData);
+      throw new Error(errorData.error);
+    }
+  } catch (error) {
+    console.error('❌ AI test error:', error);
+    throw error;
+  }
+}
+
+// Log initialization
+console.log('🎯 GenAI service loaded');
+console.log('🔗 Backend API URL:', API_BASE_URL);
+console.log('');
+console.log('Available functions:');
+console.log('  - generateWithGenAI(messages, options)');
+console.log('  - generateWithGenAICompletion(prompt, options)');
+console.log('  - testBackendConnection()');
+console.log('  - testAI()');
+
+
