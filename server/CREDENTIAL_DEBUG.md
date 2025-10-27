@@ -6,18 +6,24 @@ The backend can optionally expose a `/api/debug/credentials` endpoint so you can
 
 ```bash
 # macOS / Linux
+cd server
+npm install  # Run once to install server dependencies
 export ENABLE_DEBUG_CREDENTIALS=true
 npm start
 ```
 
 ```powershell
 # Windows PowerShell
+Set-Location C:\projects\GPTeach\server
+npm install  # Run once to install server dependencies
 $env:ENABLE_DEBUG_CREDENTIALS = "true"
 npm start
 ```
 
 ```cmd
 REM Windows Command Prompt
+cd C:\projects\GPTeach\server
+npm install  REM Run once to install server dependencies
 set ENABLE_DEBUG_CREDENTIALS=true
 npm start
 ```
@@ -28,4 +34,9 @@ With the flag enabled you can fetch the credential details:
 curl http://localhost:3001/api/debug/credentials
 ```
 
-Remember to unset the variable (or restart the server without it) once you are done inspecting credentials so the route is no longer available.
+When you are finished, stop the server and start it again **without** setting
+`ENABLE_DEBUG_CREDENTIALS` so the diagnostic route is no longer exposed. If you
+prefer to keep a dedicated terminal for the debug session, open a second
+PowerShell or Command Prompt window, run the same `Set-Location` command to
+enter `C:\projects\GPTeach\server`, and execute the `curl` command there.
+
