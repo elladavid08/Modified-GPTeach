@@ -19,7 +19,7 @@ app.use(express.json());
 
 console.log('🔧 Initializing Vertex AI with Application Default Credentials...');
 
-const PROJECT_ID = process.env.GOOGLE_CLOUD_PROJECT || 'gen-lang-client-0375164944';
+const PROJECT_ID = process.env.GOOGLE_CLOUD_PROJECT || 'cloud-run-455609';
 const LOCATION = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
 const ENABLE_CREDENTIAL_DEBUG = process.env.ENABLE_DEBUG_CREDENTIALS === 'true';
 
@@ -30,7 +30,7 @@ const vertexAI = new VertexAI({
 });
 
 const model = vertexAI.getGenerativeModel({
-  model: 'gemini-1.5-flash'
+  model: 'gemini-2.5-flash-lite'
 });
 
 console.log('✅ Vertex AI initialized successfully');
@@ -159,18 +159,43 @@ app.post('/api/generate', async (req, res) => {
       generationConfig
     });
 
-    const responseText = result.response.text();
+    console.log('📦 Raw result structure:', JSON.stringify(result, null, 2));
+
+    // Check if response exists
+    if (!result || !result.response) {
+      throw new Error('No response received from Vertex AI');
+    }
+
+    // Check if candidates exist
+    if (!result.response.candidates || result.response.candidates.length === 0) {
+      console.error('❌ No candidates in response. Full response:', JSON.stringify(result.response, null, 2));
+      throw new Error('No candidates in response. The model may have blocked the content or encountered an error.');
+    }
+
+    // Extract text from response following the structure: result.response.candidates[0].content.parts[0].text
+    const candidate = result.response.candidates[0];
+    
+    if (!candidate.content || !candidate.content.parts || candidate.content.parts.length === 0) {
+      console.error('❌ Invalid candidate structure:', JSON.stringify(candidate, null, 2));
+      throw new Error('Invalid response structure from model');
+    }
+
+    const responseText = candidate.content.parts[0].text;
     console.log('✅ Response received, length:', responseText.length);
     console.log('✅ Response preview:', responseText.substring(0, 200) + '...');
     
-    res.json({ 
+    const responsePayload = { 
       success: true,
       text: responseText
-    });
+    };
+    console.log('📤 Sending response to frontend...');
+    res.json(responsePayload);
+    console.log('✅ Response sent successfully');
   } catch (error) {
     console.error('❌ Error in chat completion:', error);
     console.error('❌ Error name:', error.name);
     console.error('❌ Error message:', error.message);
+    console.error('❌ Full error stack:', error.stack);
     
     res.status(500).json({ 
       success: false,
@@ -220,7 +245,14 @@ app.post('/api/completion', async (req, res) => {
       generationConfig
     });
 
-    const responseText = result.response.text();
+    // Check if response and candidates exist
+    if (!result || !result.response || !result.response.candidates || result.response.candidates.length === 0) {
+      console.error('❌ Invalid completion response:', JSON.stringify(result, null, 2));
+      throw new Error('No valid response from model');
+    }
+
+    // Extract text from response following the structure: result.response.candidates[0].content.parts[0].text
+    const responseText = result.response.candidates[0].content.parts[0].text;
     console.log('✅ Completion response received, length:', responseText.length);
     console.log('✅ Completion response preview:', responseText.substring(0, 200) + '...');
     
@@ -250,7 +282,7 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     project: PROJECT_ID,
     location: LOCATION,
-    model: 'gemini-1.5-flash'
+    model: 'gemini-2.5-flash-lite'
   });
 });
 
@@ -270,7 +302,14 @@ app.get('/api/test', async (req, res) => {
       }
     });
 
-    const responseText = result.response.text();
+    // Check if response and candidates exist
+    if (!result || !result.response || !result.response.candidates || result.response.candidates.length === 0) {
+      console.error('❌ Invalid test response:', JSON.stringify(result, null, 2));
+      throw new Error('No valid response from model in test endpoint');
+    }
+
+    // Extract text from response following the structure: result.response.candidates[0].content.parts[0].text
+    const responseText = result.response.candidates[0].content.parts[0].text;
     console.log('✅ Test response:', responseText);
     
     res.json({ 
@@ -339,7 +378,7 @@ app.listen(PORT, () => {
   console.log('🔐 Using Application Default Credentials from gcloud');
   console.log('🎯 Project:', PROJECT_ID);
   console.log('🌍 Location:', LOCATION);
-  console.log('🤖 Model: gemini-1.5-flash');
+  console.log('🤖 Model: gemini-2.5-flash-lite');
   console.log('');
   console.log('Available endpoints:');
   console.log('  GET  /api/health - Health check');
