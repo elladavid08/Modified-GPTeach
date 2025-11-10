@@ -16,8 +16,8 @@ export const ContextView = ({ scenario, children }) => {
 				<div>
 					<h2>Session Description</h2>
 					<p>
-						You're a TA for an introductory computer science course at Stanford.
-						You're hosting online office hours.
+						You're a tutor for middle-school students learning geometry.
+						You're hosting online tutoring sessions.
 					</p>
 
 					<div

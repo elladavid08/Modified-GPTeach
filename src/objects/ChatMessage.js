@@ -1,6 +1,6 @@
 export default class ChatMessage {
 	constructor(agent, text, role) {
-		// Student name or TA
+		// Student name or Tutor
 		this.agent = agent;
 		this.name = agent;
 		// Required by GPT 3.5 and 4

@@ -11,7 +11,7 @@ export const InputField = ({ disabled, onSend, undoMessage, onKeystroke }) => {
 
 	const inputRef = useRef(null);
 
-	// submit TA message
+	// submit tutor message
 	const handleSubmit = (event) => {
 		event.preventDefault();
 		onSend(new ChatMessage(GPTeachData.TAname, myMsg, "user"));

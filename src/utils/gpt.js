@@ -56,7 +56,7 @@ async function callGPT3(history, students, scenario, addendum, onResponse) {
 				temperature: 0.7,
 				max_tokens: 256,
 				top_p: 1,
-				stop: ["TA: "],
+				stop: ["Tutor: "],
 			});
 			
 			if (response) {
@@ -81,7 +81,7 @@ async function callGPT3(history, students, scenario, addendum, onResponse) {
 				frequency_penalty: 0,
 				presence_penalty: 0,
 				// TODO: use the user-specified name ?
-				stop: ["TA: "],
+				stop: ["Tutor: "],
 			})
 			.then((response) => {
 				if (response.data.choices[0].text) {
@@ -133,7 +133,7 @@ async function callNewGPT(
 	try {
 		if (Constants.PROVIDER === "google") {
 			// Use Google's Vertex AI GenAI
-			const msg = await generateWithGenAI(myPrompt, { stop: ["TA:"] });
+			const msg = await generateWithGenAI(myPrompt, { stop: ["Tutor:"] });
 			
 			if (!Constants.IS_PRODUCTION) {
 				console.log(`GenAI Response: \n${msg}`);
@@ -160,7 +160,7 @@ async function callNewGPT(
 				});
 			}
 
-			// Parse out any code
+			// Parse out any code (NOTE: Editor functionality currently disabled - AI not instructed to use this)
 			if (msg.includes("<CODE_EDITOR>")) {
 				const {messages, codePieces} = parseCodeVersion(msg, students);
 				const msgCount = messages ? messages.length : 0;
@@ -179,7 +179,7 @@ async function callNewGPT(
 				.createChatCompletion({
 					model: model,
 					messages: myPrompt,
-					stop: ["TA:"],
+					stop: ["Tutor:"],
 				})
 				.then((response) => {
 					const msg = response.data.choices[0].message.content;
@@ -187,7 +187,7 @@ async function callNewGPT(
 						console.log(`GPT Response: \n${msg}`);
 					}
 
-					// Parse out any code
+					// Parse out any code (NOTE: Editor functionality currently disabled - AI not instructed to use this)
 					if (msg.includes("<CODE_EDITOR>")) {
 						const {messages, codePieces} = parseCodeVersion(msg, students);
 						onResponse(messages, codePieces);
@@ -282,41 +282,58 @@ function convertResponseToMessages(gptResponse, fromCode, students) {
 
 /** Turn the information into a paragraph */
 function makeProsePrompt(students, scenario, addendum) {
-	let retStr = Constants.GPT_SET_SCENE;
-
-	retStr += scenario["text"] + "\n";
+	let retStr = "";
+	
+	// START WITH FORMATTING REQUIREMENTS - MOST CRITICAL
+	const studentNames = students.map(s => s.name).join(" and ");
+	retStr += `\n\n========================================`;
+	retStr += `\n🚨 MANDATORY XML TAG FORMAT - NO EXCEPTIONS 🚨`;
+	retStr += `\n========================================`;
+	retStr += `\nThe students in this conversation are: ${studentNames}.`;
+	retStr += `\nYou MUST wrap EVERY student response in XML tags.`;
+	retStr += `\nFORMAT REQUIREMENTS (YOU WILL BE PENALIZED FOR VIOLATIONS):`;
+	retStr += `\n1. BOTH ${studentNames} MUST respond in EVERY turn`;
+	retStr += `\n2. Each student MUST have their OWN separate XML tag`;
+	retStr += `\n3. NEVER write text without XML tags`;
+	retStr += `\n4. NEVER combine students under one tag`;
+	retStr += `\n5. Use exact names: <${students[0].name}>text</${students[0].name}> and <${students[1].name}>text</${students[1].name}>`;
+	
+	// Provide clear examples
+	if (students.length > 1) {
+		retStr += `\n\n✅ CORRECT format (YOU MUST USE THIS):`;
+		retStr += `\n<${students[0].name}>I think the answer is 28 because we double both dimensions.</${students[0].name}>`;
+		retStr += `\n<${students[1].name}>Yes, that makes sense! The perimeter doubled too.</${students[1].name}>`;
+		retStr += `\n\n❌ WRONG format (NEVER DO THIS):`;
+		retStr += `\nOkay, so if we double both... The new perimeter is 28...`;
+		retStr += `\n(This is missing XML tags - ALWAYS USE TAGS!)`;
+		retStr += `\n\n========================================\n\n`;
+	}
+	
+	// Now add the scene setting
+	retStr += Constants.GPT_SET_SCENE;
+	retStr += "\n\n" + scenario["text"] + "\n";
 
 	// Students is an array of student objects, each with a 'name' property
 	students.forEach((student) => {
 		retStr += "\n" + student.description;
 	});
 
-	// Add explicit instruction about which student names to use in tags
-	const studentNames = students.map(s => s.name).join(" and ");
-	retStr += `\n\nThe students in this conversation are: ${studentNames}.`;
-	retStr += `\nIMPORTANT: Both students typically participate in each response. If the TA addresses a specific student by name, that student should respond first, but the other student may also chime in.`;
-	retStr += `\nFormat: Each student speaks separately using their own name tags.`;
-	
-	// Provide simple examples with actual student names
-	if (students.length > 1) {
-		retStr += `\n\nExample response format:`;
-		retStr += `\n<${students[0].name}> ${students[0].name}'s response here </${students[0].name}>`;
-		retStr += `\n<${students[1].name}> ${students[1].name}'s response here </${students[1].name}>`;
-	}
-
 	retStr +=
-		"\n\n" + Constants.GPT_RESPONSE_INSTRUCTIONS + "\n" + addendum + "\n\n";
+		"\n\n" + Constants.GPT_RESPONSE_INSTRUCTIONS + "\n" + addendum;
+	
+	// END WITH FORMATTING REMINDER
+	retStr += `\n\n🚨 REMINDER: You MUST use <${students[0].name}>text</${students[0].name}> and <${students[1].name}>text</${students[1].name}> tags in EVERY response! 🚨\n\n`;
 
 	return retStr;
 }
 
 /** Create the HTML-esque tags that recap the conversation for GPT 3 */
 function makeHTMLTags(students) {
-	let retStr = `<span context="intro-cs-class-python"`;
+	let retStr = `<span context="middle-school-geometry"`;
 
 	// Students is an array of student objects
 	students.forEach((student) => {
-		retStr += ` action="${student.name}-goes-to-office-hours"`;
+		retStr += ` action="${student.name}-goes-to-tutoring-session"`;
 	});
 
 	students.forEach((student) => {
@@ -330,7 +347,9 @@ function makeHTMLTags(students) {
 	return retStr + ">";
 }
 
-/** Separate code and chat */
+/** Separate code and chat 
+ * NOTE: Editor functionality currently disabled - AI not instructed to use CODE_EDITOR tags
+ */
 function parseCodeVersion(gptResponse, students) {
 	// See https://regex101.com/r/YYx6pP/4
 	console.log("🔧 parseCodeVersion called");

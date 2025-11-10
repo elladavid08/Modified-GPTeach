@@ -20,7 +20,7 @@ export const ChatWithCode = () => {
 	const students = GPTeachData.students.slice(0, Constants.NUM_STUDENTS);
 	const scenario = shuffleArray(GPTeachData.scenarios)[0];
 
-	/** Add the TA's message and wait for a response */
+	/** Add the tutor's message and wait for a response */
 	function addWrittenResponse(TAmessage) {
 		history.addMessage(TAmessage);
 		setIsQuerying(true);
@@ -34,7 +34,9 @@ export const ChatWithCode = () => {
 				history,
 				students,
 				scenario,
-				Constants.GPT_CODE_ADDENDUM + "\nStudent code goes here, wrapped in <CODE_EDITOR> </CODE_EDITOR>: \n" + codeHistory,
+				// COMMENTED OUT: Editor/whiteboard functionality not yet enabled
+				// Constants.GPT_CODE_ADDENDUM + "\nStudent code goes here, wrapped in <CODE_EDITOR> </CODE_EDITOR>: \n" + codeHistory,
+				"",  // Empty addendum - no editor instructions for now
 				(gptMessages, codePieces) => {
 					// Add the messages from GPT
 					if (codePieces) {
@@ -89,7 +91,7 @@ export const ChatWithCode = () => {
 					<span role="img" aria-label="chat bubble">
 						💬
 					</span>{" "}
-					Online Office Hours
+					Online Tutoring Session
 				</h1>
 
 				<h2

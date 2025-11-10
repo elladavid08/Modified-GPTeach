@@ -31,7 +31,7 @@ export const StudyScenario = () => {
 		setStudents(getStudents);
 	}, [scenarioNum]);
 
-	/** Add the TA's message and wait for a response */
+	/** Add the tutor's message and wait for a response */
 	function addWrittenResponse(TAmessage) {
 		history.addMessage(TAmessage);
 		setIsQuerying(true);
@@ -84,7 +84,7 @@ export const StudyScenario = () => {
 		return progressDots;
 	}
 
-	/** Get students based on the scenario number and the TA's name */
+	/** Get students based on the scenario number and the tutor's name */
 	function getStudents() {
 		let students = [];
 		let i = (scenarioNum - 1) * Constants.NUM_STUDENTS;
@@ -92,7 +92,7 @@ export const StudyScenario = () => {
 		while (students.length !== Constants.NUM_STUDENTS) {
 			let student = GPTeachData.students[i];
 			let shouldAddStudent = true;
-			// Check student doesn't have the same name as the TA
+			// Check student doesn't have the same name as the tutor
 			if (student.name === GPTeachData.TAname) {
 				shouldAddStudent = false;
 			}
@@ -177,7 +177,7 @@ export const StudyScenario = () => {
 					<span role="img" aria-label="chat bubble">
 						💬
 					</span>{" "}
-					Online Office Hours
+					Online Tutoring Session
 				</h1>
 
 				<h2

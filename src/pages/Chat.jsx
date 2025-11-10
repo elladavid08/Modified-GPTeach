@@ -17,7 +17,7 @@ export const Chat = () => {
 	const scenario = shuffleArray(GPTeachData.scenarios)[0];
 	//const addendum = "";
 
-	/** Add the TA's message and wait for a response */
+	/** Add the tutor's message and wait for a response */
 	function addUserResponse(TAmessage) {
 		history.addMessage(TAmessage);
 		setIsQuerying(true);
@@ -73,7 +73,7 @@ export const Chat = () => {
 					<span role="img" aria-label="chat bubble">
 						💬
 					</span>{" "}
-					Online Office Hours
+					Online Tutoring Session
 				</h1>
 
 				<h2
