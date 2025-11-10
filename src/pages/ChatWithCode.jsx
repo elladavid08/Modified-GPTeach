@@ -70,10 +70,11 @@ export const ChatWithCode = () => {
 				</Link>
 			</ContextView>
 
-			<div className="codeEditorWrapper col-4">
-				<h2>Editor</h2>
-				<ChatCode content={editorContent} update={setEditorContent} />
-			</div>
+		<div className="codeEditorWrapper col-4">
+			<h2>Geometry Reference</h2>
+			{/* TODO: This will be replaced with GeoGebra or interactive board later */}
+			<ChatCode content={editorContent} update={setEditorContent} />
+		</div>
 
 			<div
 				className="d-flex flex-column chatConvoWrapper col-4"
