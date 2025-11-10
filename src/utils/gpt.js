@@ -139,26 +139,25 @@ async function callNewGPT(
 				console.log(`GenAI Response: \n${msg}`);
 			}
 
-			// Log the full raw response for debugging
-			console.log("📝 Raw AI Response:");
-			console.log(msg);
-			console.log("📝 End of raw response");
-			
-			// Check if AI used generic "student" tag instead of actual names
-			if (msg.match(/<student>/i)) {
-				console.warn("⚠️ AI used generic '<student>' tag instead of actual student names!");
-			}
-			
-			// Count how many student message tags are in the response
-			const studentTags = msg.match(/<[^>]+>.*?<\/[^>]+>/gs);
-			console.log(`🏷️ Found ${studentTags ? studentTags.length : 0} message tag(s) in raw response`);
-			if (studentTags) {
-				studentTags.forEach((tag, idx) => {
-					const tagMatch = tag.match(/<([^>]+)>/);
-					const tagName = tagMatch ? tagMatch[1] : 'unknown';
-					console.log(`  Tag ${idx + 1}: <${tagName}>`);
+		// Log the full raw response for debugging
+		console.log("📝 Raw AI Response (JSON):");
+		console.log(msg);
+		console.log("📝 End of raw response");
+		
+		// Validate JSON structure
+		try {
+			const jsonCheck = JSON.parse(msg);
+			if (jsonCheck.responses && Array.isArray(jsonCheck.responses)) {
+				console.log(`✅ Valid JSON with ${jsonCheck.responses.length} response(s)`);
+				jsonCheck.responses.forEach((resp, idx) => {
+					console.log(`  Response ${idx + 1}: ${resp.student}`);
 				});
+			} else {
+				console.warn("⚠️ JSON is valid but missing 'responses' array!");
 			}
+		} catch (e) {
+			console.error("⚠️ Response is not valid JSON:", e.message);
+		}
 
 			// Parse out any code (NOTE: Editor functionality currently disabled - AI not instructed to use this)
 			if (msg.includes("<CODE_EDITOR>")) {
@@ -205,11 +204,11 @@ async function callNewGPT(
 
 //* ########################### Helper Functions ########################## */
 
-/** Convert GPT's prose to Message object(s) */
+/** Convert GPT's JSON response to Message object(s) */
 function convertResponseToMessages(gptResponse, fromCode, students) {
 	let newMessages = [];
 
-	console.log("📥 convertResponseToMessages called");
+	console.log("📥 convertResponseToMessages called (JSON mode)");
 	console.log("  gptResponse:", gptResponse ? `${gptResponse.length} chars` : "null/undefined");
 	console.log("  fromCode:", fromCode);
 	console.log("  students:", students ? students.length : "null/undefined");
@@ -226,58 +225,42 @@ function convertResponseToMessages(gptResponse, fromCode, students) {
 		return [];  // Return empty array instead of null to avoid issues
 	}
 
-	// Regex using colons and EOM - allow spaces and other characters in tag names
-	const matches = Array.from(gptResponse.matchAll(/<([^>]+)>(.*?)<\/\1>/gms));
-	console.log(`📊 Found ${matches.length} tagged message(s) in response`);
-	
-	// ONLY split if there's exactly 1 message and it seems combined
-	// If there are 2+ messages, the AI already separated them correctly
-	const shouldConsiderSplitting = matches.length === 1 && students && students.length > 1;
-	
-	for (const message of matches) {
-		console.log(message)
-		let agent = toTitleCase(message[1]);
-		console.log("Agent:", agent)
-		let content = message[2].trim();
-		console.log("Content length:", content.length, "Preview:", content.substring(0, 100));
+	try {
+		// Parse JSON response
+		const jsonData = JSON.parse(gptResponse);
+		const responseCount = (jsonData.responses && jsonData.responses.length) || 0;
+		console.log(`📊 Parsed JSON with ${responseCount} responses`);
 		
-		// Only try to split if we have exactly 1 message tag AND it uses a generic tag
-		// (With improved prompts, we shouldn't need to split by length anymore)
-		if (shouldConsiderSplitting) {
-			const isGenericStudent = agent.toLowerCase() === "student" || agent.toLowerCase() === "student name";
-			
-			if (isGenericStudent) {
-				console.warn("⚠️ Detected generic 'student' tag - this should be rare now. Splitting as fallback.");
-				
-				// Split roughly in half between the two students as last resort
-				const sentences = content.split(/\.\s+/);
-				const midpoint = Math.floor(sentences.length / 2);
-				const firstHalf = sentences.slice(0, midpoint).join('. ') + (sentences[0] ? '.' : '');
-				const secondHalf = sentences.slice(midpoint).join('. ') + (sentences[midpoint] ? '.' : '');
-				
-				newMessages.push(new ChatMessage(students[0].name, firstHalf.trim(), "assistant"));
-				newMessages.push(new ChatMessage(students[1].name, secondHalf.trim(), "assistant"));
-				console.log(`✂️ Split generic tag message between ${students[0].name} and ${students[1].name}`);
-				continue; // Skip the normal push below since we already added both
-			}
+		if (!jsonData.responses || !Array.isArray(jsonData.responses)) {
+			throw new Error("Invalid JSON structure: missing 'responses' array");
 		}
 		
-		// Note that the timestamp of the message is creation time -- not when user sees the message
-		newMessages.push(new ChatMessage(agent, content, "assistant"));
-	}
-
-	// If no tagged messages were found, but we have text content, create a message from the first student
-	if (newMessages.length === 0 && gptResponse.trim().length > 0) {
-		console.log("⚠️ No tagged messages found, creating message from unwrapped text");
-		console.log("Unwrapped text length:", gptResponse.trim().length);
-		console.log("Unwrapped text preview:", gptResponse.trim().substring(0, 200));
+		// Create ChatMessage objects from each response
+		for (const response of jsonData.responses) {
+			if (!response.student || !response.message) {
+				console.warn("⚠️ Skipping invalid response entry:", response);
+				continue;
+			}
+			
+			const studentName = toTitleCase(response.student);
+			const message = response.message.trim();
+			
+			newMessages.push(new ChatMessage(studentName, message, "assistant"));
+			console.log(`✅ Added message from ${studentName}`);
+		}
+		
+		console.log(`📤 Returning ${newMessages.length} message(s) from convertResponseToMessages`);
+		return newMessages;
+		
+	} catch (error) {
+		console.error("❌ Error parsing JSON response:", error);
+		console.error("Raw response:", gptResponse);
+		
+		// Fallback: create error message
 		const studentName = students && students[0] ? students[0].name : 'Student';
-		console.log("Assigning to student:", studentName);
-		newMessages.push(new ChatMessage(studentName, gptResponse.trim(), "assistant"));
+		newMessages.push(new ChatMessage(studentName, "I'm having trouble understanding. Could you repeat that?", "assistant"));
+		return newMessages;
 	}
-
-	console.log(`📤 Returning ${newMessages.length} message(s) from convertResponseToMessages`);
-	return newMessages;
 }
 
 /** Turn the information into a paragraph */
@@ -287,25 +270,29 @@ function makeProsePrompt(students, scenario, addendum) {
 	// START WITH FORMATTING REQUIREMENTS - MOST CRITICAL
 	const studentNames = students.map(s => s.name).join(" and ");
 	retStr += `\n\n========================================`;
-	retStr += `\n🚨 MANDATORY XML TAG FORMAT - NO EXCEPTIONS 🚨`;
+	retStr += `\n🚨 MANDATORY JSON FORMAT - NO EXCEPTIONS 🚨`;
 	retStr += `\n========================================`;
 	retStr += `\nThe students in this conversation are: ${studentNames}.`;
-	retStr += `\nYou MUST wrap EVERY student response in XML tags.`;
+	retStr += `\nYou MUST respond with valid JSON in this exact format.`;
 	retStr += `\nFORMAT REQUIREMENTS (YOU WILL BE PENALIZED FOR VIOLATIONS):`;
 	retStr += `\n1. BOTH ${studentNames} MUST respond in EVERY turn`;
-	retStr += `\n2. Each student MUST have their OWN separate XML tag`;
-	retStr += `\n3. NEVER write text without XML tags`;
-	retStr += `\n4. NEVER combine students under one tag`;
-	retStr += `\n5. Use exact names: <${students[0].name}>text</${students[0].name}> and <${students[1].name}>text</${students[1].name}>`;
+	retStr += `\n2. Each student MUST have their OWN separate object in the responses array`;
+	retStr += `\n3. NEVER write text outside the JSON structure`;
+	retStr += `\n4. NEVER combine students under one response object`;
+	retStr += `\n5. Use exact student names as shown in the descriptions`;
 	
 	// Provide clear examples
 	if (students.length > 1) {
 		retStr += `\n\n✅ CORRECT format (YOU MUST USE THIS):`;
-		retStr += `\n<${students[0].name}>I think the answer is 28 because we double both dimensions.</${students[0].name}>`;
-		retStr += `\n<${students[1].name}>Yes, that makes sense! The perimeter doubled too.</${students[1].name}>`;
+		retStr += `\n{`;
+		retStr += `\n  "responses": [`;
+		retStr += `\n    {"student": "${students[0].name}", "message": "I think the answer is 28 because we double both dimensions."},`;
+		retStr += `\n    {"student": "${students[1].name}", "message": "Yes, that makes sense! The perimeter doubled too."}`;
+		retStr += `\n  ]`;
+		retStr += `\n}`;
 		retStr += `\n\n❌ WRONG format (NEVER DO THIS):`;
-		retStr += `\nOkay, so if we double both... The new perimeter is 28...`;
-		retStr += `\n(This is missing XML tags - ALWAYS USE TAGS!)`;
+		retStr += `\n"Okay, so if we double both... The new perimeter is 28..."`;
+		retStr += `\n(This is not JSON - ALWAYS USE THE JSON FORMAT ABOVE!)`;
 		retStr += `\n\n========================================\n\n`;
 	}
 	
@@ -322,7 +309,7 @@ function makeProsePrompt(students, scenario, addendum) {
 		"\n\n" + Constants.GPT_RESPONSE_INSTRUCTIONS + "\n" + addendum;
 	
 	// END WITH FORMATTING REMINDER
-	retStr += `\n\n🚨 REMINDER: You MUST use <${students[0].name}>text</${students[0].name}> and <${students[1].name}>text</${students[1].name}> tags in EVERY response! 🚨\n\n`;
+	retStr += `\n\n🚨 REMINDER: Respond ONLY with valid JSON matching this structure: {"responses": [{"student": "${students[0].name}", "message": "..."}, {"student": "${students[1].name}", "message": "..."}]} 🚨\n\n`;
 
 	return retStr;
 }

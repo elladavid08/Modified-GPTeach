@@ -145,6 +145,30 @@ app.post('/api/generate', async (req, res) => {
       maxOutputTokens: 512,
       temperature: 0.7,
       topP: 1,
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: "object",
+        properties: {
+          responses: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                student: {
+                  type: "string",
+                  description: "The exact name of the student speaking"
+                },
+                message: {
+                  type: "string",
+                  description: "The student's message"
+                }
+              },
+              required: ["student", "message"]
+            }
+          }
+        },
+        required: ["responses"]
+      }
     };
 
     if (options.stop && options.stop.length > 0) {
