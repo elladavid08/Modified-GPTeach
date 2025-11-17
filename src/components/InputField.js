@@ -65,21 +65,22 @@ export const InputField = ({ disabled, onSend, undoMessage, onKeystroke }) => {
 							width: "100%",
 						}}
 					>
-						<textarea
-							disabled={disabled}
-							value={myMsg}
-							style={{
-								flexGrow: "2",
-								resize: "none",
-								border: "none",
-								outline: "none",
-								height: textareaHeight,
-								marginBottom: "2px",
-							}}
-							onChange={handleKeypress}
-							autoFocus={true}
-							ref={inputRef}
-						/>
+					<textarea
+						disabled={disabled}
+						value={myMsg}
+						placeholder="הקלד הודעה..."
+						style={{
+							flexGrow: "2",
+							resize: "none",
+							border: "none",
+							outline: "none",
+							height: textareaHeight,
+							marginBottom: "2px",
+						}}
+						onChange={handleKeypress}
+						autoFocus={true}
+						ref={inputRef}
+					/>
 
 						<div className="d-flex justify-content-between align-items-flex-end">
 							{/* <button
@@ -94,16 +95,16 @@ export const InputField = ({ disabled, onSend, undoMessage, onKeystroke }) => {
 
 							<RecordingButton onTranscribe={setMyMsg} />
 
-							<button
-								title="Send"
-								className="btn btn-primary ml-auto"
-								disabled={disabled}
-								onClick={undoMessage}
-								type="submit"
-								value="Submit"
-							>
-								<FaPaperPlane />
-							</button>
+						<button
+							title="שלח"
+							className="btn btn-primary ml-auto"
+							disabled={disabled}
+							onClick={undoMessage}
+							type="submit"
+							value="Submit"
+						>
+							<FaPaperPlane />
+						</button>
 						</div>
 					</div>
 				</form>

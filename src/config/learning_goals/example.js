@@ -1,6 +1,6 @@
 const learningGoals = [
-	"Understand student misconceptions and hidden blockers",
-	"Create a safe, inclusive learning environment",
+	"להבין תפיסות מוטעות ומכשולים נסתרים של התלמידים",
+	"ליצור סביבת למידה בטוחה ומכילה",
 ];
 
 export default { learningGoals };

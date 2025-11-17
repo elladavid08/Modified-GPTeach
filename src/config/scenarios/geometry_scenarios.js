@@ -1,15 +1,15 @@
 const scenarios = [
 	{
-		text: "This week's lesson is about triangles: types of triangles, triangle properties, and the triangle inequality theorem.",
-		keywords: ["triangles", "equilateral", "isosceles", "scalene", "triangle inequality"],
+		text: "השיעור של השבוע הוא על משולשים: סוגי משולשים, תכונות משולשים, ומשפט אי-השוויון במשולש.",
+		keywords: ["משולשים", "שווה צלעות", "שווה שוקיים", "שונה צלעות", "אי-שוויון במשולש"],
 	},
 	{
-		text: "This week's lesson is about angles: complementary angles, supplementary angles, and vertical angles.",
-		keywords: ["angles", "complementary", "supplementary", "vertical angles"],
+		text: "השיעור של השבוע הוא על זוויות: זוויות משלימות, זוויות צמודות, וזוויות קדקוד.",
+		keywords: ["זוויות", "משלימות", "צמודות", "זוויות קדקוד"],
 	},
 	{
-		text: "This week's lesson is about area and perimeter: calculating area and perimeter of rectangles, squares, and triangles.",
-		keywords: ["area", "perimeter", "rectangles", "squares", "triangles", "formulas"],
+		text: "השיעור של השבוע הוא על שטח והיקף: חישוב שטח והיקף של מלבנים, ריבועים ומשולשים.",
+		keywords: ["שטח", "היקף", "מלבנים", "ריבועים", "משולשים", "נוסחאות"],
 	},
 ];
 

@@ -286,19 +286,20 @@ function makeProsePrompt(students, scenario, addendum) {
 		retStr += `\n\n✅ CORRECT format (YOU MUST USE THIS):`;
 		retStr += `\n{`;
 		retStr += `\n  "responses": [`;
-		retStr += `\n    {"student": "${students[0].name}", "message": "I think the answer is 28 because we double both dimensions."},`;
-		retStr += `\n    {"student": "${students[1].name}", "message": "Yes, that makes sense! The perimeter doubled too."}`;
+		retStr += `\n    {"student": "${students[0].name}", "message": "אני חושבת שהתשובה היא 28 כי אנחנו מכפילים את שני הממדים."},`;
+		retStr += `\n    {"student": "${students[1].name}", "message": "כן, זה הגיוני! ההיקף גם הוא הוכפל."}`;
 		retStr += `\n  ]`;
 		retStr += `\n}`;
 		retStr += `\n\n❌ WRONG format (NEVER DO THIS):`;
-		retStr += `\n"Okay, so if we double both... The new perimeter is 28..."`;
+		retStr += `\n"אוקיי, אז אם אנחנו מכפילים את שניהם... ההיקף החדש הוא 28..."`;
 		retStr += `\n(This is not JSON - ALWAYS USE THE JSON FORMAT ABOVE!)`;
 		retStr += `\n\n========================================\n\n`;
 	}
 	
 	// Now add the scene setting
 	retStr += Constants.GPT_SET_SCENE;
-	retStr += "\n\n" + scenario["text"] + "\n";
+	retStr += "\n\n📚 THIS WEEK'S LESSON TOPIC (MANDATORY - students must stay on this topic):\n";
+	retStr += scenario["text"] + "\n";
 
 	// Students is an array of student objects, each with a 'name' property
 	students.forEach((student) => {

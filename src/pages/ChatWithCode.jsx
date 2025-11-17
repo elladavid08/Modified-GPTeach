@@ -18,7 +18,8 @@ export const ChatWithCode = () => {
 	const [isQuerying, setIsQuerying] = useState(false);
 	const [editorContent, setEditorContent] = useState("");
 	const students = GPTeachData.students.slice(0, Constants.NUM_STUDENTS);
-	const scenario = shuffleArray(GPTeachData.scenarios)[0];
+	// Select scenario once at mount and keep it stable throughout the session
+	const [scenario] = useState(() => shuffleArray(GPTeachData.scenarios)[0]);
 
 	/** Add the tutor's message and wait for a response */
 	function addWrittenResponse(TAmessage) {
@@ -63,52 +64,52 @@ export const ChatWithCode = () => {
 	return (
 		<div className="d-flex flex-row row" id="everythingWrapper">
 			<ContextView scenario={scenario}>
-				<Link to={"#"}>
-					<button className="btn btn-outline-success" disabled={isQuerying}>
-						New Session
-					</button>
-				</Link>
+			<Link to={"#"}>
+				<button className="btn btn-outline-success" disabled={isQuerying}>
+					שיחה חדשה
+				</button>
+			</Link>
 			</ContextView>
 
 		<div className="codeEditorWrapper col-4">
-			<h2>Geometry Reference</h2>
+			<h2>עזר גאומטרי</h2>
 			{/* TODO: This will be replaced with GeoGebra or interactive board later */}
 			<ChatCode content={editorContent} update={setEditorContent} />
 		</div>
 
-			<div
-				className="d-flex flex-column chatConvoWrapper col-4"
+		<div
+			className="d-flex flex-column chatConvoWrapper col-4"
+			style={{
+				overflow: "auto",
+				flexGrow: 1,
+			}}
+		>
+			<h1
 				style={{
-					overflow: "auto",
-					flexGrow: 1,
+					paddingTop: "15px",
+					textAlign: "center",
 				}}
 			>
-				<h1
-					style={{
-						paddingTop: "15px",
-						textAlign: "center",
-					}}
-				>
-					<span role="img" aria-label="chat bubble">
-						💬
-					</span>{" "}
-					Online Tutoring Session
-				</h1>
+				<span role="img" aria-label="chat bubble">
+					💬
+				</span>{" "}
+				שיעור עזר מקוון
+			</h1>
 
-				<h2
-					style={{
-						textAlign: "center",
-						fontSize: "18px",
-						color: "grey",
-						fontStyle: "italic",
-						margin: "0px",
-						padding: "0px",
-					}}
-				>
-					<span style={{ fontWeight: "bold" }}>{Constants.NUM_STUDENTS}</span>{" "}
-					student(s) present:{" "}
-					{students.map((student) => student.name).join(", ")}
-				</h2>
+			<h2
+				style={{
+					textAlign: "center",
+					fontSize: "18px",
+					color: "grey",
+					fontStyle: "italic",
+					margin: "0px",
+					padding: "0px",
+				}}
+			>
+				<span style={{ fontWeight: "bold" }}>{Constants.NUM_STUDENTS}</span>{" "}
+				תלמידים נוכחים:{" "}
+				{students.map((student) => student.name).join(", ")}
+			</h2>
 
 				<Messages
 					isWaitingOnStudent={isQuerying}
