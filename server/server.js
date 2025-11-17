@@ -85,6 +85,7 @@ async function fetchCredentialDetails() {
  * Convert OpenAI message format to Google GenAI format
  * OpenAI: [{role: "system", content: "..."}, {role: "user", content: "..."}, {role: "assistant", content: "..."}]
  * Google: [{role: "user", parts: [{text: "..."}]}, {role: "model", parts: [{text: "..."}]}]
+ * Supports multimodal content (text + images)
  */
 function convertMessagesToGenAI(openAIMessages) {
   const contents = [];
@@ -97,13 +98,45 @@ function convertMessagesToGenAI(openAIMessages) {
       systemPrompt = message.content;
       console.log('🎯 System prompt captured:', systemPrompt.substring(0, 100) + '...');
     } else if (message.role === "user") {
-      const content = systemPrompt ? `${systemPrompt}\n\n${message.content}` : message.content;
-      contents.push({
-        role: "user",
-        parts: [{ text: content }]
-      });
-      systemPrompt = ""; // Clear system prompt after using it
-      console.log('👤 Added user message');
+      // Check if content is multimodal (array with text and image)
+      if (Array.isArray(message.content)) {
+        // Multimodal message with image
+        const parts = [];
+        
+        // Add system prompt to text if present
+        const textPart = message.content.find(part => part.text);
+        if (textPart) {
+          const textContent = systemPrompt ? `${systemPrompt}\n\n${textPart.text}` : textPart.text;
+          parts.push({ text: textContent });
+          systemPrompt = ""; // Clear system prompt after using it
+        }
+        
+        // Add image data
+        const imagePart = message.content.find(part => part.inline_data);
+        if (imagePart) {
+          parts.push({
+            inline_data: {
+              mime_type: imagePart.inline_data.mime_type,
+              data: imagePart.inline_data.data
+            }
+          });
+          console.log('🖼️ Added user message with image');
+        }
+        
+        contents.push({
+          role: "user",
+          parts: parts
+        });
+      } else {
+        // Text-only message
+        const content = systemPrompt ? `${systemPrompt}\n\n${message.content}` : message.content;
+        contents.push({
+          role: "user",
+          parts: [{ text: content }]
+        });
+        systemPrompt = ""; // Clear system prompt after using it
+        console.log('👤 Added user message');
+      }
     } else if (message.role === "assistant") {
       contents.push({
         role: "model", 

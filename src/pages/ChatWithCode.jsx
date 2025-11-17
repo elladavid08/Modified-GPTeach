@@ -1,29 +1,50 @@
-import React, { useState, useEffect, useContext } from "react";
+import React, { useState, useEffect, useContext, useRef } from "react";
 import { Link } from "react-router-dom";
 import { Constants } from "../config/constants";
 import callGPT from "../utils/gpt.js";
-import { ChatCode } from "../components/ChatCode";
+import { DrawingBoard } from "../components/DrawingBoard";
 import { Messages } from "../components/Messages";
 import { ContextView } from "../components/ContextView";
 import { HistoryContext } from "../objects/ChatHistory";
-import { CodeContext } from "../objects/CodeHistory";
 import { GPTeachContext } from "../objects/GPTeach";
 import { shuffleArray } from "../utils/primitiveManipulation";
 import "../style/ChatOnly.css";
 
 export const ChatWithCode = () => {
 	const history = useContext(HistoryContext);
-	const codeHistory = useContext(CodeContext);
 	const GPTeachData = useContext(GPTeachContext);
 	const [isQuerying, setIsQuerying] = useState(false);
-	const [editorContent, setEditorContent] = useState("");
 	const students = GPTeachData.students.slice(0, Constants.NUM_STUDENTS);
 	// Select scenario once at mount and keep it stable throughout the session
 	const [scenario] = useState(() => shuffleArray(GPTeachData.scenarios)[0]);
+	// Reference to DrawingBoard for capturing drawings
+	const drawingBoardRef = useRef(null);
 
 	/** Add the tutor's message and wait for a response */
-	function addWrittenResponse(TAmessage) {
-		history.addMessage(TAmessage);
+	async function addWrittenResponse(TAmessage) {
+		// Check if we should include a drawing
+		let messageWithImage = TAmessage;
+		
+		if (drawingBoardRef.current) {
+			const shouldInclude = drawingBoardRef.current.shouldInclude();
+			const hasDrawing = drawingBoardRef.current.hasDrawing();
+			
+			if (shouldInclude && hasDrawing) {
+				const imageBase64 = await drawingBoardRef.current.exportAsImage();
+				if (imageBase64) {
+					// Create new message with image
+					const ChatMessage = (await import("../objects/ChatMessage")).default;
+					messageWithImage = new ChatMessage(
+						TAmessage.agent,
+						TAmessage.text,
+						TAmessage.role,
+						imageBase64
+					);
+				}
+			}
+		}
+		
+		history.addMessage(messageWithImage);
 		setIsQuerying(true);
 	}
 
@@ -38,25 +59,21 @@ export const ChatWithCode = () => {
 				// COMMENTED OUT: Editor/whiteboard functionality not yet enabled
 				// Constants.GPT_CODE_ADDENDUM + "\nStudent code goes here, wrapped in <CODE_EDITOR> </CODE_EDITOR>: \n" + codeHistory,
 				"",  // Empty addendum - no editor instructions for now
-				(gptMessages, codePieces) => {
-					// Add the messages from GPT
-					if (codePieces) {
-						setEditorContent(codePieces.join("\n\n"));
-						setIsQuerying(false)
-						codeHistory.addCodes(codePieces)
-					}
-					if (gptMessages[0]) {
-						history
-							.addMessages(gptMessages, Constants.IS_PRODUCTION)
-							.then(() => {
-								setIsQuerying(false);
-							});
-					} else {
-						// Something has gone wrong!!!! (TODO: handle this)
-						setIsQuerying(false);
-						console.log("well shoot");
-					}
+			(gptMessages, codePieces) => {
+				// Add the messages from GPT
+				// Note: codePieces handling removed - using DrawingBoard now instead of code editor
+				if (gptMessages[0]) {
+					history
+						.addMessages(gptMessages, Constants.IS_PRODUCTION)
+						.then(() => {
+							setIsQuerying(false);
+						});
+				} else {
+					// Something has gone wrong!!!! (TODO: handle this)
+					setIsQuerying(false);
+					console.log("well shoot");
 				}
+			}
 			);
 		}
 	}, [isQuerying]);
@@ -72,9 +89,8 @@ export const ChatWithCode = () => {
 			</ContextView>
 
 		<div className="codeEditorWrapper col-4">
-			<h2>עזר גאומטרי</h2>
-			{/* TODO: This will be replaced with GeoGebra or interactive board later */}
-			<ChatCode content={editorContent} update={setEditorContent} />
+			<h2>לוח ציור</h2>
+			<DrawingBoard onDrawingCapture={drawingBoardRef} />
 		</div>
 
 		<div

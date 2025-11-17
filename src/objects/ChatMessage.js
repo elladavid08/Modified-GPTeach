@@ -1,5 +1,5 @@
 export default class ChatMessage {
-	constructor(agent, text, role) {
+	constructor(agent, text, role, image = null) {
 		// Student name or Tutor
 		this.agent = agent;
 		this.name = agent;
@@ -7,6 +7,8 @@ export default class ChatMessage {
 		this.role = role;
 		// Get rid of any newlines
 		this.text = text.replace(/[\n]/gm, "");
+		// Optional image (base64 PNG string)
+		this.image = image;
 		// Creation date
 		this.dateObject = new Date();
 		// Now, as epoch time (in ms)
@@ -18,6 +20,24 @@ export default class ChatMessage {
 	}
 
 	toGPTformat() {
+		// If there's an image, use multimodal content format for Gemini
+		if (this.image) {
+			return {
+				role: this.role,
+				content: [
+					{ text: this.text },
+					{ 
+						inline_data: { 
+							mime_type: "image/png", 
+							data: this.image 
+						} 
+					}
+				],
+				name: this.agent,
+			};
+		}
+		
+		// Text-only format (original behavior)
 		return {
 			role: this.role,
 			content: this.text,

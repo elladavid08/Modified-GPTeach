@@ -9,6 +9,7 @@ export const HistoryContext = createContext();
 export function HistoryProvider({ children }) {
 //	const GPTeachData = useContext(GPTeachContext);
 	const [messages, setMessages] = useState([]);
+	// eslint-disable-next-line no-unused-vars
 	const [scenarioNum, setScenarioNum] = useState(0);
 
 	let history = { messages };

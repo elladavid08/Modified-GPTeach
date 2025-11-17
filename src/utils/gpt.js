@@ -115,7 +115,18 @@ async function callNewGPT(
 	console.log(`Calling ${model} with ${myPrompt.length} messages in history`);
 	
 	// Calculate approximate token count (rough estimate: 1 token ≈ 4 chars)
-	const totalChars = myPrompt.reduce((sum, m) => sum + (m.content ? m.content.length : 0), 0);
+	const totalChars = myPrompt.reduce((sum, m) => {
+		if (!m.content) return sum;
+		if (typeof m.content === 'string') return sum + m.content.length;
+		// For array content, sum up text parts only
+		if (Array.isArray(m.content)) {
+			const textLength = m.content
+				.filter(p => p.text)
+				.reduce((len, p) => len + p.text.length, 0);
+			return sum + textLength;
+		}
+		return sum;
+	}, 0);
 	console.log(`📏 Estimated prompt size: ${totalChars} chars (~${Math.ceil(totalChars / 4)} tokens)`);
 	
 	if (!Constants.IS_PRODUCTION) {
@@ -123,7 +134,18 @@ async function callNewGPT(
 			`Full prompt:\n` +
 				myPrompt
 					.map((m) => {
-						const preview = m.content ? m.content.substring(0, 200) : '';
+						let preview = '';
+						if (m.content) {
+							// Handle both string and array content (multimodal)
+							if (typeof m.content === 'string') {
+								preview = m.content.substring(0, 200);
+							} else if (Array.isArray(m.content)) {
+								// For array content, show text parts and indicate if image is present
+								const textParts = m.content.filter(p => p.text).map(p => p.text).join(' ');
+								const hasImage = m.content.some(p => p.inline_data);
+								preview = textParts.substring(0, 200) + (hasImage ? ' [+image]' : '');
+							}
+						}
 						return `${m.role}: ${preview}...`;
 					})
 					.join("\n")

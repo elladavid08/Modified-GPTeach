@@ -1,6 +1,5 @@
 import React, { useContext } from "react";
 import { GPTeachContext } from "../objects/GPTeach.js";
-import ChatAudio from "./ChatAudio";
 
 export default function ChatBubble({ message, children }) {
 	const GPTeachData = useContext(GPTeachContext);
@@ -33,10 +32,24 @@ export default function ChatBubble({ message, children }) {
 				</div>
 			)}
 
-			<div className={className}>
-				{message.text}
-				<div>{children}</div>
-			</div>
+		<div className={className}>
+			{message.text}
+			{message.image && (
+				<div style={{ marginTop: "10px" }}>
+					<img 
+						src={`data:image/png;base64,${message.image}`}
+						alt="ציור של המורה"
+						style={{
+							maxWidth: "100%",
+							maxHeight: "300px",
+							borderRadius: "8px",
+							border: "1px solid #ddd"
+						}}
+					/>
+				</div>
+			)}
+			<div>{children}</div>
+		</div>
 		</div>
 	);
 }
