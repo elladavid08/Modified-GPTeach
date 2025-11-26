@@ -4,11 +4,16 @@ const { fabric } = require("fabric");
 export const DrawingBoard = ({ onDrawingCapture }) => {
 	const canvasRef = useRef(null);
 	const fabricCanvasRef = useRef(null);
+	const canvasContextRef = useRef(null);
 	const [includeInMessage, setIncludeInMessage] = useState(true);
 	const [drawingMode, setDrawingMode] = useState("pen");
 	const isDrawingRef = useRef(false);
 	const tempShapeRef = useRef(null);
 	const startPointRef = useRef(null);
+	const isErasingRef = useRef(false);
+	const lastEraserPointRef = useRef(null);
+	const eraserCanvasRef = useRef(null);
+	const hasFlattenedRef = useRef(false);
 
 	// Initialize Fabric canvas
 	useEffect(() => {
@@ -18,18 +23,18 @@ export const DrawingBoard = ({ onDrawingCapture }) => {
 		}
 		
 		// Add a small delay to ensure DOM is ready
-		const timer = setTimeout(() => {
-			if (canvasRef.current && !fabricCanvasRef.current) {
-				const parentWidth = canvasRef.current.parentElement.clientWidth;
-				const parentHeight = canvasRef.current.parentElement.clientHeight;
-				
-				const canvas = new fabric.Canvas('drawing-canvas', {
-					backgroundColor: "#ffffff",
-					width: Math.max(parentWidth - 20, 300),
-					height: Math.max(parentHeight - 20, 400),
-					selection: true,
-					isDrawingMode: true,
-				});
+			const timer = setTimeout(() => {
+				if (canvasRef.current && !fabricCanvasRef.current) {
+					const parentWidth = canvasRef.current.parentElement.clientWidth;
+					const parentHeight = canvasRef.current.parentElement.clientHeight;
+					
+					const canvas = new fabric.Canvas('drawing-canvas', {
+						backgroundColor: "#ffffff",
+						width: Math.max(parentWidth - 20, 600),
+						height: Math.max(parentHeight - 100, 500),
+						selection: true,
+						isDrawingMode: true,
+					});
 				
 				// Configure the drawing brush
 				if (canvas.freeDrawingBrush) {
@@ -38,13 +43,21 @@ export const DrawingBoard = ({ onDrawingCapture }) => {
 				}
 
 				fabricCanvasRef.current = canvas;
+				
+				// Get the underlying canvas context for pixel-based erasing
+				const canvasElement = canvas.getElement();
+				if (canvasElement) {
+					canvasContextRef.current = canvasElement.getContext('2d');
+				}
 
 			// Handle window resize
 			const handleResize = () => {
 				if (canvasRef.current && fabricCanvasRef.current) {
+					const parentWidth = canvasRef.current.parentElement.clientWidth;
+					const parentHeight = canvasRef.current.parentElement.clientHeight;
 					fabricCanvasRef.current.setDimensions({
-						width: canvasRef.current.parentElement.clientWidth,
-						height: canvasRef.current.parentElement.clientHeight - 60,
+						width: Math.max(parentWidth - 20, 600),
+						height: Math.max(parentHeight - 100, 500),
 					});
 				}
 			};
@@ -67,17 +80,112 @@ export const DrawingBoard = ({ onDrawingCapture }) => {
 
 		const canvas = fabricCanvasRef.current;
 		
+		// Always clean up existing event listeners first
+		canvas.off("mouse:down");
+		canvas.off("mouse:move");
+		canvas.off("mouse:up");
+		
+		// Reset eraser state when switching away from eraser
+		if (drawingMode !== "eraser") {
+			hasFlattenedRef.current = false;
+			eraserCanvasRef.current = null;
+		}
+		
 		if (drawingMode === "pen") {
+			// Enable Fabric's built-in freehand drawing mode
 			canvas.isDrawingMode = true;
-		} else {
+			// Create new brush for pen mode
+			canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
+			canvas.freeDrawingBrush.color = "#000000";
+			canvas.freeDrawingBrush.width = 2;
+		} else if (drawingMode === "eraser") {
+			// True pixel eraser - converts canvas to flat image first
 			canvas.isDrawingMode = false;
+			canvas.selection = false;
 			
-			// Set up shape drawing
-			canvas.off("mouse:down");
-			canvas.off("mouse:move");
-			canvas.off("mouse:up");
+			canvas.on("mouse:down", (options) => {
+				isErasingRef.current = true;
+				const pointer = canvas.getPointer(options.e);
+				lastEraserPointRef.current = pointer;
+				
+				// On first click, flatten all objects to a background image
+				if (!hasFlattenedRef.current) {
+					const dataURL = canvas.toDataURL({ format: 'png' });
+					canvas.clear();
+					canvas.backgroundColor = '#ffffff';
+					
+					// Create persistent eraser canvas
+					const tempCanvas = document.createElement('canvas');
+					tempCanvas.width = canvas.width;
+					tempCanvas.height = canvas.height;
+					eraserCanvasRef.current = tempCanvas;
+					
+					// Set the flattened image as background
+					const img = new Image();
+					img.onload = () => {
+						// Draw to eraser canvas
+						const ctx = tempCanvas.getContext('2d');
+						ctx.drawImage(img, 0, 0);
+						
+						// Show in Fabric
+						const fabricImg = new fabric.Image(img);
+						canvas.setBackgroundImage(fabricImg, () => {
+							canvas.renderAll();
+							hasFlattenedRef.current = true;
+						});
+					};
+					img.src = dataURL;
+				}
+			});
+			
+			canvas.on("mouse:move", (options) => {
+				if (!isErasingRef.current || !hasFlattenedRef.current) return;
+				
+				const pointer = canvas.getPointer(options.e);
+				const lastPoint = lastEraserPointRef.current;
+				
+				if (!lastPoint) {
+					lastEraserPointRef.current = pointer;
+					return;
+				}
+				
+				// Erase on the persistent canvas
+				const tempCanvas = eraserCanvasRef.current;
+				if (tempCanvas) {
+					const tempCtx = tempCanvas.getContext('2d');
+					
+					// Erase pixels
+					tempCtx.globalCompositeOperation = 'destination-out';
+					tempCtx.lineWidth = 20;
+					tempCtx.lineCap = 'round';
+					tempCtx.lineJoin = 'round';
+					tempCtx.beginPath();
+					tempCtx.moveTo(lastPoint.x, lastPoint.y);
+					tempCtx.lineTo(pointer.x, pointer.y);
+					tempCtx.stroke();
+					
+					// Update Fabric background image
+					const dataURL = tempCanvas.toDataURL();
+					fabric.Image.fromURL(dataURL, (img) => {
+						canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas));
+					});
+				}
+				
+				lastEraserPointRef.current = pointer;
+			});
+			
+			canvas.on("mouse:up", () => {
+				isErasingRef.current = false;
+				lastEraserPointRef.current = null;
+			});
+		} else {
+			// Disable freehand mode for shape drawing
+			canvas.isDrawingMode = false;
+			canvas.selection = true;
+			
+			// Set up shape drawing event listeners
 
-		canvas.on("mouse:down", (options) => {
+			canvas.on("mouse:down", (options) => {
 			isDrawingRef.current = true;
 			const pointer = canvas.getPointer(options.e);
 			startPointRef.current = pointer;
@@ -264,6 +372,9 @@ export const DrawingBoard = ({ onDrawingCapture }) => {
 				<div style={{ display: "flex", gap: "4px" }}>
 					<button onClick={() => setDrawingMode("pen")} style={buttonStyle("pen")}>
 						<span role="img" aria-label="pen">✏️</span> עפרון
+					</button>
+					<button onClick={() => setDrawingMode("eraser")} style={buttonStyle("eraser")}>
+						<span role="img" aria-label="eraser">🧹</span> מחק
 					</button>
 					<button onClick={() => setDrawingMode("line")} style={buttonStyle("line")}>
 						<span role="img" aria-label="line">📏</span> קו
