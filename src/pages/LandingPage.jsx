@@ -5,7 +5,7 @@ import User from "../objects/User";
 export const LandingPage = () => {
 	return (
 		<div className="container">
-			<h1 className="mt-4">GPTeach!!!</h1>
+			<h1 className="mt-4">Geometry Teaching Simulator</h1>
 
 			<p>
 				{User.isLoggedIn()

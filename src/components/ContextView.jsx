@@ -1,9 +1,9 @@
 import React, { useContext } from "react";
-import { GPTeachContext } from "../objects/GPTeach";
+import { AppContext } from "../objects/AppContext";
 import "../style/ContextView.css";
 
 export const ContextView = ({ scenario, children }) => {
-	const GPTeachData = useContext(GPTeachContext);
+	const appData = useContext(AppContext);
 
 	return (
 		<div className="d-flex col-4 contextView">
@@ -30,7 +30,7 @@ export const ContextView = ({ scenario, children }) => {
 
 				<h2>יעדי למידה</h2>
 				<ul>
-					{GPTeachData.learningGoals.map(function(goal, i) {
+					{appData.learningGoals.map(function(goal, i) {
 						return <li key={i}>{goal}</li>;
 					})}
 				</ul>

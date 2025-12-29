@@ -1,16 +1,16 @@
 import React, { useContext } from "react";
 import { Link } from "react-router-dom";
-import { GPTeachContext } from "../objects/GPTeach";
+import { AppContext } from "../objects/AppContext";
 import { toTitleCase } from "../utils/primitiveManipulation";
 
 export const StudySplashPage = () => {
-	const GPTeachData = useContext(GPTeachContext);
+	const appData = useContext(AppContext);
 
 	function handleNameChange(event) {
-		GPTeachData.setTAname(toTitleCase(event.target.value));
+		appData.setTAname(toTitleCase(event.target.value));
 	}
 
-	if (!GPTeachData) {
+	if (!appData) {
 		return <h1>Loading...</h1>;
 	}
 
@@ -36,7 +36,7 @@ export const StudySplashPage = () => {
 								type="text"
 								id="nameInput"
 								className="form-control"
-								value={GPTeachData.TAname}
+								value={appData.TAname}
 								onChange={handleNameChange}
 							/>
 						</div>

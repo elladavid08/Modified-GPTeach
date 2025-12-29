@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState, useContext } from "react";
 import { FaPaperPlane, FaUndo } from "react-icons/fa"; // eslint-disable-line no-unused-vars
 import ChatMessage from "../objects/ChatMessage";
-import { GPTeachContext } from "../objects/GPTeach";
+import { AppContext } from "../objects/AppContext";
 import RecordingButton from "./RecordingButton";
 
 export const InputField = ({ disabled, onSend, undoMessage, onKeystroke }) => {
-	const GPTeachData = useContext(GPTeachContext);
+	const appData = useContext(AppContext);
 	const [myMsg, setMyMsg] = useState("");
 	const [textareaHeight, setTextareaHeight] = useState("auto");
 
@@ -14,7 +14,7 @@ export const InputField = ({ disabled, onSend, undoMessage, onKeystroke }) => {
 	// submit tutor message
 	const handleSubmit = (event) => {
 		event.preventDefault();
-		onSend(new ChatMessage(GPTeachData.TAname, myMsg, "user"));
+		onSend(new ChatMessage(appData.TAname, myMsg, "user"));
 		setMyMsg("");
 		inputRef.current.focus();
 	};

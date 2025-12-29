@@ -1,35 +1,46 @@
 import React, { useState, useContext, useEffect } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Constants } from "../config/constants";
-import callGPT from "../utils/gpt.js";
+import callAI from "../utils/ai.js";
 import { Messages } from "../components/Messages";
 import { ContextView } from "../components/ContextView";
 import { HistoryContext } from "../objects/ChatHistory";
-import { GPTeachContext } from "../objects/GPTeach";
+import { AppContext } from "../objects/AppContext";
 import "../style/ChatOnly.css";
 import "../style/ProgressDots.css";
 
 export const StudyScenario = () => {
 	const history = useContext(HistoryContext);
-	const GPTeachData = useContext(GPTeachContext);
+	const appData = useContext(AppContext);
 	const [isQuerying, setIsQuerying] = useState(false);
+	const [hasInitiated, setHasInitiated] = useState(false);
 
 	const { num } = useParams();
 	const scenarioNum = parseInt(num);
 	// scenarioNum is 1-indexed!
-	const scenario = GPTeachData.scenarios[scenarioNum - 1];
+	const scenario = appData.scenarios[scenarioNum - 1];
 	const [students, setStudents] = useState(null);
 
 	// Log all the data to Firebase on first page load (only on first scenario)
 	useEffect(() => {
-		GPTeachData.createFirebaseDocument();
+		appData.createFirebaseDocument();
 	}, []);
 
 	// If the scenarioNum has changed, reset the history for the new scenario
 	useEffect(() => {
 		history.resetHistory(scenarioNum);
 		setStudents(getStudents);
+		setHasInitiated(false); // Reset initiation for new scenario
 	}, [scenarioNum]);
+
+	/** Students initiate the conversation when component mounts */
+	useEffect(() => {
+		// Only initiate once, if history is empty, and if students are loaded
+		if (!hasInitiated && students && history.getLength() === 0) {
+			setHasInitiated(true);
+			setIsQuerying(true);
+		}
+	}, [hasInitiated, students, history]);
 
 	/** Add the tutor's message and wait for a response */
 	function addWrittenResponse(TAmessage) {
@@ -37,22 +48,27 @@ export const StudyScenario = () => {
 		setIsQuerying(true);
 	}
 
-	/** If we are now waiting for a response, call GPT */
+	/** If we are now waiting for a response, call AI */
 	useEffect(() => {
-		if (isQuerying) {
-			callGPT(history, students, scenario, gptMessages => {
-				if (gptMessages[0]) {
-					history.addMessages(gptMessages, Constants.IS_PRODUCTION).then(() => {
+		if (isQuerying && students) {
+			const isInitialMessage = history.getLength() === 0;
+			const addendum = isInitialMessage 
+				? "\n\n🎯 CRITICAL INSTRUCTION - FIRST MESSAGE: This is the VERY FIRST message of the tutoring session. The students are arriving for help. They should greet the tutor warmly and then IMMEDIATELY present a specific geometry problem or question related to today's topic. They should seem engaged but confused/uncertain about something specific. Do NOT wait for the tutor to speak first - the students are coming TO the tutor FOR HELP with a SPECIFIC PROBLEM. Example: 'שלום! אנחנו צריכים עזרה עם שאלה. יש לנו משולש עם...' Be natural and jump right into the problem!"
+				: "";
+			
+			callAI(history, students, scenario, addendum, aiMessages => {
+				if (aiMessages[0]) {
+					history.addMessages(aiMessages, Constants.IS_PRODUCTION).then(() => {
 						setIsQuerying(false);
 					});
 				} else {
-					// GPT didn't respond
+					// AI didn't respond
 					setIsQuerying(false);
 					console.log("well shoot");
 				}
 			});
 		}
-	}, [isQuerying]);
+	}, [isQuerying, students, history, scenario]);
 
 	/** Interface work: create the circles */
 	function makeProgressDots() {
@@ -90,10 +106,10 @@ export const StudyScenario = () => {
 		let i = (scenarioNum - 1) * Constants.NUM_STUDENTS;
 
 		while (students.length !== Constants.NUM_STUDENTS) {
-			let student = GPTeachData.students[i];
+			let student = appData.students[i];
 			let shouldAddStudent = true;
 			// Check student doesn't have the same name as the tutor
-			if (student.name === GPTeachData.TAname) {
+			if (student.name === appData.TAname) {
 				shouldAddStudent = false;
 			}
 			// Check student not already in the pool
@@ -106,7 +122,7 @@ export const StudyScenario = () => {
 			}
 
 			i++;
-			if (i >= GPTeachData.students.length) {
+			if (i >= appData.students.length) {
 				i = 0;
 			}
 		}

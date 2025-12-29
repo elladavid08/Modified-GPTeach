@@ -146,6 +146,16 @@ function convertMessagesToGenAI(openAIMessages) {
     }
   }
 
+  // If we only have a system prompt and no messages yet (initial conversation),
+  // create a user message to trigger the AI to start the conversation
+  if (contents.length === 0 && systemPrompt) {
+    console.log('🎬 Creating initial trigger message for student-initiated conversation');
+    contents.push({
+      role: "user",
+      parts: [{ text: `${systemPrompt}\n\n[The tutoring session is starting. The students should greet and present their geometry question.]` }]
+    });
+  }
+
   console.log('✅ Converted to', contents.length, 'GenAI messages');
   return contents;
 }
@@ -332,10 +342,10 @@ app.post('/api/completion', async (req, res) => {
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-  console.log('🏥 Health check requested');
-  res.json({
-    status: 'OK',
-    service: 'GPTeach Backend',
+	console.log('🏥 Health check requested');
+	res.json({
+		status: 'OK',
+		service: 'Teaching Simulator Backend',
     timestamp: new Date().toISOString(),
     project: PROJECT_ID,
     location: LOCATION,
@@ -348,10 +358,10 @@ app.get('/api/test', async (req, res) => {
   try {
     console.log('🧪 Test endpoint called');
     
-    const result = await model.generateContent({
-      contents: [{
-        role: "user",
-        parts: [{ text: "Say hello from GPTeach backend!" }]
+		const result = await model.generateContent({
+			contents: [{
+				role: "user",
+				parts: [{ text: "Say hello from Teaching Simulator backend!" }]
       }],
       generationConfig: {
         maxOutputTokens: 50,
@@ -431,7 +441,7 @@ app.use((req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 GPTeach backend running on http://localhost:${PORT}`);
+	console.log(`🚀 Teaching Simulator backend running on http://localhost:${PORT}`);
   console.log('🔐 Using Application Default Credentials from gcloud');
   console.log('🎯 Project:', PROJECT_ID);
   console.log('🌍 Location:', LOCATION);

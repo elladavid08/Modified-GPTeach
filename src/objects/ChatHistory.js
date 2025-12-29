@@ -2,12 +2,12 @@ import React, { createContext, useState } from "react";
 //import { doc, setDoc } from "firebase/firestore";
 //import { DATABASE } from "../utils/database_setup.js";
 //import { Constants } from "../config/constants";
-//import { GPTeachContext } from "./GPTeach.js";
+//import { AppContext } from "./AppContext.js";
 
 export const HistoryContext = createContext();
 
 export function HistoryProvider({ children }) {
-//	const GPTeachData = useContext(GPTeachContext);
+//	const AppData = useContext(AppContext);
 	const [messages, setMessages] = useState([]);
 	// eslint-disable-next-line no-unused-vars
 	const [scenarioNum, setScenarioNum] = useState(0);
@@ -64,10 +64,10 @@ export function HistoryProvider({ children }) {
 		return messages.join("\n");
 	};
 
-	history.toGPTformat = () => {
+	history.toAIformat = () => {
 		let retArr = [];
 		for (const message of messages) {
-			retArr.push(message.toGPTformat());
+			retArr.push(message.toAIformat());
 		}
 		return retArr;
 	};

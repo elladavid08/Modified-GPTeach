@@ -1,11 +1,11 @@
 import React, { useContext } from "react";
-import { GPTeachContext } from "../objects/GPTeach.js";
+import { AppContext } from "../objects/AppContext.js";
 
 export default function ChatBubble({ message, children }) {
-	const GPTeachData = useContext(GPTeachContext);
+	const appData = useContext(AppContext);
 
 	let className = "chatBubble";
-	const isOther = message.agent !== GPTeachData.TAname;
+	const isOther = message.agent !== appData.TAname;
 
 	if (isOther) {
 		className += " chatBubbleOther";

@@ -3,7 +3,7 @@ export default class ChatMessage {
 		// Student name or Tutor
 		this.agent = agent;
 		this.name = agent;
-		// Required by GPT 3.5 and 4
+		// Required by chat-style AI models (GPT 3.5/4, Gemini)
 		this.role = role;
 		// Get rid of any newlines
 		this.text = text.replace(/[\n]/gm, "");
@@ -19,8 +19,8 @@ export default class ChatMessage {
 		return `${this.agent}: ${this.text}`;
 	}
 
-	toGPTformat() {
-		// If there's an image, use multimodal content format for Gemini
+	toAIformat() {
+		// If there's an image, use multimodal content format (Gemini)
 		if (this.image) {
 			return {
 				role: this.role,
