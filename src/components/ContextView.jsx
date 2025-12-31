@@ -11,6 +11,8 @@ export const ContextView = ({ scenario, children }) => {
 				className="d-flex flex-column container"
 				style={{
 					justifyContent: "space-between",
+					direction: "rtl",
+					textAlign: "right"
 				}}
 			>
 			<div>
@@ -28,12 +30,40 @@ export const ContextView = ({ scenario, children }) => {
 					{scenario.text}
 				</div>
 
-				<h2>יעדי למידה</h2>
-				<ul>
-					{appData.learningGoals.map(function(goal, i) {
-						return <li key={i}>{goal}</li>;
-					})}
-				</ul>
+				{/* Show lesson goals for teacher-initiated scenarios */}
+				{scenario.initiated_by === "teacher" && scenario.lesson_goals && (
+					<div
+						style={{
+							padding: "15px",
+							marginTop: "15px",
+							marginBottom: "15px",
+							backgroundColor: "#f0f8ff",
+							border: "2px solid #4a90e2",
+							borderRadius: "8px",
+							textAlign: "right",
+							direction: "rtl"
+						}}
+					>
+						<div style={{ fontSize: "20px", marginBottom: "10px", textAlign: "center" }}>💡</div>
+						<div style={{ 
+							fontSize: "16px", 
+							fontWeight: "bold", 
+							color: "#2c5aa0", 
+							marginBottom: "10px",
+							textAlign: "center"
+						}}>
+							מטרות השיעור
+						</div>
+						<div style={{ 
+							fontSize: "14px", 
+							color: "#333",
+							whiteSpace: "pre-line",
+							lineHeight: "1.6"
+						}}>
+							{scenario.lesson_goals}
+						</div>
+					</div>
+				)}
 			</div>
 
 				<div

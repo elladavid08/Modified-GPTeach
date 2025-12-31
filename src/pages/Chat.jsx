@@ -1,5 +1,4 @@
 import React, { useState, useContext, useEffect } from "react";
-import { Link } from "react-router-dom";
 import { Constants } from "../config/constants";
 import callAI from "../utils/ai.js";
 import { Messages } from "../components/Messages";
@@ -14,8 +13,21 @@ export const Chat = () => {
 	const appData = useContext(AppContext);
 	const [isQuerying, setIsQuerying] = useState(false);
 	const [hasInitiated, setHasInitiated] = useState(false);
-	const students = appData.students.slice(0, Constants.NUM_STUDENTS);
-	const scenario = shuffleArray(appData.scenarios)[0];
+	const [scenario, setScenario] = useState(null);
+	
+	// Select scenario once when appData is loaded
+	useEffect(() => {
+		if (appData.scenarios && !scenario) {
+			const selectedScenario = shuffleArray(appData.scenarios)[0];
+			console.log("📝 Selected scenario:", {
+				text: selectedScenario.text ? selectedScenario.text.substring(0, 50) : '',
+				initiatedBy: selectedScenario.initiated_by
+			});
+			setScenario(selectedScenario);
+		}
+	}, [appData.scenarios, scenario]);
+	
+	const students = appData.students ? appData.students.slice(0, Constants.NUM_STUDENTS) : [];
 
 	/** Add the teacher's message and wait for a response */
 	function addUserResponse(TAmessage) {
@@ -25,32 +37,84 @@ export const Chat = () => {
 
 	/** Initiate conversation when component mounts (based on scenario) */
 	useEffect(() => {
+		// Guard: Don't run if data isn't loaded yet
+		if (!scenario || !appData.students) {
+			return;
+		}
+		
+		// Debug logging
+		console.log("🔍 Initiation check:", {
+			hasInitiated,
+			historyLength: history.getLength(),
+			initiatedBy: scenario.initiated_by,
+			scenarioText: scenario.text ? scenario.text.substring(0, 50) : ''
+		});
+		
 		// Only initiate once and only if history is empty
 		if (!hasInitiated && history.getLength() === 0) {
 			setHasInitiated(true);
 			
 			// Check who should initiate based on scenario configuration
 			if (scenario.initiated_by === "students") {
+				console.log("✅ Students will initiate");
 				// Students start - trigger AI to generate first message
 				setIsQuerying(true);
+			} else {
+				console.log("✅ Waiting for teacher to initiate");
 			}
 			// If scenario.initiated_by === "teacher", do nothing - wait for teacher to type
 		}
-	}, [hasInitiated, history, scenario]);
+	}, [hasInitiated, history, scenario, appData.students]);
 
 	/** If we are now waiting for a response, call AI */
 	useEffect(() => {
+		// Guard: Don't run if scenario isn't loaded yet
+		if (!scenario) {
+			return;
+		}
+		
 		if (isQuerying) {
-			const isInitialMessage = history.getLength() === 0;
+			console.log("🤖 Querying AI:", {
+				historyLength: history.getLength(),
+				initiatedBy: scenario.initiated_by
+			});
+			
+			// Check if this is the first AI response in the conversation
+			// For student-initiated: history.length === 0 (students speak first)
+			// For teacher-initiated: history.length === 1 (teacher spoke, now students respond)
+			const isFirstStudentResponse = 
+				(scenario.initiated_by === "students" && history.getLength() === 0) ||
+				(scenario.initiated_by === "teacher" && history.getLength() === 1);
+			
 			let addendum = "";
 			
-			if (isInitialMessage) {
+			if (isFirstStudentResponse) {
 				// First message - different instructions based on who initiated
 				if (scenario.initiated_by === "students") {
-					addendum = `\n\n🎯 CRITICAL INSTRUCTION - FIRST MESSAGE: This is the VERY FIRST message of today's geometry lesson. The students are in class and should IMMEDIATELY present a specific geometry problem or question related to today's topic. ${scenario.initial_prompt ? 'Context: ' + scenario.initial_prompt : ''} They should seem engaged but confused/uncertain about something specific. Do NOT wait for the teacher to speak first - students initiate by bringing up a problem or question. Example: 'מורה, יש לנו שאלה. אנחנו לא מבינים למה...' Be natural and jump right into the problem!`;
+					addendum = `\n\n🎯 CRITICAL INSTRUCTION - FIRST MESSAGE: This is the VERY FIRST message of today's geometry lesson.
+
+RESPONSE PATTERN FOR FIRST MESSAGE:
+- START WITH 1-2 STUDENTS ONLY (not all 3)
+- First student should introduce the problem/question
+- If a second student responds, they should BUILD ON what the first said
+- Third student should wait for teacher's response before joining
+- Make it feel like a natural conversation, not everyone talking at once
+
+CONVERSATION BUILDING:
+- Students should build on each other's comments naturally
+- Use phrases like: "נכון, וגם...", "אני חושב שזה קשור ל...", "רגע, אז..."
+- Create a flowing discussion, not separate statements
+
+${scenario.initial_prompt ? 'Context: ' + scenario.initial_prompt : ''}
+
+Example of good first message:
+תלמיד א': "מורה, אמרת לנו שבמעויין האלכסונים מאונכים זה לזה."
+תלמיד ב': "נכון. וגם בריבוע האלכסונים מאונכים."
+
+Do NOT wait for the teacher to speak first - students initiate naturally!`;
 				} else {
 					// Teacher initiated - students respond to teacher's opening
-					addendum = `\n\n🎯 FIRST RESPONSE TO TEACHER: The teacher just started the lesson. Students should respond naturally to what the teacher said - asking clarifying questions, showing initial thoughts or confusion, or engaging with the topic the teacher introduced. ${scenario.initial_prompt ? 'Context: ' + scenario.initial_prompt : ''} Be responsive and curious about the topic. Show genuine student reactions.`;
+					addendum = `\n\n🎯 FIRST RESPONSE TO TEACHER: This is the FIRST STUDENT RESPONSE to the teacher's opening message. The teacher just started the lesson. Students should respond naturally and appropriately to what the teacher said - asking clarifying questions, showing initial thoughts or confusion, or engaging with the topic the teacher introduced. ${scenario.initial_prompt ? 'Context: ' + scenario.initial_prompt : ''} Be responsive and curious. Show genuine student reactions. NOT ALL STUDENTS need to respond - typically 1-2 students respond to an opening, not all 3 at once.`;
 				}
 			}
 			
@@ -70,77 +134,94 @@ export const Chat = () => {
 		}
 	}, [isQuerying, history, students, scenario]);
 
+	// Show loading state if data isn't ready
+	if (!scenario || !appData.students) {
+		return (
+			<div style={{ padding: "50px", textAlign: "center", direction: "rtl" }}>
+				<h2>טוען...</h2>
+			</div>
+		);
+	}
+	
 	return (
 		<div className="d-flex flex-row row chatOnly" id="everythingWrapper">
-			<ContextView scenario={scenario}>
-				<Link to={"#"}>
-					<button
-						className="btn btn-outline-success"
-						disabled={
-							Constants.IS_PRODUCTION &&
-							(isQuerying || history.getLength() === 0)
-						}
-					>
-						New Session
-					</button>
-				</Link>
-			</ContextView>
+		<ContextView scenario={scenario}>
+			<button
+				className="btn btn-outline-success"
+				disabled={
+					Constants.IS_PRODUCTION &&
+					(isQuerying || history.getLength() === 0)
+				}
+				onClick={() => {
+					// Reload the page to start fresh with a new scenario
+					window.location.reload();
+				}}
+				style={{ direction: "rtl" }}
+			>
+				שיחה חדשה
+			</button>
+		</ContextView>
 
-			<div
-				className="d-flex flex-column chatConvoWrapper col-4"
+		<div
+			className="d-flex flex-column chatConvoWrapper col-4"
+			style={{
+				overflow: "auto",
+				flexGrow: 1,
+				direction: "rtl"
+			}}
+		>
+			<h1
 				style={{
-					overflow: "auto",
-					flexGrow: 1,
+					paddingTop: "15px",
+					textAlign: "center",
+					direction: "rtl"
 				}}
 			>
-				<h1
-					style={{
-						paddingTop: "15px",
-						textAlign: "center",
-					}}
-				>
 				<span role="img" aria-label="classroom">
 					🏫
 				</span>{" "}
-				Geometry Lesson - Grade 8
+				שיעור גיאומטריה - כיתה ח׳
 			</h1>
 
-				<h2
-					style={{
-						textAlign: "center",
-						fontSize: "18px",
-						color: "grey",
-						fontStyle: "italic",
-						margin: "0px",
-						padding: "0px",
-					}}
-				>
-					<span style={{ fontWeight: "bold" }}>{Constants.NUM_STUDENTS}</span>{" "}
-					student(s) present:{" "}
-					{students.map((student) => student.name).join(", ")}
-				</h2>
+			<h2
+				style={{
+					textAlign: "center",
+					fontSize: "18px",
+					color: "grey",
+					fontStyle: "italic",
+					margin: "0px",
+					padding: "0px",
+					direction: "rtl"
+				}}
+			>
+				<span style={{ fontWeight: "bold" }}>{Constants.NUM_STUDENTS}</span>{" "}
+				תלמידים נוכחים:{" "}
+				{students.map((student) => student.name).join(", ")}
+			</h2>
 
-				{/* Show prompt when teacher should initiate */}
-				{history.getLength() === 0 && scenario.initiated_by === "teacher" && !isQuerying && (
-					<div
-						style={{
-							padding: "20px",
-							margin: "20px",
-							backgroundColor: "#f0f8ff",
-							border: "2px solid #4a90e2",
-							borderRadius: "8px",
-							textAlign: "center",
-						}}
-					>
-						<div style={{ fontSize: "24px", marginBottom: "10px" }}>💡</div>
-						<div style={{ fontSize: "16px", fontWeight: "bold", color: "#2c5aa0", marginBottom: "8px" }}>
-							{scenario.initiated_by === "teacher" ? "אתה מתחיל את השיעור" : "Students will start"}
-						</div>
-						<div style={{ fontSize: "14px", color: "#555", fontStyle: "italic" }}>
-							{scenario.initial_prompt || "התחל את השיחה עם התלמידים"}
-						</div>
-					</div>
-				)}
+			{/* Show prompt when teacher should initiate */}
+			{history.getLength() === 0 && scenario.initiated_by === "teacher" && !isQuerying && (
+			<div
+				style={{
+					padding: "20px",
+					margin: "20px",
+					backgroundColor: "#fff3cd",
+					border: "2px solid #ffc107",
+					borderRadius: "8px",
+					textAlign: "center",
+					direction: "rtl"
+				}}
+			>
+				<div style={{ fontSize: "24px", marginBottom: "10px" }}>👋</div>
+				<div style={{ fontSize: "16px", fontWeight: "bold", color: "#856404", marginBottom: "8px" }}>
+					אתה מתחיל את השיעור
+				</div>
+				
+				<div style={{ fontSize: "14px", color: "#555", fontStyle: "italic", marginTop: "10px" }}>
+					{scenario.initial_prompt || "התחל את השיחה עם התלמידים"}
+				</div>
+			</div>
+			)}
 
 				<Messages
 					isWaitingOnStudent={isQuerying}

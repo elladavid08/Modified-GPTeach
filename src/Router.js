@@ -28,9 +28,9 @@ export const Router = () => {
 				<Route path="/sign-up" element={<SignUpPage />} />
 				<Route path="/user-info" element={<UserInfoPage />} />
 
-				{/* If you add or change any routes, remember to update the Landing Page! */}
-				<Route path="/home" element={<LandingPage />} />
-				<Route path="/" element={<ChatWithCode />} />
+		{/* If you add or change any routes, remember to update the Landing Page! */}
+		<Route path="/home" element={<LandingPage />} />
+		<Route path="/" element={<Chat />} />
 
 			</Routes>
 		</BrowserRouter>
