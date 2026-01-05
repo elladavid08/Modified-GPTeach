@@ -2,6 +2,7 @@ import ChatMessage from "../objects/ChatMessage";
 import { Constants } from "../config/constants";
 import { toTitleCase } from "./primitiveManipulation";
 import { generateWithGenAI, generateWithGenAICompletion } from "../services/genai";
+import { formatTaxonomyForPrompt } from "../config/pck/pck_taxonomy.js";
 
 // ==================== OpenAI Configuration (COMMENTED OUT - Currently using Google Vertex AI) ====================
 // Kept for potential future use if switching back to OpenAI
@@ -25,7 +26,8 @@ export default async function callAI(
 	students,
 	scenario,
 	addendum = "",
-	onResponse
+	onResponse,
+	onPCKFeedback = null
 ) {
 	const verNum = Constants.MODEL_VERSION;
 	if (verNum === 3) {
@@ -37,11 +39,12 @@ export default async function callAI(
 			students,
 			scenario,
 			addendum,
-			onResponse
+			onResponse,
+			onPCKFeedback
 		);
 	} else {
 		// Default to 4 (or Gemini equivalent when using Google provider)
-		callChatModel("gpt-4", history, students, scenario, addendum, onResponse);
+		callChatModel("gpt-4", history, students, scenario, addendum, onResponse, onPCKFeedback);
 	}
 }
 
@@ -108,7 +111,8 @@ async function callChatModel(
 	students,
 	scenario,
 	addendum,
-	onResponse
+	onResponse,
+	onPCKFeedback = null
 ) {
 	const myPrompt = [
 		{
@@ -196,7 +200,7 @@ async function callChatModel(
 				console.log(`✅ Parsed ${msgCount} message(s) and ${codeCount} code piece(s)`);
 				onResponse(messages, codePieces);
 			} else {
-				const parsedMessages = convertResponseToMessages(msg, null, students);
+				const parsedMessages = convertResponseToMessages(msg, null, students, onPCKFeedback);
 				const msgCount = parsedMessages ? parsedMessages.length : 0;
 				console.log(`✅ Parsed ${msgCount} message(s) from response`);
 				onResponse(parsedMessages, null, students);
@@ -235,76 +239,114 @@ async function callChatModel(
 	}
 }
 
-//* ########################### Helper Functions ########################## */
+/// Helper Functions
 
-/** Convert AI's JSON response to Message object(s) */
-function convertResponseToMessages(aiResponse, fromCode, students) {
+function convertResponseToMessages(aiResponse, fromCode, students, onPCKFeedback) {
 	let newMessages = [];
 
-	console.log("📥 convertResponseToMessages called (JSON mode with Chain-of-Thought)");
-	console.log("  aiResponse:", aiResponse ? `${aiResponse.length} chars` : "null/undefined");
+	console.log("convertResponseToMessages called (JSON mode with Chain-of-Thought)");
+	console.log("  aiResponse:", aiResponse ? aiResponse.length + " chars" : "null/undefined");
 	console.log("  fromCode:", fromCode);
 	console.log("  students:", students ? students.length : "null/undefined");
 
-	if(!aiResponse || aiResponse.trim().length === 0){
-		console.log("⚠️ Empty or null aiResponse");
-		if(fromCode){
+	if (!aiResponse || aiResponse.trim().length === 0) {
+		console.log("Empty or null aiResponse");
+		if (fromCode) {
 			console.log("  fromCode is truthy, returning default message");
 			const studentName = students && students[0] ? students[0].name : 'Student';
 			newMessages.push(new ChatMessage(studentName, "Here it!", "assistant"))
 			return newMessages;
 		}
 		console.log("  fromCode is falsy, returning empty array instead of null");
-		return [];  // Return empty array instead of null to avoid issues
+		return [];
 	}
 
 	try {
-		// Parse JSON response
 		const jsonData = JSON.parse(aiResponse);
 		
-		// NEW: Log the thinking process (Chain-of-Thought) for debugging/research
+		// Log the entire JSON structure for debugging
+		console.log("🔍 FULL AI RESPONSE STRUCTURE:", JSON.stringify(jsonData, null, 2));
+		
 		if (jsonData.thinking) {
-			console.log("🧠 Agent Chain-of-Thought Reasoning:");
-			console.log("  📝 Teacher message:", jsonData.thinking.teacher_message_summary || "N/A");
-			console.log("  🔍 Context analysis:", jsonData.thinking.context_analysis || "N/A");
+			console.log("Agent Chain-of-Thought Reasoning:");
+			console.log("  Teacher message:", jsonData.thinking.teacher_message_summary || "N/A");
+			console.log("  Context analysis:", jsonData.thinking.context_analysis || "N/A");
 			
 			if (jsonData.thinking.who_should_respond && Array.isArray(jsonData.thinking.who_should_respond)) {
-				console.log("  👥 Decision breakdown:");
+				console.log("  Decision breakdown:");
 				jsonData.thinking.who_should_respond.forEach(decision => {
-					const emoji = decision.should_respond ? "✅" : "❌";
-					const confEmoji = decision.confidence === "high" ? "🔥" : decision.confidence === "medium" ? "👍" : "🤷";
-					console.log(`    ${emoji} ${confEmoji} ${decision.student}: ${decision.reason} [${decision.confidence}]`);
+					const emoji = decision.should_respond ? "YES" : "NO";
+					const confEmoji = decision.confidence === "high" ? "HIGH" : decision.confidence === "medium" ? "MED" : "LOW";
+					console.log("    " + emoji + " " + confEmoji + " " + decision.student + ": " + decision.reason + " [" + decision.confidence + "]");
 				});
 			}
 			
-			// TODO: Store this reasoning in PCKSession for research analysis
+			if (jsonData.thinking.pck_analysis) {
+				console.log("  PCK analysis:", jsonData.thinking.pck_analysis);
+			}
 		} else {
-			console.warn("⚠️ No 'thinking' field in response - Chain-of-Thought may not be working");
+			console.warn("No 'thinking' field in response - Chain-of-Thought may not be working");
 		}
 		
-		// Validate structure
+		// Debug teacher feedback presence (new minimal approach)
+		console.log("🔍 TEACHER FEEDBACK DEBUG:");
+		console.log("  - jsonData.teacher_feedback exists:", !!jsonData.teacher_feedback);
+		console.log("  - jsonData.pck_feedback exists:", !!jsonData.pck_feedback);
+		console.log("  - onPCKFeedback callback exists:", !!onPCKFeedback);
+		
+		// Check for teacher feedback (new minimal field)
+		if (jsonData.teacher_feedback && onPCKFeedback) {
+			console.log("💡 Teacher Feedback detected - calling callback:");
+			console.log("  Feedback message:", jsonData.teacher_feedback);
+			
+			const formattedFeedback = {
+				detected_skills: [],
+				missed_opportunities: [],
+				feedback_message: jsonData.teacher_feedback,
+				should_display: true,
+				feedback_type: "positive"
+			};
+			
+			onPCKFeedback(formattedFeedback);
+		}
+		// Fallback: check for old pck_feedback format
+		else if (jsonData.pck_feedback && onPCKFeedback) {
+			console.log("💡 PCK Feedback detected - calling callback:");
+			const message = jsonData.pck_feedback.message || jsonData.pck_feedback.feedback_message || "";
+			console.log("  Feedback message:", message);
+			
+			const formattedFeedback = {
+				detected_skills: [],
+				missed_opportunities: [],
+				feedback_message: message,
+				should_display: true,
+				feedback_type: "positive"
+			};
+			
+			onPCKFeedback(formattedFeedback);
+		} else {
+			console.warn("⚠️ No teacher feedback in AI response!");
+		}
+		
 		if (!jsonData.responses || !Array.isArray(jsonData.responses)) {
 			throw new Error("Invalid JSON structure: missing 'responses' array");
 		}
 		
 		const responseCount = jsonData.responses.length;
-		console.log(`📊 ${responseCount} student(s) responding`);
+		console.log("Number of student responses: " + responseCount);
 		
-		// NEW: Allow 0 responses (silence is okay!)
 		if (responseCount === 0) {
-			console.log("📭 No student responses this turn (silence is natural - students thinking)");
-			return []; // Return empty array - no one spoke
+			console.log("No student responses this turn (silence is natural - students thinking)");
+			return [];
 		}
 		
-		// Validate response count is reasonable
 		if (responseCount > students.length) {
-			console.warn(`⚠️ Too many responses: ${responseCount} for ${students.length} students`);
+			console.warn("Too many responses: " + responseCount + " for " + students.length + " students");
 		}
 		
-		// Create ChatMessage objects from each response
 		for (const response of jsonData.responses) {
 			if (!response.student || !response.message) {
-				console.warn("⚠️ Skipping invalid response entry:", response);
+				console.warn("Skipping invalid response entry:", response);
 				continue;
 			}
 			
@@ -312,17 +354,16 @@ function convertResponseToMessages(aiResponse, fromCode, students) {
 			const message = response.message.trim();
 			
 			newMessages.push(new ChatMessage(studentName, message, "assistant"));
-			console.log(`✅ ${studentName} responded`);
+			console.log("Student responded: " + studentName);
 		}
 		
-		console.log(`📤 Returning ${newMessages.length} message(s) from convertResponseToMessages`);
+		console.log("Returning " + newMessages.length + " message(s) from convertResponseToMessages");
 		return newMessages;
 		
 	} catch (error) {
-		console.error("❌ Error parsing JSON response:", error);
+		console.error("Error parsing JSON response:", error);
 		console.error("Raw response:", aiResponse);
 		
-		// Fallback: create error message from random student
 		const randomStudent = students[Math.floor(Math.random() * students.length)];
 		newMessages.push(new ChatMessage(
 			randomStudent.name, 
@@ -352,6 +393,30 @@ function makeProsePrompt(students, scenario, addendum) {
 	retStr += `\n3. NEVER combine students under one response object`;
 	retStr += `\n4. Use exact student names as shown in the descriptions`;
 	retStr += `\n5. INCLUDE the "thinking" field with your analysis`;
+	retStr += `\n6. INCLUDE the "pck_feedback" field with pedagogical analysis`;
+	
+	// PCK ANALYSIS INSTRUCTIONS
+	retStr += `\n\n📚 PCK ANALYSIS REQUIREMENTS:`;
+	retStr += `\nYou are also a PCK (Pedagogical Content Knowledge) expert analyzing the teacher's response.`;
+	retStr += `\nFor EVERY teacher message, you MUST analyze:`;
+	retStr += `\n1. Which PCK skills were demonstrated (if any)`;
+	retStr += `\n2. Which opportunities were missed (if any)`;
+	retStr += `\n3. Provide brief, encouraging Hebrew feedback`;
+	
+	// Simplified PCK guidance (taxonomy temporarily removed to reduce prompt length)
+	retStr += `\n\n### PCK Analysis Guidelines:\n`;
+	retStr += `\nAnalyze the teacher's message and provide brief Hebrew feedback about their pedagogical approach.`;
+	retStr += `\nFocus on: question quality, misconception handling, explanation clarity.`;
+	console.log("📚 PCK Guidance added (simplified version)");
+	// const taxonomyText = formatTaxonomyForPrompt();
+	// console.log("📚 PCK Taxonomy loaded for prompt:", taxonomyText.length, "characters");
+	// retStr += taxonomyText;
+	
+	// Simplified scenario context
+	retStr += `\n### Current Lesson Focus:`;
+	if (scenario.misconception_focus) {
+		retStr += `\nMisconception to watch for: ${scenario.misconception_focus}`;
+	}
 	
 	// Natural conversation flow instructions
 	retStr += `\n\n🎭 NATURAL CONVERSATION FLOW (CRITICAL):`;
@@ -412,7 +477,8 @@ function makeProsePrompt(students, scenario, addendum) {
 	retStr += `\n    "context_analysis": "${students[0].name} שאלה האם ריבוע זה מלבן, המורה נתן הסבר טוב",`;
 	retStr += `\n    "who_should_respond": [{"student": "${students[0].name}", "should_respond": true, "reason": "קיבלה הסבר טוב, צריכה להראות הבנה", "confidence": "high"}]`;
 	retStr += `\n  },`;
-	retStr += `\n  "responses": [{"student": "${students[0].name}", "message": "אה עכשיו הבנתי! אז כל ריבוע הוא גם מלבן כי יש לו 4 זוויות ישרות?"}]`;
+	retStr += `\n  "responses": [{"student": "${students[0].name}", "message": "אה עכשיו הבנתי! אז כל ריבוע הוא גם מלבן כי יש לו 4 זוויות ישרות?"}],`;
+	retStr += `\n  "teacher_feedback": "כל הכבוד! הסבר מצוין"`;
 	retStr += `\n}`;
 	retStr += `\n`;
 	retStr += `\nEXAMPLE 2 - Student still confused after explanation:`;
@@ -422,7 +488,8 @@ function makeProsePrompt(students, scenario, addendum) {
 	retStr += `\n    "context_analysis": "${students[1].name} שאל למה אלכסונים מאונכים, ההסבר היה מורכב ולא ברור לו",`;
 	retStr += `\n    "who_should_respond": [{"student": "${students[1].name}", "should_respond": true, "reason": "עדיין מבולבל אחרי ההסבר", "confidence": "high"}]`;
 	retStr += `\n  },`;
-	retStr += `\n  "responses": [{"student": "${students[1].name}", "message": "רגע, אני עדיין לא מבין למה דווקא במעויין האלכסונים מאונכים. מה המיוחד במעויין?"}]`;
+	retStr += `\n  "responses": [{"student": "${students[1].name}", "message": "רגע, אני עדיין לא מבין למה דווקא במעויין האלכסונים מאונכים. מה המיוחד במעויין?"}],`;
+	retStr += `\n  "teacher_feedback": "התלמיד עדיין מבולבל - כדאי להבהיר"`;
 	retStr += `\n}`;
 	retStr += `\n`;
 	retStr += `\nEXAMPLE 3 - Student THINKS understood but has misconception:`;
@@ -432,12 +499,14 @@ function makeProsePrompt(students, scenario, addendum) {
 	retStr += `\n    "context_analysis": "${students[2].name} הקשיב, אבל הוא יכול לטעות ולחשוב שזה עובד גם בכיוון ההפוך",`;
 	retStr += `\n    "who_should_respond": [{"student": "${students[2].name}", "should_respond": true, "reason": "יכול להראות תפיסה שגויה", "confidence": "medium"}]`;
 	retStr += `\n  },`;
-	retStr += `\n  "responses": [{"student": "${students[2].name}", "message": "אוקיי, אז אם אני רואה מרובע שהאלכסונים שלו מאונכים, אני יודע שזה מעויין, נכון?"}]`;
+	retStr += `\n  "responses": [{"student": "${students[2].name}", "message": "אוקיי, אז אם אני רואה מרובע שהאלכסונים שלו מאונכים, אני יודע שזה מעויין, נכון?"}],`;
+	retStr += `\n  "teacher_feedback": "שים לב - תפיסה שגויה! הזדמנות לטיפול"`;
 	retStr += `\n}`;
 	retStr += `\n`;
 	retStr += `\n❌ WRONG - Repeating question without acknowledging answer:`;
 	retStr += `\n{`;
-	retStr += `\n  "responses": [{"student": "${students[0].name}", "message": "אבל ריבוע זה מלבן?"}]`;
+	retStr += `\n  "responses": [{"student": "${students[0].name}", "message": "אבל ריבוע זה מלבן?"}],`;
+	retStr += `\n  "teacher_feedback": "המשך כך!"`;
 	retStr += `\n}`;
 	retStr += `\n(Student already asked this! Teacher answered! Must acknowledge the answer, not repeat question!)`;
 	
@@ -515,17 +584,17 @@ function makeProsePrompt(students, scenario, addendum) {
 	retStr +=
 		"\n\n" + Constants.RESPONSE_INSTRUCTIONS + "\n" + addendum;
 	
-	// END WITH FORMATTING REMINDER
-	retStr += `\n\n🚨 REMINDER: Respond ONLY with valid JSON with this structure:`;
+	// MINIMAL SINGLE FIELD APPROACH
+	retStr += `\n\nIMPORTANT: Add teacher_feedback field to your response:`;
 	retStr += `\n{`;
-	retStr += `\n  "thinking": {`;
-	retStr += `\n    "teacher_message_summary": "...",`;
-	retStr += `\n    "context_analysis": "...",`;
-	retStr += `\n    "who_should_respond": [{"student": "name", "should_respond": true/false, "reason": "...", "confidence": "high/medium/low"}]`;
-	retStr += `\n  },`;
-	retStr += `\n  "responses": [{"student": "name", "message": "..."}]`;
+	retStr += `\n  "responses": [{"student": "name", "message": "..."}],`;
+	retStr += `\n  "teacher_feedback": "Brief Hebrew comment about teacher's move"`;
 	retStr += `\n}`;
-	retStr += `\nIMPORTANT: Only include students in "responses" who should actually speak! 🚨\n\n`;
+	retStr += `\n\nExample:`;
+	retStr += `\n{`;
+	retStr += `\n  "responses": [{"student": "נועה", "message": "שלום!"}],`;
+	retStr += `\n  "teacher_feedback": "שאלה טובה לפתיחה!"`;
+	retStr += `\n}\n\n`;
 
 	return retStr;
 }

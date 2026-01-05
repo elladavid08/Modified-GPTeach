@@ -112,6 +112,59 @@ export async function generateWithGenAICompletion(prompt, options = {}) {
 }
 
 /**
+ * Get PCK feedback for a teacher's message
+ * @param {string} teacherMessage - The teacher's message to analyze
+ * @param {Array} conversationHistory - Previous conversation messages
+ * @param {Object} scenario - Current scenario context
+ * @returns {Promise<string>} - PCK feedback in Hebrew
+ */
+export async function getPCKFeedback(teacherMessage, conversationHistory = [], scenario = {}) {
+  try {
+    console.log('💡 Requesting PCK feedback analysis...');
+    console.log('📝 Teacher message:', teacherMessage.substring(0, 100) + '...');
+    
+    const response = await fetch(`${API_BASE_URL}/api/pck-feedback`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        teacherMessage,
+        conversationHistory,
+        scenario
+      })
+    });
+
+    console.log('📥 PCK feedback response status:', response.status);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+      console.error('❌ PCK feedback error:', errorData);
+      throw new Error(`Backend error (${response.status}): ${errorData.error || 'Unknown error'}`);
+    }
+
+    const result = await response.json();
+    console.log('📦 PCK feedback received:', result);
+    
+    if (result.success) {
+      console.log('✅ PCK feedback successful:', result.feedback);
+      return result.feedback;
+    } else {
+      console.error('❌ PCK feedback returned error:', result.error);
+      throw new Error(result.error || 'PCK feedback returned unsuccessful response');
+    }
+  } catch (error) {
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      console.error('❌ Network error - is the backend running on', API_BASE_URL + '?');
+      throw new Error('Backend server not available. Please start the backend server.');
+    }
+    
+    console.error('❌ Error calling PCK feedback API:', error);
+    throw error;
+  }
+}
+
+/**
  * Test the backend connection
  * @returns {Promise<boolean>} - True if backend is available
  */
@@ -177,6 +230,7 @@ console.log('');
 console.log('Available functions:');
 console.log('  - generateWithGenAI(messages, options)');
 console.log('  - generateWithGenAICompletion(prompt, options)');
+console.log('  - getPCKFeedback(teacherMessage, conversationHistory, scenario)');
 console.log('  - testBackendConnection()');
 console.log('  - testAI()');
 
