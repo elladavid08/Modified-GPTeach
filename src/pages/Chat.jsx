@@ -1,13 +1,15 @@
-import React, { useState, useContext, useEffect } from "react";
+import React, { useState, useContext, useEffect, useRef } from "react";
 import { Constants } from "../config/constants";
 import callAI from "../utils/ai.js";
-import { getPCKFeedback } from "../services/genai.js";
+import { getPCKFeedback, getPCKSummary } from "../services/genai.js";
 import { Messages } from "../components/Messages";
 import { LessonTargetsSidebar } from "../components/LessonTargetsSidebar";
 import { PCKFeedbackSidebar } from "../components/PCKFeedbackSidebar";
+import { PCKSummaryModal } from "../components/PCKSummaryModal";
 import { HistoryContext } from "../objects/ChatHistory";
 import { AppContext } from "../objects/AppContext";
 import { shuffleArray } from "../utils/primitiveManipulation";
+import { ConversationLog } from "../services/conversationLogger";
 import "../style/ChatOnly.css";
 
 export const Chat = () => {
@@ -17,6 +19,13 @@ export const Chat = () => {
 	const [hasInitiated, setHasInitiated] = useState(false);
 	const [scenario, setScenario] = useState(null);
 	const [pckFeedback, setPckFeedback] = useState(null);
+	const [isSessionEnded, setIsSessionEnded] = useState(false);
+	const [showSummary, setShowSummary] = useState(false);
+	const [summaryFeedback, setSummaryFeedback] = useState(null);
+	const [isLoadingSummary, setIsLoadingSummary] = useState(false);
+	
+	// Use ref to maintain conversation logger across renders
+	const conversationLoggerRef = useRef(null);
 	
 	// Select scenario once when appData is loaded
 	useEffect(() => {
@@ -29,6 +38,15 @@ export const Chat = () => {
 			setScenario(selectedScenario);
 		}
 	}, [appData.scenarios, scenario]);
+	
+	// Initialize conversation logger when scenario and students are ready
+	useEffect(() => {
+		if (scenario && students.length > 0 && !conversationLoggerRef.current) {
+			console.log("📊 Initializing conversation logger...");
+			conversationLoggerRef.current = new ConversationLog(scenario, students);
+			console.log("✅ Conversation logger initialized:", conversationLoggerRef.current.sessionId);
+		}
+	}, [scenario, students]);
 	
 	const students = appData.students ? appData.students.slice(0, Constants.NUM_STUDENTS) : [];
 
@@ -136,6 +154,7 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 				await history.addMessages(aiMessages, Constants.IS_PRODUCTION);
 				
 				// NEW: Get PCK feedback in parallel (separate AI call)
+				let feedbackForLog = null;
 				try {
 					const teacherMessages = history.getMessages().filter(msg => msg.role === "user");
 					const lastTeacherMessage = teacherMessages[teacherMessages.length - 1];
@@ -160,6 +179,18 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 						};
 						
 						setPckFeedback(formattedFeedback);
+						feedbackForLog = formattedFeedback;
+						
+						// Log this conversation turn
+						if (conversationLoggerRef.current) {
+							console.log("📊 Logging conversation turn...");
+							conversationLoggerRef.current.addTurn(
+								lastTeacherMessage.text,
+								aiMessages.map(msg => ({ name: msg.name, text: msg.text })),
+								feedbackForLog
+							);
+							console.log("✅ Turn logged. Total turns:", conversationLoggerRef.current.turns.length);
+						}
 					}
 				} catch (error) {
 					console.error("❌ Error getting PCK feedback:", error);
@@ -169,6 +200,58 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 		}
 	}, [isQuerying, scenario]);
 
+	// Handle finishing the conversation
+	const handleFinishConversation = () => {
+		if (!conversationLoggerRef.current) {
+			console.warn("No conversation logger found");
+			return;
+		}
+		
+		// End the session
+		conversationLoggerRef.current.endSession();
+		console.log("🏁 Conversation session ended");
+		
+		// Save to localStorage
+		conversationLoggerRef.current.saveToLocalStorage();
+		console.log("💾 Conversation log saved to localStorage");
+		
+		// Mark session as ended
+		setIsSessionEnded(true);
+		
+		// Show confirmation
+		alert(`שיחה הסתיימה!\n\nהשיחה נשמרה בהצלחה.\n\nמזהה שיחה: ${conversationLoggerRef.current.sessionId}\nמספר תגובות: ${conversationLoggerRef.current.turns.length}\nמשך זמן: ${conversationLoggerRef.current.stats.durationMinutes} דקות\n\nכעת תוכל לקבל ניתוח מקיף PCK של השיחה!`);
+	};
+	
+	const handleGetSummary = async () => {
+		if (!conversationLoggerRef.current) {
+			console.warn("No conversation logger found");
+			alert("לא נמצא לוג שיחה. אנא סיים את השיחה תחילה.");
+			return;
+		}
+		
+		try {
+			setIsLoadingSummary(true);
+			setShowSummary(true);
+			
+			console.log("📊 Requesting summary feedback...");
+			const conversationLog = conversationLoggerRef.current.toJSON();
+			const summary = await getPCKSummary(conversationLog);
+			
+			console.log("✅ Summary feedback received!");
+			setSummaryFeedback(summary.summary);
+			
+			// Save the feedback to the conversation log
+			conversationLoggerRef.current.addSummaryFeedback(summary.summary);
+			console.log("💾 Summary feedback saved to conversation log");
+		} catch (error) {
+			console.error("❌ Error getting summary:", error);
+			alert(`שגיאה בקבלת הניתוח: ${error.message}`);
+			setShowSummary(false);
+		} finally {
+			setIsLoadingSummary(false);
+		}
+	};
+	
 	// Show loading state if data isn't ready
 	if (!scenario || !appData.students) {
 		return (
@@ -253,7 +336,26 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 							{students.map((student) => student.name).join(", ")}
 						</h2>
 
-						<div style={{ width: "80px" }}></div> {/* Spacer for symmetry */}
+						<div style={{ display: "flex", gap: "8px" }}>
+							{isSessionEnded && (
+								<button
+									className="btn btn-success btn-sm"
+									onClick={handleGetSummary}
+									disabled={isLoadingSummary}
+									style={{ direction: "rtl", fontSize: "12px", padding: "4px 12px" }}
+								>
+									{isLoadingSummary ? "⏳ מכין ניתוח..." : "📊 קבל ניתוח PCK"}
+								</button>
+							)}
+							<button
+								className="btn btn-primary btn-sm"
+								disabled={isSessionEnded || history.getLength() === 0}
+								onClick={handleFinishConversation}
+								style={{ direction: "rtl", fontSize: "12px", padding: "4px 12px" }}
+							>
+								{isSessionEnded ? "✓ שיחה הסתיימה" : "סיים שיחה"}
+							</button>
+						</div>
 					</div>
 				</div>
 
@@ -295,6 +397,15 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 				feedback={pckFeedback} 
 				isVisible={true}
 			/>
+			
+			{/* PCK Summary Modal */}
+			{showSummary && (
+				<PCKSummaryModal
+					summary={summaryFeedback}
+					isLoading={isLoadingSummary}
+					onClose={() => setShowSummary(false)}
+				/>
+			)}
 		</div>
 	);
 };
