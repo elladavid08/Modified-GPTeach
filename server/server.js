@@ -273,6 +273,80 @@ app.post('/api/generate', async (req, res) => {
 });
 
 // API endpoint for completions (GPT-3 style)
+// NEW: PCK Feedback Analysis Endpoint
+app.post('/api/pck-feedback', async (req, res) => {
+  try {
+    console.log('💡 Received PCK feedback analysis request');
+    
+    const { teacherMessage, conversationHistory, scenario } = req.body;
+    
+    if (!teacherMessage) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Teacher message is required' 
+      });
+    }
+
+    // Simple PCK analysis prompt
+    const pckPrompt = `You are a PCK (Pedagogical Content Knowledge) expert analyzing a geometry teacher's message.
+
+Teacher's message: "${teacherMessage}"
+
+Provide brief Hebrew feedback (1-2 sentences) about the teacher's pedagogical approach.
+Focus on: question quality, misconception handling, explanation clarity.
+
+${scenario && scenario.misconception_focus ? `Watch for this misconception: ${scenario.misconception_focus}` : ''}
+
+Respond with ONLY a short Hebrew sentence of feedback.`;
+
+    const contents = [{
+      role: 'user',
+      parts: [{ text: pckPrompt }]
+    }];
+
+    const generationConfig = {
+      maxOutputTokens: 100,
+      temperature: 0.7,
+      topP: 1
+    };
+
+    console.log('📤 Calling Vertex AI for PCK analysis...');
+    
+    const result = await model.generateContent({
+      contents,
+      generationConfig
+    });
+
+    if (!result || !result.response) {
+      throw new Error('No response received from Vertex AI');
+    }
+
+    if (!result.response.candidates || result.response.candidates.length === 0) {
+      throw new Error('No candidates in response');
+    }
+
+    const candidate = result.response.candidates[0];
+    
+    if (!candidate.content || !candidate.content.parts || candidate.content.parts.length === 0) {
+      throw new Error('Invalid response structure from model');
+    }
+
+    const feedbackText = candidate.content.parts[0].text;
+    console.log('✅ PCK Feedback received:', feedbackText);
+    
+    res.json({ 
+      success: true,
+      feedback: feedbackText.trim()
+    });
+  } catch (error) {
+    console.error('❌ Error in PCK feedback:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
+});
+
 app.post('/api/completion', async (req, res) => {
   try {
     console.log('🚀 Received completion request');
