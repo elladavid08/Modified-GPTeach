@@ -2,7 +2,7 @@ import React from "react";
 
 export default function Navbar() {
 	return (
-		<nav className="navbar navbar-expand-lg navbar-light bg-primary">
+		<nav className="navbar navbar-expand-lg navbar-light bg-primary" style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 1000, height: '60px' }}>
 			<div className="container">
 				<a className="navbar-brand text-light" href="/home">
 					Geometry Teaching Simulator

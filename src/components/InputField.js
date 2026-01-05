@@ -60,8 +60,8 @@ export const InputField = ({ disabled, onSend, undoMessage, onKeystroke }) => {
 							border: "1px",
 							borderColor: "#ccc",
 							borderStyle: "solid",
-							borderRadius: "10px",
-							padding: "5px",
+							borderRadius: "8px",
+							padding: "4px",
 							width: "100%",
 						}}
 					>
