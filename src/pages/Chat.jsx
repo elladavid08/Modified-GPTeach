@@ -1,8 +1,10 @@
 import React, { useState, useContext, useEffect } from "react";
 import { Constants } from "../config/constants";
 import callAI from "../utils/ai.js";
+import { getPCKFeedback } from "../services/genai.js";
 import { Messages } from "../components/Messages";
-import { ContextView } from "../components/ContextView";
+import { LessonTargetsSidebar } from "../components/LessonTargetsSidebar";
+import { PCKFeedbackSidebar } from "../components/PCKFeedbackSidebar";
 import { HistoryContext } from "../objects/ChatHistory";
 import { AppContext } from "../objects/AppContext";
 import { shuffleArray } from "../utils/primitiveManipulation";
@@ -14,6 +16,7 @@ export const Chat = () => {
 	const [isQuerying, setIsQuerying] = useState(false);
 	const [hasInitiated, setHasInitiated] = useState(false);
 	const [scenario, setScenario] = useState(null);
+	const [pckFeedback, setPckFeedback] = useState(null);
 	
 	// Select scenario once when appData is loaded
 	useEffect(() => {
@@ -118,21 +121,53 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 				}
 			}
 			
-			callAI(history, students, scenario, addendum, (aiMessages) => {
+			// Set querying to false immediately to prevent double trigger
+			setIsQuerying(false);
+			
+			// Call AI for student responses
+			callAI(history, students, scenario, addendum, async (aiMessages) => {
 				// Handle case where no students respond (silence is valid with selective responses)
 				if (!aiMessages || aiMessages.length === 0) {
 					console.log("📭 No student responses this turn - continuing conversation");
-					setIsQuerying(false);
 					return;
 				}
 				
 				// Add messages, with delay only if in production
-				history.addMessages(aiMessages, Constants.IS_PRODUCTION).then(() => {
-					setIsQuerying(false);
-				});
+				await history.addMessages(aiMessages, Constants.IS_PRODUCTION);
+				
+				// NEW: Get PCK feedback in parallel (separate AI call)
+				try {
+					const teacherMessages = history.getMessages().filter(msg => msg.role === "user");
+					const lastTeacherMessage = teacherMessages[teacherMessages.length - 1];
+					
+					if (lastTeacherMessage) {
+						console.log("💡 Requesting PCK feedback for teacher message...");
+						const feedback = await getPCKFeedback(
+							lastTeacherMessage.text,
+							history.getMessages(),
+							scenario
+						);
+						
+						console.log("✅ PCK feedback received:", feedback);
+						
+						// Format feedback for sidebar
+						const formattedFeedback = {
+							detected_skills: [],
+							missed_opportunities: [],
+							feedback_message: feedback,
+							should_display: true,
+							feedback_type: "positive"
+						};
+						
+						setPckFeedback(formattedFeedback);
+					}
+				} catch (error) {
+					console.error("❌ Error getting PCK feedback:", error);
+					// Don't block the conversation if PCK feedback fails
+				}
 			});
 		}
-	}, [isQuerying, history, students, scenario]);
+	}, [isQuerying, scenario]);
 
 	// Show loading state if data isn't ready
 	if (!scenario || !appData.students) {
@@ -144,90 +179,122 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 	}
 	
 	return (
-		<div className="d-flex flex-row row chatOnly" id="everythingWrapper">
-		<ContextView scenario={scenario}>
-			<button
-				className="btn btn-outline-success"
-				disabled={
-					Constants.IS_PRODUCTION &&
-					(isQuerying || history.getLength() === 0)
-				}
-				onClick={() => {
-					// Reload the page to start fresh with a new scenario
-					window.location.reload();
-				}}
-				style={{ direction: "rtl" }}
-			>
-				שיחה חדשה
-			</button>
-		</ContextView>
+		<div style={{ position: 'fixed', width: '100%', height: '100vh', top: 0, left: 0, overflow: 'hidden' }}>
+			{/* Left Sidebar - Lesson Targets */}
+			<LessonTargetsSidebar scenario={scenario} />
 
-		<div
-			className="d-flex flex-column chatConvoWrapper col-4"
-			style={{
-				overflow: "auto",
-				flexGrow: 1,
-				direction: "rtl"
-			}}
-		>
-			<h1
+			{/* Main Chat Area */}
+			<div
+				className="d-flex flex-column"
 				style={{
-					paddingTop: "15px",
-					textAlign: "center",
-					direction: "rtl"
+					position: 'fixed',
+					left: '300px',
+					right: '300px',
+					top: '60px',
+					bottom: 0,
+					height: 'calc(100vh - 60px)',
+					overflow: 'hidden',
+					direction: "rtl",
+					display: 'flex',
+					flexDirection: 'column'
 				}}
 			>
-				<span role="img" aria-label="classroom">
-					🏫
-				</span>{" "}
-				שיעור גיאומטריה - כיתה ח׳
-			</h1>
+				<div style={{ padding: "20px 15px 8px 15px", borderBottom: "1px solid #dee2e6", flex: "0 0 auto" }}>
+					<h1
+						style={{
+							textAlign: "center",
+							direction: "rtl",
+							margin: "0 0 5px 0",
+							fontSize: "24px",
+							lineHeight: "1.2"
+						}}
+					>
+						<span role="img" aria-label="classroom">
+							🏫
+						</span>{" "}
+						שיעור גיאומטריה - כיתה ח׳
+					</h1>
 
-			<h2
-				style={{
-					textAlign: "center",
-					fontSize: "18px",
-					color: "grey",
-					fontStyle: "italic",
-					margin: "0px",
-					padding: "0px",
-					direction: "rtl"
-				}}
-			>
-				<span style={{ fontWeight: "bold" }}>{Constants.NUM_STUDENTS}</span>{" "}
-				תלמידים נוכחים:{" "}
-				{students.map((student) => student.name).join(", ")}
-			</h2>
+					<div style={{ 
+						display: "flex", 
+						alignItems: "center", 
+						justifyContent: "space-between",
+						direction: "rtl",
+						marginTop: "5px"
+					}}>
+						<button
+							className="btn btn-outline-success btn-sm"
+							disabled={
+								Constants.IS_PRODUCTION &&
+								(isQuerying || history.getLength() === 0)
+							}
+							onClick={() => {
+								window.location.reload();
+							}}
+							style={{ direction: "rtl", fontSize: "12px", padding: "4px 12px" }}
+						>
+							שיחה חדשה
+						</button>
+
+						<h2
+							style={{
+								textAlign: "center",
+								fontSize: "14px",
+								color: "grey",
+								fontStyle: "italic",
+								margin: 0,
+								padding: "0px",
+								direction: "rtl",
+								flex: 1
+							}}
+						>
+							<span style={{ fontWeight: "bold" }}>{Constants.NUM_STUDENTS}</span>{" "}
+							תלמידים נוכחים:{" "}
+							{students.map((student) => student.name).join(", ")}
+						</h2>
+
+						<div style={{ width: "80px" }}></div> {/* Spacer for symmetry */}
+					</div>
+				</div>
 
 			{/* Show prompt when teacher should initiate */}
 			{history.getLength() === 0 && scenario.initiated_by === "teacher" && !isQuerying && (
 			<div
 				style={{
-					padding: "20px",
-					margin: "20px",
+					padding: "12px 15px",
+					margin: "10px 15px",
 					backgroundColor: "#fff3cd",
 					border: "2px solid #ffc107",
 					borderRadius: "8px",
 					textAlign: "center",
-					direction: "rtl"
+					direction: "rtl",
+					flex: "0 0 auto"
 				}}
 			>
-				<div style={{ fontSize: "24px", marginBottom: "10px" }}>👋</div>
-				<div style={{ fontSize: "16px", fontWeight: "bold", color: "#856404", marginBottom: "8px" }}>
+				<div style={{ fontSize: "20px", marginBottom: "6px" }}>👋</div>
+				<div style={{ fontSize: "15px", fontWeight: "bold", color: "#856404", marginBottom: "6px" }}>
 					אתה מתחיל את השיעור
 				</div>
 				
-				<div style={{ fontSize: "14px", color: "#555", fontStyle: "italic", marginTop: "10px" }}>
+				<div style={{ fontSize: "13px", color: "#555", fontStyle: "italic", marginTop: "6px" }}>
 					{scenario.initial_prompt || "התחל את השיחה עם התלמידים"}
 				</div>
 			</div>
 			)}
 
-				<Messages
-					isWaitingOnStudent={isQuerying}
-					onMessageSend={addUserResponse}
-				/>
+				<div style={{ flex: "1 1 auto", overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
+					<Messages
+						isWaitingOnStudent={isQuerying}
+						onMessageSend={addUserResponse}
+					/>
+				</div>
 			</div>
+
+			{/* Right Sidebar - PCK Feedback */}
+			<PCKFeedbackSidebar 
+				feedback={pckFeedback} 
+				isVisible={true}
+			/>
 		</div>
 	);
 };
