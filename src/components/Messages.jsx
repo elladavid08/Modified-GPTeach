@@ -8,30 +8,21 @@ export const Messages = ({ isWaitingOnStudent, onMessageSend }) => {
 	const messagesWrapperRef = React.createRef();
 	const history = useContext(HistoryContext);
 
-	useEffect(resizeChatWrapper, []);
-	useEffect(scrollToBottom, [isWaitingOnStudent]);
-
-	/** Set max-height of the conversation to the remaining space between the textInput and the header, so it scrolls independently from the page */
-	function resizeChatWrapper() {
-		const parentContainer = messagesWrapperRef.current.parentNode;
-		const divAboveHeight = parentContainer.firstChild.offsetHeight;
-		const divBelowHeight = parentContainer.lastChild.offsetHeight;
-		const remainingSpace =
-			parentContainer.offsetHeight - divAboveHeight - divBelowHeight;
-		messagesWrapperRef.current.style.maxHeight = `${remainingSpace}px`;
-	}
+	// Removed resizeChatWrapper - now using flexbox for layout
+	useEffect(scrollToBottom, [isWaitingOnStudent, history.getMessages().length]);
 
 	function scrollToBottom() {
 		const scrollContainer = messagesWrapperRef.current;
-		scrollContainer.scrollTo({
-			top: scrollContainer.scrollHeight,
-			behavior: "smooth",
-		});
+		if (scrollContainer) {
+			scrollContainer.scrollTo({
+				top: scrollContainer.scrollHeight,
+				behavior: "smooth",
+			});
+		}
 	}
 
-	/** as we type, we may need to resize things */
+	/** as we type, scroll to bottom */
 	function onKeystroke() {
-		resizeChatWrapper();
 		scrollToBottom();
 	}
 
@@ -40,7 +31,7 @@ export const Messages = ({ isWaitingOnStudent, onMessageSend }) => {
 			<div
 				className="d-flex flex-column messagesWrapper col"
 				ref={messagesWrapperRef}
-				style={{ maxHeight: "60vh" }}
+				style={{ flex: "1 1 auto", overflowY: "auto", minHeight: 0, padding: "8px" }}
 			>
 				{history.getMessages().map((msg, i) => (
 					<ChatBubble key={i} message={msg} />
@@ -63,12 +54,14 @@ export const Messages = ({ isWaitingOnStudent, onMessageSend }) => {
 				)}
 			</div>
 
-			<InputField
-				onSend={onMessageSend}
-				undoMessage={history.undoMessage()}
-				disabled={isWaitingOnStudent}
-				onKeystroke={onKeystroke}
-			/>
+			<div style={{ flex: "0 0 auto", padding: "8px 10px", backgroundColor: "#f8f9fa", borderTop: "1px solid #dee2e6" }}>
+				<InputField
+					onSend={onMessageSend}
+					undoMessage={history.undoMessage()}
+					disabled={isWaitingOnStudent}
+					onKeystroke={onKeystroke}
+				/>
+			</div>
 		</>
 	);
 };
