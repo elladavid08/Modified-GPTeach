@@ -9,6 +9,7 @@ import express from 'express';
 import cors from 'cors';
 import { VertexAI } from '@google-cloud/vertexai';
 import { GoogleAuth } from 'google-auth-library';
+import { formatTaxonomyForPrompt } from './pck_taxonomy.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -347,6 +348,141 @@ Respond with ONLY a short Hebrew sentence of feedback.`;
   }
 });
 
+// New endpoint for comprehensive PCK summary feedback
+app.post('/api/pck-summary', async (req, res) => {
+  try {
+    console.log('📊 Received PCK summary analysis request');
+    
+    const { conversationLog } = req.body;
+    
+    if (!conversationLog || !conversationLog.turns || conversationLog.turns.length === 0) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Conversation log with turns is required' 
+      });
+    }
+
+    // Build comprehensive conversation summary for analysis
+    const conversationText = conversationLog.turns.map((turn, index) => {
+      let turnText = `\n--- תור ${turn.turnNumber} ---\n`;
+      turnText += `מורה: ${turn.teacher.message}\n`;
+      turnText += turn.students.map(s => `${s.name}: ${s.message}`).join('\n');
+      if (turn.pckFeedback) {
+        turnText += `\n[משוב מיידי: ${turn.pckFeedback.feedback_message}]`;
+      }
+      return turnText;
+    }).join('\n');
+
+    // Get the PCK taxonomy
+    const pckTaxonomy = formatTaxonomyForPrompt();
+    
+    // Comprehensive PCK analysis prompt
+    const summaryPrompt = `אתה מומחה בידע תוכן פדגוגי (PCK) בגיאומטריה. תפקידך לספק ניתוח מקיף של ביצועי המורה בשיחה זו.
+
+**הקשר השיעור:**
+${conversationLog.scenario.text}
+
+**מטרות השיעור:**
+${conversationLog.scenario.lesson_goals || 'לא צוין'}
+
+**תפיסות שגויות ביעד:**
+${conversationLog.scenario.misconception_focus || 'לא צוין'}
+
+**השיחה המלאה (${conversationLog.turns.length} תגובות):**
+${conversationText}
+
+**סטטיסטיקה:**
+- תגובות מורה: ${conversationLog.stats.totalTeacherMessages}
+- תגובות תלמידים: ${conversationLog.stats.totalStudentMessages}
+- משך זמן: ${conversationLog.stats.durationMinutes || 'לא צוין'} דקות
+
+---
+
+${pckTaxonomy}
+
+---
+
+**⚠️ חשוב מאוד - הוראות לניתוח:**
+
+1. **התמקד אך ורק במיומנויות PCK המופיעות למעלה**
+2. **אל תזכיר או תציע מיומנויות שאינן ברשימה** (למשל: שימוש בדוגמאות חזותיות, גאוגברה, ציורים, וכו')
+3. **ציין דוגמאות ספציפיות מהשיחה**
+4. **היה מעודד אבל גם ביקורתי בונה**
+5. **ספק משוב מעשי ויישומי**
+
+---
+
+**ספק ניתוח מקיף בעברית בפורמט הבא:**
+
+# 📊 ניתוח מקיף PCK
+
+## ✅ מה עשית טוב
+
+[רשום 2-3 נקודות חוזק ספציפיות מהמיומנויות ברשימה, עם דוגמאות מהשיחה]
+
+## 💡 מה ניתן לשפר
+
+[רשום 2-3 תחומים לשיפור מהמיומנויות ברשימה בלבד, עם הסברים ספציפיים]
+
+## 🎯 המלצות קונקרטיות
+
+[ספק 3-4 המלצות מעשיות לשיעור הבא, **רק מהמיומנויות המוגדרות למעלה**]
+
+## 📈 סיכום
+
+[משפט או שניים של סיכום כללי על הביצועים]`;
+
+    const contents = [{
+      role: 'user',
+      parts: [{ text: summaryPrompt }]
+    }];
+
+    const generationConfig = {
+      maxOutputTokens: 2048, // Longer output for comprehensive feedback
+      temperature: 0.7,
+      topP: 0.95
+    };
+
+    console.log('📤 Calling Vertex AI for comprehensive PCK analysis...');
+    console.log(`   Analyzing ${conversationLog.turns.length} conversation turns`);
+    
+    const result = await model.generateContent({
+      contents,
+      generationConfig
+    });
+
+    if (!result || !result.response) {
+      throw new Error('No response received from Vertex AI');
+    }
+
+    if (!result.response.candidates || result.response.candidates.length === 0) {
+      throw new Error('No candidates in response');
+    }
+
+    const candidate = result.response.candidates[0];
+    
+    if (!candidate.content || !candidate.content.parts || candidate.content.parts.length === 0) {
+      throw new Error('Invalid response structure from model');
+    }
+
+    const summaryText = candidate.content.parts[0].text;
+    console.log('✅ PCK Summary generated (length:', summaryText.length, 'chars)');
+    
+    res.json({ 
+      success: true,
+      summary: summaryText.trim(),
+      analyzed_turns: conversationLog.turns.length,
+      session_id: conversationLog.sessionId
+    });
+  } catch (error) {
+    console.error('❌ Error in PCK summary generation:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
+});
+
 app.post('/api/completion', async (req, res) => {
   try {
     console.log('🚀 Received completion request');
@@ -529,6 +665,8 @@ app.listen(PORT, () => {
   }
   console.log('  POST /api/generate - Chat completions');
   console.log('  POST /api/completion - Text completions');
+  console.log('  POST /api/pck-feedback - PCK feedback analysis');
+  console.log('  POST /api/pck-summary - PCK comprehensive summary');
 });
 
 

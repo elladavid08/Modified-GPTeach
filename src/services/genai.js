@@ -223,6 +223,60 @@ export async function testAI() {
   }
 }
 
+/**
+ * Get comprehensive PCK summary feedback for entire conversation
+ * @param {Object} conversationLog - Complete conversation log
+ * @returns {Promise<Object>} - Summary feedback with analysis
+ */
+export async function getPCKSummary(conversationLog) {
+  try {
+    console.log('📊 Requesting comprehensive PCK summary analysis...');
+    console.log(`   Session: ${conversationLog.sessionId}`);
+    console.log(`   Turns: ${conversationLog.turns.length}`);
+    
+    const response = await fetch(`${API_BASE_URL}/api/pck-summary`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        conversationLog
+      })
+    });
+
+    console.log('📥 PCK summary response status:', response.status);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+      console.error('❌ PCK summary error:', errorData);
+      throw new Error(`Backend error (${response.status}): ${errorData.error || 'Unknown error'}`);
+    }
+
+    const result = await response.json();
+    console.log('📦 PCK summary received');
+    
+    if (result.success) {
+      console.log('✅ PCK summary successful, length:', result.summary.length);
+      return {
+        summary: result.summary,
+        analyzed_turns: result.analyzed_turns,
+        session_id: result.session_id
+      };
+    } else {
+      console.error('❌ PCK summary returned error:', result.error);
+      throw new Error(result.error || 'PCK summary returned unsuccessful response');
+    }
+  } catch (error) {
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      console.error('❌ Network error - is the backend running on', API_BASE_URL + '?');
+      throw new Error('Backend server not available. Please start the backend server.');
+    }
+    
+    console.error('❌ Error calling PCK summary API:', error);
+    throw error;
+  }
+}
+
 // Log initialization
 console.log('🎯 GenAI service loaded');
 console.log('🔗 Backend API URL:', API_BASE_URL);
@@ -231,6 +285,7 @@ console.log('Available functions:');
 console.log('  - generateWithGenAI(messages, options)');
 console.log('  - generateWithGenAICompletion(prompt, options)');
 console.log('  - getPCKFeedback(teacherMessage, conversationHistory, scenario)');
+console.log('  - getPCKSummary(conversationLog)');
 console.log('  - testBackendConnection()');
 console.log('  - testAI()');
 
