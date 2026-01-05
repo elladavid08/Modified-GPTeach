@@ -11,6 +11,7 @@ import ConfigPage from "./pages/Config";
 import LoginPage from "./pages/LoginPage";
 import SignUpPage from "./pages/SignUpPage";
 import UserInfoPage from "./pages/UserInfoPage";
+import ConversationLogs from "./pages/ConversationLogs";
 
 export const Router = () => {
 	return (
@@ -18,6 +19,7 @@ export const Router = () => {
 			<Routes>
 				<Route path="/chat" element={<Chat />} />
 				<Route path="/code" element={<ChatWithCode />} />
+				<Route path="/logs" element={<ConversationLogs />} />
 
 				<Route path="/sequence/" element={<StudySplashPage />} />
 				<Route path="/sequence/postTest" element={<StudyGoogleForm />} />

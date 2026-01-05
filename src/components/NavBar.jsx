@@ -26,6 +26,17 @@ export default function Navbar() {
 								Home
 							</a>
 						</li>
+						
+						<li className="nav-item">
+							<a 
+								className="nav-link text-light" 
+								href="/logs" 
+								target="_blank"
+								rel="noopener noreferrer"
+							>
+								📊 Conversation Logs
+							</a>
+						</li>
 
 						<li className="nav-item">
 							<a className="nav-link text-light" href="/sign-up">
