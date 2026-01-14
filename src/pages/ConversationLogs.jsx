@@ -16,7 +16,8 @@ export const ConversationLogs = () => {
 
   const loadSessions = () => {
     const allSessions = getAllConversationSessions();
-    setSessions(allSessions);
+    // Reverse to show newest first
+    setSessions(allSessions.reverse());
   };
 
   const handleViewLog = (sessionId) => {
@@ -84,9 +85,9 @@ export const ConversationLogs = () => {
           <p>אין יומני שיחות שמורים</p>
         </div>
       ) : (
-        <div style={{ display: 'flex', gap: '20px' }}>
+        <div style={{ display: 'flex', gap: '20px', maxHeight: 'calc(100vh - 120px)' }}>
           {/* Sessions List */}
-          <div style={{ width: '300px', borderRight: '2px solid #dee2e6', paddingRight: '20px' }}>
+          <div style={{ width: '300px', borderRight: '2px solid #dee2e6', paddingRight: '20px', overflowY: 'auto', maxHeight: 'calc(100vh - 120px)' }}>
             <h3>שיחות ({sessions.length})</h3>
             {sessions.map((session, index) => (
               <div 
@@ -102,7 +103,7 @@ export const ConversationLogs = () => {
                 onClick={() => handleViewLog(session.sessionId)}
               >
                 <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>
-                  שיחה #{sessions.length - index}
+                  שיחה #{index + 1}
                 </div>
                 <div style={{ fontSize: '12px', color: '#6c757d' }}>
                   {new Date(session.startTime).toLocaleString('he-IL')}

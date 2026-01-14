@@ -137,14 +137,24 @@ export class ConversationLog {
       sessionsList = JSON.parse(existingList);
     }
     
-    // Add this session to the list
-    sessionsList.push({
+    // Check if this session already exists in the list
+    const existingIndex = sessionsList.findIndex(s => s.sessionId === this.sessionId);
+    
+    const sessionData = {
       sessionId: this.sessionId,
       startTime: this.startTime,
       endTime: this.endTime,
       scenario: this.scenario.text.substring(0, 100),
       turnsCount: this.turns.length
-    });
+    };
+    
+    if (existingIndex >= 0) {
+      // Update existing session
+      sessionsList[existingIndex] = sessionData;
+    } else {
+      // Add new session to the list
+      sessionsList.push(sessionData);
+    }
     
     localStorage.setItem(sessionsListKey, JSON.stringify(sessionsList));
   }
