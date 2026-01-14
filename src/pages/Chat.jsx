@@ -19,6 +19,7 @@ export const Chat = () => {
 	const [hasInitiated, setHasInitiated] = useState(false);
 	const [scenario, setScenario] = useState(null);
 	const [pckFeedback, setPckFeedback] = useState(null);
+	const [feedbackHistory, setFeedbackHistory] = useState([]);
 	const [isSessionEnded, setIsSessionEnded] = useState(false);
 	const [showSummary, setShowSummary] = useState(false);
 	const [summaryFeedback, setSummaryFeedback] = useState(null);
@@ -156,11 +157,13 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 				if (lastTeacherMessage) {
 					console.log("🎯 STEP 1: Analyzing teacher's pedagogical move...");
 					console.log("💡 Requesting PCK feedback for teacher message...");
+					console.log(`📊 Feedback history: ${feedbackHistory.length} previous turns`);
 					
 					impact_analysis = await getPCKFeedback(
 						lastTeacherMessage.text,
 						history.getMessages(),
-						scenario
+						scenario,
+						feedbackHistory.slice(-3) // Pass last 3 feedback items for context
 					);
 					
 				console.log("✅ PCK analysis received:");
@@ -181,12 +184,23 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 						scenario_alignment: impact_analysis.scenario_alignment
 					};
 					
-					// Display feedback immediately
-					setPckFeedback(formattedFeedback);
-					feedbackForLog = formattedFeedback;
-					
-					console.log("📊 PCK feedback displayed to teacher");
-				}
+				// Display feedback immediately
+				setPckFeedback(formattedFeedback);
+				feedbackForLog = formattedFeedback;
+				
+				// Update feedback history for persistence tracking (last 3 turns)
+				setFeedbackHistory(prev => {
+					const newHistory = [...prev, {
+						pedagogical_quality: impact_analysis.pedagogical_quality,
+						feedback_message_hebrew: impact_analysis.feedback_message_hebrew,
+						predicted_student_state: impact_analysis.predicted_student_state
+					}];
+					// Keep only last 5 items for performance
+					return newHistory.slice(-5);
+				});
+				
+				console.log("📊 PCK feedback displayed to teacher");
+			}
 			} catch (error) {
 				console.error("❌ Error getting PCK feedback:", error);
 				// Continue even if PCK feedback fails, but log it

@@ -118,10 +118,11 @@ export async function generateWithGenAICompletion(prompt, options = {}) {
  * @param {Object} scenario - Current scenario context
  * @returns {Promise<Object>} - Structured PCK analysis object
  */
-export async function getPCKFeedback(teacherMessage, conversationHistory = [], scenario = {}) {
+export async function getPCKFeedback(teacherMessage, conversationHistory = [], scenario = {}, feedbackHistory = []) {
   try {
     console.log('💡 Requesting structured PCK feedback analysis...');
     console.log('📝 Teacher message:', teacherMessage.substring(0, 100) + '...');
+    console.log('📊 Feedback history items:', feedbackHistory.length);
     
     const response = await fetch(`${API_BASE_URL}/api/pck-feedback`, {
       method: 'POST',
@@ -131,7 +132,8 @@ export async function getPCKFeedback(teacherMessage, conversationHistory = [], s
       body: JSON.stringify({
         teacherMessage,
         conversationHistory,
-        scenario
+        scenario,
+        feedbackHistory
       })
     });
 
