@@ -116,11 +116,11 @@ export async function generateWithGenAICompletion(prompt, options = {}) {
  * @param {string} teacherMessage - The teacher's message to analyze
  * @param {Array} conversationHistory - Previous conversation messages
  * @param {Object} scenario - Current scenario context
- * @returns {Promise<string>} - PCK feedback in Hebrew
+ * @returns {Promise<Object>} - Structured PCK analysis object
  */
 export async function getPCKFeedback(teacherMessage, conversationHistory = [], scenario = {}) {
   try {
-    console.log('💡 Requesting PCK feedback analysis...');
+    console.log('💡 Requesting structured PCK feedback analysis...');
     console.log('📝 Teacher message:', teacherMessage.substring(0, 100) + '...');
     
     const response = await fetch(`${API_BASE_URL}/api/pck-feedback`, {
@@ -144,11 +144,14 @@ export async function getPCKFeedback(teacherMessage, conversationHistory = [], s
     }
 
     const result = await response.json();
-    console.log('📦 PCK feedback received:', result);
+    console.log('📦 PCK feedback received');
     
     if (result.success) {
-      console.log('✅ PCK feedback successful:', result.feedback);
-      return result.feedback;
+      console.log('✅ PCK feedback successful');
+      console.log('   Quality:', result.analysis.pedagogical_quality);
+      console.log('   Misconception addressed:', result.analysis.addressed_misconception);
+      console.log('   Predicted understanding:', result.analysis.predicted_student_state && result.analysis.predicted_student_state.understanding_level);
+      return result.analysis;
     } else {
       console.error('❌ PCK feedback returned error:', result.error);
       throw new Error(result.error || 'PCK feedback returned unsuccessful response');

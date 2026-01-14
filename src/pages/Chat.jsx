@@ -139,50 +139,87 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 				}
 			}
 			
-			// Set querying to false immediately to prevent double trigger
-			setIsQuerying(false);
+		// Set querying to false immediately to prevent double trigger
+		setIsQuerying(false);
+		
+		// NEW FLOW: PCK Analysis FIRST, then student responses
+		// This ensures students react based on pedagogical quality
+		(async () => {
+			let impact_analysis = null;
+			let feedbackForLog = null;
 			
-			// Call AI for student responses
-			callAI(history, students, scenario, addendum, async (aiMessages) => {
-				// Handle case where no students respond (silence is valid with selective responses)
-				if (!aiMessages || aiMessages.length === 0) {
-					console.log("📭 No student responses this turn - continuing conversation");
-					return;
-				}
+			// Step 1: Get PCK feedback analysis FIRST (except for first message)
+			try {
+				const teacherMessages = history.getMessages().filter(msg => msg.role === "user");
+				const lastTeacherMessage = teacherMessages[teacherMessages.length - 1];
 				
-				// Add messages, with delay only if in production
-				await history.addMessages(aiMessages, Constants.IS_PRODUCTION);
-				
-				// NEW: Get PCK feedback in parallel (separate AI call)
-				let feedbackForLog = null;
-				try {
-					const teacherMessages = history.getMessages().filter(msg => msg.role === "user");
-					const lastTeacherMessage = teacherMessages[teacherMessages.length - 1];
+				if (lastTeacherMessage) {
+					console.log("🎯 STEP 1: Analyzing teacher's pedagogical move...");
+					console.log("💡 Requesting PCK feedback for teacher message...");
 					
-					if (lastTeacherMessage) {
-						console.log("💡 Requesting PCK feedback for teacher message...");
-						const feedback = await getPCKFeedback(
-							lastTeacherMessage.text,
-							history.getMessages(),
-							scenario
-						);
+					impact_analysis = await getPCKFeedback(
+						lastTeacherMessage.text,
+						history.getMessages(),
+						scenario
+					);
+					
+				console.log("✅ PCK analysis received:");
+				console.log("   - Quality:", impact_analysis.pedagogical_quality);
+				console.log("   - Addressed misconception:", impact_analysis.addressed_misconception);
+				console.log("   - Predicted understanding:", impact_analysis.predicted_student_state && impact_analysis.predicted_student_state.understanding_level);
+					
+					// Format feedback for sidebar display
+					const formattedFeedback = {
+						detected_skills: impact_analysis.demonstrated_skills || [],
+						missed_opportunities: impact_analysis.missed_opportunities || [],
+						feedback_message: impact_analysis.feedback_message_hebrew || "המורה התקדם בשיעור",
+						should_display: true,
+						feedback_type: impact_analysis.pedagogical_quality === "positive" ? "positive" : 
+									   impact_analysis.pedagogical_quality === "problematic" ? "negative" : "neutral",
+						pedagogical_quality: impact_analysis.pedagogical_quality,
+						misconception_addressed: impact_analysis.addressed_misconception,
+						scenario_alignment: impact_analysis.scenario_alignment
+					};
+					
+					// Display feedback immediately
+					setPckFeedback(formattedFeedback);
+					feedbackForLog = formattedFeedback;
+					
+					console.log("📊 PCK feedback displayed to teacher");
+				}
+			} catch (error) {
+				console.error("❌ Error getting PCK feedback:", error);
+				// Continue even if PCK feedback fails, but log it
+				impact_analysis = null;
+			}
+			
+			// Step 2: Generate student responses WITH the impact analysis
+			console.log("🎯 STEP 2: Generating student responses based on PCK analysis...");
+			
+			callAI(
+				history, 
+				students, 
+				scenario, 
+				addendum,
+				impact_analysis,  // NEW: Pass impact_analysis to student agent
+				async (aiMessages) => {
+					// Handle case where no students respond (silence is valid with selective responses)
+					if (!aiMessages || aiMessages.length === 0) {
+						console.log("📭 No student responses this turn - continuing conversation");
+						return;
+					}
+					
+					console.log(`✅ ${aiMessages.length} student response(s) generated`);
+					
+					// Add messages, with delay only if in production
+					await history.addMessages(aiMessages, Constants.IS_PRODUCTION);
+					
+					// Log this conversation turn
+					if (conversationLoggerRef.current) {
+						const teacherMessages = history.getMessages().filter(msg => msg.role === "user");
+						const lastTeacherMessage = teacherMessages[teacherMessages.length - 1];
 						
-						console.log("✅ PCK feedback received:", feedback);
-						
-						// Format feedback for sidebar
-						const formattedFeedback = {
-							detected_skills: [],
-							missed_opportunities: [],
-							feedback_message: feedback,
-							should_display: true,
-							feedback_type: "positive"
-						};
-						
-						setPckFeedback(formattedFeedback);
-						feedbackForLog = formattedFeedback;
-						
-						// Log this conversation turn
-						if (conversationLoggerRef.current) {
+						if (lastTeacherMessage) {
 							console.log("📊 Logging conversation turn...");
 							conversationLoggerRef.current.addTurn(
 								lastTeacherMessage.text,
@@ -192,11 +229,11 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 							console.log("✅ Turn logged. Total turns:", conversationLoggerRef.current.turns.length);
 						}
 					}
-				} catch (error) {
-					console.error("❌ Error getting PCK feedback:", error);
-					// Don't block the conversation if PCK feedback fails
+					
+					console.log("🎉 Turn complete: PCK analysis → Student responses → Display");
 				}
-			});
+			);
+		})();
 		}
 	}, [isQuerying, scenario]);
 
@@ -359,28 +396,47 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 					</div>
 				</div>
 
-			{/* Show prompt when teacher should initiate */}
+			{/* Show rich briefing when teacher should initiate */}
 			{history.getLength() === 0 && scenario.initiated_by === "teacher" && !isQuerying && (
 			<div
 				style={{
-					padding: "12px 15px",
+					padding: "15px 20px",
 					margin: "10px 15px",
-					backgroundColor: "#fff3cd",
-					border: "2px solid #ffc107",
-					borderRadius: "8px",
-					textAlign: "center",
+					backgroundColor: "#f8f9fa",
+					border: "2px solid #0d6efd",
+					borderRadius: "10px",
 					direction: "rtl",
-					flex: "0 0 auto"
+					flex: "0 0 auto",
+					maxHeight: "400px",
+					overflowY: "auto"
 				}}
 			>
-				<div style={{ fontSize: "20px", marginBottom: "6px" }}>👋</div>
-				<div style={{ fontSize: "15px", fontWeight: "bold", color: "#856404", marginBottom: "6px" }}>
+			{/* Header */}
+			<div style={{ textAlign: "center", marginBottom: "15px" }}>
+				<div style={{ fontSize: "24px", marginBottom: "8px" }}>📚</div>
+				<div style={{ fontSize: "17px", fontWeight: "bold", color: "#0d6efd", marginBottom: "4px" }}>
 					אתה מתחיל את השיעור
 				</div>
-				
-				<div style={{ fontSize: "13px", color: "#555", fontStyle: "italic", marginTop: "6px" }}>
+			</div>
+
+			{/* Teacher Briefing - Instructions only */}
+			{scenario.teacher_briefing && (
+				<div style={{ padding: "12px", backgroundColor: "#fff3cd", borderRadius: "6px" }}>
+					<div style={{ fontSize: "14px", fontWeight: "bold", color: "#856404", marginBottom: "8px" }}>
+						📋 הנחיות:
+					</div>
+					<div style={{ fontSize: "13px", color: "#333", whiteSpace: "pre-line", lineHeight: "1.6" }}>
+						{scenario.teacher_briefing}
+					</div>
+				</div>
+			)}
+
+			{/* Simple fallback if no teacher briefing */}
+			{!scenario.teacher_briefing && (
+				<div style={{ fontSize: "13px", color: "#555", fontStyle: "italic", textAlign: "center" }}>
 					{scenario.initial_prompt || "התחל את השיחה עם התלמידים"}
 				</div>
+			)}
 			</div>
 			)}
 

@@ -9,7 +9,7 @@ import express from 'express';
 import cors from 'cors';
 import { VertexAI } from '@google-cloud/vertexai';
 import { GoogleAuth } from 'google-auth-library';
-import { formatTaxonomyForPrompt } from './pck_taxonomy.js';
+import { formatTaxonomyForPrompt, getPCKSkillById, formatConversationHistory } from './pck_taxonomy.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -274,10 +274,10 @@ app.post('/api/generate', async (req, res) => {
 });
 
 // API endpoint for completions (GPT-3 style)
-// NEW: PCK Feedback Analysis Endpoint
+// NEW: Comprehensive PCK Feedback Analysis Endpoint
 app.post('/api/pck-feedback', async (req, res) => {
   try {
-    console.log('💡 Received PCK feedback analysis request');
+    console.log('💡 Received comprehensive PCK feedback analysis request');
     
     const { teacherMessage, conversationHistory, scenario } = req.body;
     
@@ -288,17 +288,191 @@ app.post('/api/pck-feedback', async (req, res) => {
       });
     }
 
-    // Simple PCK analysis prompt
-    const pckPrompt = `You are a PCK (Pedagogical Content Knowledge) expert analyzing a geometry teacher's message.
+    // Build comprehensive PCK analysis prompt
+    const conversationHistoryText = formatConversationHistory(conversationHistory || []);
+    
+    // Format target PCK skills if available
+    let targetSkillsText = "";
+    if (scenario && scenario.target_pck_skills && Array.isArray(scenario.target_pck_skills)) {
+      targetSkillsText = "\n## מיומנויות PCK שהתרחיש בודק:\n";
+      scenario.target_pck_skills.forEach(skillId => {
+        const skill = getPCKSkillById(skillId);
+        if (skill) {
+          targetSkillsText += `\n**${skill.skill_name.he}**\n`;
+          targetSkillsText += `תיאור: ${skill.description.he}\n`;
+          targetSkillsText += `מה לחפש:\n`;
+          skill.indicators.forEach(ind => {
+            targetSkillsText += `- ${ind}\n`;
+          });
+          
+          if (skill.examples && skill.examples.positive) {
+            targetSkillsText += `דוגמאות חיוביות:\n`;
+            skill.examples.positive.forEach(ex => {
+              targetSkillsText += `- "${ex.text}" (${ex.why})\n`;
+            });
+          }
+          
+          if (skill.examples && skill.examples.negative) {
+            targetSkillsText += `דוגמאות שליליות:\n`;
+            skill.examples.negative.forEach(ex => {
+              targetSkillsText += `- "${ex.text}" (${ex.why})\n`;
+            });
+          }
+          
+          if (skill.common_teacher_mistakes) {
+            targetSkillsText += `טעויות נפוצות של מורים:\n`;
+            skill.common_teacher_mistakes.forEach(mistake => {
+              targetSkillsText += `- ${mistake.mistake}: "${mistake.example}"\n`;
+            });
+          }
+          targetSkillsText += "\n";
+        }
+      });
+    }
 
-Teacher's message: "${teacherMessage}"
+    const pckPrompt = `אתה מומחה PCK (Pedagogical Content Knowledge) שמנתח מהלך הוראתי של מורה לגאומטריה.
 
-Provide brief Hebrew feedback (1-2 sentences) about the teacher's pedagogical approach.
-Focus on: question quality, misconception handling, explanation clarity.
+## הקשר התרחיש
+${scenario ? `
+**רמת כיתה**: ${scenario.grade_level || 'חטיבת ביניים'}
+**נושא**: ${scenario.name || 'גאומטריה'}
+**מטרות השיעור**: ${scenario.lesson_goals || 'לא צוין'}
+**תפיסה שגויה ממוקדת**: ${scenario.misconception_focus || 'לא צוין'}
+` : 'אין הקשר תרחיש'}
+${targetSkillsText}
+${scenario && scenario.optimal_response_pattern ? `
+## דפוסי תגובה אופטימליים של מורה:
+${scenario.optimal_response_pattern}
+` : ''}
+${scenario && scenario.common_teacher_mistakes ? `
+## טעויות נפוצות של מורים שיש להימנע מהן:
+${scenario.common_teacher_mistakes}
+` : ''}
 
-${scenario && scenario.misconception_focus ? `Watch for this misconception: ${scenario.misconception_focus}` : ''}
+## היסטוריית השיחה:
+${conversationHistoryText}
 
-Respond with ONLY a short Hebrew sentence of feedback.`;
+## ההודעה האחרונה של המורה שיש לנתח:
+"${teacherMessage}"
+
+---
+
+## המשימה שלך:
+נתח את ההודעה האחרונה של המורה וספק תגובה JSON מפורטת עם המבנה הבא:
+
+\`\`\`json
+{
+  "pedagogical_quality": "positive" | "neutral" | "problematic",
+  "addressed_misconception": true/false,
+  "how_addressed": "בעברית: הסבר קצר איך המורה התייחס/לא התייחס לתפיסה המוטעית",
+  "misconception_risk": "low" | "medium" | "high",
+  "demonstrated_skills": [
+    {"skill_id": "...", "evidence": "ציטוט או תיאור"}
+  ],
+  "missed_opportunities": [
+    {"skill_id": "...", "what_could_have_been_done": "בעברית: מה היה כדאי לעשות"}
+  ],
+  "predicted_student_state": {
+    "understanding_level": "improved" | "same" | "confused" | "more_confused",
+    "likely_reactions": ["תגובה אפשרית 1", "תגובה אפשרית 2"],
+    "who_should_respond": ["שם תלמיד 1", "שם תלמיד 2"],
+    "response_tone": "confident" | "hesitant" | "confused" | "frustrated"
+  },
+  "feedback_message_hebrew": "משוב קצר למורה בעברית (2-3 משפטים)",
+  "scenario_alignment": {
+    "moving_toward_goals": true/false,
+    "alignment_score": 0-100
+  }
+}
+\`\`\`
+
+## 🚨 הנחיות קריטיות לזיהוי מיומנויות PCK:
+
+**כללי יסוד:**
+1. **לא כל תגובה טובה = מיומנות PCK ספציפית!** רוב התגובות של המורה הן המשך שיחה רגיל.
+2. **demonstrated_skills צריך להיות ריק [] ברוב המקרים!**
+3. זהה מיומנות רק אם **כל התנאים הבאים מתקיימים**:
+
+**תנאים לזיהוי מיומנות (חייבים להתקיים ביחד):**
+
+א. **התלמיד הציג טעות או תפיסה שגויה** בתור הנוכחי או הקודם
+   - אם התלמיד לא הציג טעות - אין מיומנות לזהות!
+   - המשך שיחה רגיל אינו מזדמנות לזיהוי מיומנות
+
+ב. **התגובה של המורה מכוונת ספציפית לטיפול בטעות זו**
+   - לא רק "המשיך הלאה"
+   - לא רק "אמר משהו טוב"
+   - אלא: התייחס ישירות לתפיסה השגויה
+
+ג. **המורה הפגין לפחות אחד מה"אינדיקטורים" המפורטים למעלה**
+   - בדוק את רשימת האינדיקטורים של המיומנות
+   - האם המורה עשה בדיוק מה שרשום שם?
+   - אם לא - אין זיהוי מיומנות
+
+**דוגמאות לזיהוי נכון:**
+
+✅ **כן - יש לזהות מיומנות:**
+- תלמיד: "אבל זה ריבוע, לא מלבן"
+- מורה: "בואו נבדוק - מה ההגדרה של מלבן?"
+- ← זיהוי מיומנות! המורה שואל על ההגדרה (אינדיקטור) בתגובה לטעות
+
+✅ **כן - יש לזהות מיומנות:**
+- תלמיד: "זה חייב להיות מעויין כי האלכסונים מאונכים"
+- מורה: "נכון שבמעויין האלכסונים מאונכים. אבל האם זו הצורה היחידה?"
+- ← זיהוי מיומנות! המורה מזהה את החלק הנכון ומערער (אינדיקטור)
+
+❌ **לא - אין לזהות מיומנות:**
+- מורה: "היום נדבר על מלבנים וריבועים"
+- ← אין טעות של תלמיד, אין זיהוי מיומנות
+
+❌ **לא - אין לזהות מיומנות:**
+- תלמיד: "אוקיי, הבנתי"
+- מורה: "מעולה, בואו נמשיך"
+- ← אין טעות, רק המשך שיחה
+
+❌ **לא - אין לזהות מיומנות:**
+- תלמיד: "למה ריבוע נחשב מלבן?"
+- מורה: "כי יש לו את כל התכונות של מלבן"
+- ← תשובה טובה אבל לא מפגינה אינדיקטור ספציפי (לא שואל על הגדרה, לא מכוון לבדיקה לוגית)
+
+**תדירות צפויה:**
+- בשיחה רגילה: demonstrated_skills יהיה ריק [] ב-70-80% מהמקרים
+- רק כאשר יש **אירוע ספציפי** של טיפול בתפיסה שגויה - זהה מיומנות
+
+**missed_opportunities:**
+- זהה רק כאשר התלמיד הציג טעות והמורה **לא טיפל בה בכלל** או טיפל בצורה בעייתית
+- אם המורה פשוט מדבר על נושא אחר - אין missed opportunity
+
+**predicted_student_state - CRITICAL FOR CONVERSATION FLOW:**
+
+ה-understanding_level חייב לשקף באופן מדויק את איכות ההוראה:
+- **"improved"** - השתמש כאשר:
+  • המורה הסביר בצורה ברורה ומפורטת
+  • המורה השתמש בדוגמאות או בדיקה של הגדרה
+  • המורה כיוון את התלמיד לגלות לבד
+  • ההסבר מתאים לגיל ולרמה
+  • ההסבר עונה על השאלה או מטפל בטעות
+  
+- **"same"** - השתמש כאשר:
+  • המורה נתן תשובה חלקית או כללית מדי
+  • המורה המשיך הלאה בלי לטפל ישירות בשאלה
+  
+- **"confused" / "more_confused"** - השתמש כאשר:
+  • המורה נתן הסבר מבלבל או סתמי
+  • המורה השתמש בשפה לא מותאמת
+  • המורה תיקן בצורה סמכותית בלי הסבר
+
+⚠️ **חשוב מאוד**: אם המורה הסביר טוב והשאלה נענתה - חובה לשים "improved"!
+זה קריטי למניעת לולאות שיחה אינסופיות.
+
+**הנחיות נוספות:**
+- השתמש ב-skill_id בדיוק כפי שמופיע למעלה
+- ב-evidence: צטט בדיוק מה המורה אמר שמתאים לאינדיקטור
+- התמקד ב-feedback_message_hebrew - זה מה שהמורה יראה!
+- היה שמרן ומדויק בזיהוי מיומנויות
+- אבל היה נדיב ב-understanding_level כאשר המורה מלמד טוב!
+
+תשובה JSON בלבד, ללא טקסט נוסף:`;
 
     const contents = [{
       role: 'user',
@@ -306,12 +480,12 @@ Respond with ONLY a short Hebrew sentence of feedback.`;
     }];
 
     const generationConfig = {
-      maxOutputTokens: 100,
+      maxOutputTokens: 2000,
       temperature: 0.7,
       topP: 1
     };
 
-    console.log('📤 Calling Vertex AI for PCK analysis...');
+    console.log('📤 Calling Vertex AI for comprehensive PCK analysis...');
     
     const result = await model.generateContent({
       contents,
@@ -332,12 +506,60 @@ Respond with ONLY a short Hebrew sentence of feedback.`;
       throw new Error('Invalid response structure from model');
     }
 
-    const feedbackText = candidate.content.parts[0].text;
-    console.log('✅ PCK Feedback received:', feedbackText);
+    let responseText = candidate.content.parts[0].text.trim();
+    console.log('✅ Raw PCK analysis received:', responseText.substring(0, 200) + '...');
+    
+    // Extract JSON from markdown code blocks if present
+    if (responseText.includes('```json')) {
+      const match = responseText.match(/```json\s*([\s\S]*?)\s*```/);
+      if (match && match[1]) {
+        responseText = match[1].trim();
+      }
+    } else if (responseText.includes('```')) {
+      const match = responseText.match(/```\s*([\s\S]*?)\s*```/);
+      if (match && match[1]) {
+        responseText = match[1].trim();
+      }
+    }
+    
+    // Parse the JSON response
+    let analysis;
+    try {
+      analysis = JSON.parse(responseText);
+      console.log('✅ PCK analysis parsed successfully');
+    } catch (parseError) {
+      console.error('❌ Failed to parse JSON response:', parseError);
+      console.error('Response text:', responseText);
+      throw new Error('Failed to parse AI response as JSON');
+    }
+    
+    // Validate the structure
+    if (!analysis.pedagogical_quality || !analysis.predicted_student_state) {
+      console.warn('⚠️ Incomplete analysis structure, filling in defaults');
+      analysis = {
+        pedagogical_quality: analysis.pedagogical_quality || 'neutral',
+        addressed_misconception: analysis.addressed_misconception || false,
+        how_addressed: analysis.how_addressed || 'לא ניתן לקבוע',
+        misconception_risk: analysis.misconception_risk || 'medium',
+        demonstrated_skills: analysis.demonstrated_skills || [],
+        missed_opportunities: analysis.missed_opportunities || [],
+        predicted_student_state: analysis.predicted_student_state || {
+          understanding_level: 'same',
+          likely_reactions: [],
+          who_should_respond: [],
+          response_tone: 'neutral'
+        },
+        feedback_message_hebrew: analysis.feedback_message_hebrew || 'המורה התקדם בשיעור',
+        scenario_alignment: analysis.scenario_alignment || {
+          moving_toward_goals: true,
+          alignment_score: 50
+        }
+      };
+    }
     
     res.json({ 
       success: true,
-      feedback: feedbackText.trim()
+      analysis: analysis
     });
   } catch (error) {
     console.error('❌ Error in PCK feedback:', error);
@@ -373,11 +595,25 @@ app.post('/api/pck-summary', async (req, res) => {
       return turnText;
     }).join('\n');
 
-    // Get the PCK taxonomy
-    const pckTaxonomy = formatTaxonomyForPrompt();
+    // Get target PCK skills for this scenario
+    let targetPCKSkillsText = "";
+    if (conversationLog.scenario.target_pck_skills && conversationLog.scenario.target_pck_skills.length > 0) {
+      targetPCKSkillsText = "\n## מיומנות PCK מרכזית לתרחיש זה:\n";
+      conversationLog.scenario.target_pck_skills.forEach(skillId => {
+        const skill = getPCKSkillById(skillId);
+        if (skill) {
+          targetPCKSkillsText += `\n**${skill.skill_name.he}**\n`;
+          targetPCKSkillsText += `תיאור: ${skill.description.he}\n`;
+          targetPCKSkillsText += `מה מצפים מהמורה:\n`;
+          skill.indicators.forEach(ind => {
+            targetPCKSkillsText += `- ${ind}\n`;
+          });
+        }
+      });
+    }
     
     // Comprehensive PCK analysis prompt
-    const summaryPrompt = `אתה מומחה בידע תוכן פדגוגי (PCK) בגיאומטריה. תפקידך לספק ניתוח מקיף של ביצועי המורה בשיחה זו.
+    const summaryPrompt = `אתה מומחה בידע תוכן פדגוגי (PCK) בגיאומטריה. תפקידך לספק ניתוח מקיף אך תמציתי של ביצועי המורה בשיחה זו.
 
 **הקשר השיעור:**
 ${conversationLog.scenario.text}
@@ -385,8 +621,10 @@ ${conversationLog.scenario.text}
 **מטרות השיעור:**
 ${conversationLog.scenario.lesson_goals || 'לא צוין'}
 
-**תפיסות שגויות ביעד:**
+**תפיסה שגויה שהשיעור התמקד בה:**
 ${conversationLog.scenario.misconception_focus || 'לא צוין'}
+
+${targetPCKSkillsText}
 
 **השיחה המלאה (${conversationLog.turns.length} תגובות):**
 ${conversationText}
@@ -398,39 +636,40 @@ ${conversationText}
 
 ---
 
-${pckTaxonomy}
+**הנחיות לניתוח:**
+
+1. **התמקד בעיקר במיומנות ה-PCK המרכזית** שהוגדרה למעלה - האם המורה הפגין אותה?
+2. **אך אל תהיה מוגבל רק לזה** - אתה יכול לדבר גם על היבטים כלליים של ההוראה
+3. **התאם את הניתוח לשיחה הספציפית** - אל תכפה מבנה נוקשה
+4. **אם המורה הפגין את המיומנות - תן קרדיט. אם לא - הסבר מה חסר**
+5. **היה אמיתי** - לא כל שיחה צריכה 2 דברים טובים ו-2 רעים
+6. **דוגמאות ספציפיות** מהשיחה - ציטוטים, התנהגויות
+7. **טיפים קצרים וממוקדים** - לא לחזור על אותו דבר
 
 ---
 
-**⚠️ חשוב מאוד - הוראות לניתוח:**
+**פורמט הניתוח (בעברית):**
 
-1. **התמקד אך ורק במיומנויות PCK המופיעות למעלה**
-2. **אל תזכיר או תציע מיומנויות שאינן ברשימה** (למשל: שימוש בדוגמאות חזותיות, גאוגברה, ציורים, וכו')
-3. **ציין דוגמאות ספציפיות מהשיחה**
-4. **היה מעודד אבל גם ביקורתי בונה**
-5. **ספק משוב מעשי ויישומי**
+## 📊 ניתוח כללי
+
+[פסקה ראשונה: סיכום כללי של מה ראית בשיחה - איך המורה התמודד עם התלמידים, מה היה טוב, מה פחות. התמקד במיומנות ה-PCK המרכזית אם רלוונטי]
+
+[פסקה שנייה: הערכה מעמיקה יותר - האם המורה הצליח להגיע למטרות השיעור? איך טיפל בתפיסה השגויה? מה בלט בגישה שלו?]
+
+## 💡 טיפים לשיפור
+
+- [טיפ קצר וממוקד 1]
+- [טיפ קצר וממוקד 2]
+- [טיפ קצר וממוקד 3]
+- [אם יש עוד משהו חשוב - טיפ 4]
 
 ---
 
-**ספק ניתוח מקיף בעברית בפורמט הבא:**
-
-# 📊 ניתוח מקיף PCK
-
-## ✅ מה עשית טוב
-
-[רשום 2-3 נקודות חוזק ספציפיות מהמיומנויות ברשימה, עם דוגמאות מהשיחה]
-
-## 💡 מה ניתן לשפר
-
-[רשום 2-3 תחומים לשיפור מהמיומנויות ברשימה בלבד, עם הסברים ספציפיים]
-
-## 🎯 המלצות קונקרטיות
-
-[ספק 3-4 המלצות מעשיות לשיעור הבא, **רק מהמיומנויות המוגדרות למעלה**]
-
-## 📈 סיכום
-
-[משפט או שניים של סיכום כללי על הביצועים]`;
+**חשוב**: 
+- אל תכתוב "מה עשית טוב" ו"מה ניתן לשפר" כשני חלקים נפרדים - שלב הכל בפסקאות
+- הטיפים צריכים להיות פרקטיים וישימים, לא רק חזרה על מה שכתבת בפסקאות
+- היה תמציתי - 2 פסקאות + 3-4 נקודות טיפים
+- אם המיומנות המרכזית לא התבטאה - חשוב להדגיש את זה ולהסביר למה זה היה חשוב כאן`;
 
     const contents = [{
       role: 'user',

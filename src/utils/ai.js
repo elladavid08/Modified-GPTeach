@@ -26,12 +26,12 @@ export default async function callAI(
 	students,
 	scenario,
 	addendum = "",
-	onResponse,
-	onPCKFeedback = null
+	impact_analysis = null,
+	onResponse
 ) {
 	const verNum = Constants.MODEL_VERSION;
 	if (verNum === 3) {
-		callCompletionModel(history, students, scenario, onResponse);
+		callCompletionModel(history, students, scenario, addendum, impact_analysis, onResponse);
 	} else if (verNum === 3.5) {
 		callChatModel(
 			"gpt-3.5-turbo",
@@ -39,18 +39,18 @@ export default async function callAI(
 			students,
 			scenario,
 			addendum,
-			onResponse,
-			onPCKFeedback
+			impact_analysis,
+			onResponse
 		);
 	} else {
 		// Default to 4 (or Gemini equivalent when using Google provider)
-		callChatModel("gpt-4", history, students, scenario, addendum, onResponse, onPCKFeedback);
+		callChatModel("gpt-4", history, students, scenario, addendum, impact_analysis, onResponse);
 	}
 }
 
-async function callCompletionModel(history, students, scenario, addendum, onResponse) {
+async function callCompletionModel(history, students, scenario, addendum, impact_analysis, onResponse) {
 	const myPrompt =
-		makeProsePrompt(students, scenario, addendum) +
+		makeProsePrompt(students, scenario, addendum, impact_analysis) +
 		makeHTMLTags(students) +
 		"\n\n" +
 		history.toString();
@@ -111,13 +111,13 @@ async function callChatModel(
 	students,
 	scenario,
 	addendum,
-	onResponse,
-	onPCKFeedback = null
+	impact_analysis,
+	onResponse
 ) {
 	const myPrompt = [
 		{
 			// TODO: move the code instructions somewhere else
-			content: makeProsePrompt(students, scenario, addendum),
+			content: makeProsePrompt(students, scenario, addendum, impact_analysis),
 			role: "system",
 		},
 		...history.toAIformat(),
@@ -200,7 +200,7 @@ async function callChatModel(
 				console.log(`✅ Parsed ${msgCount} message(s) and ${codeCount} code piece(s)`);
 				onResponse(messages, codePieces);
 			} else {
-				const parsedMessages = convertResponseToMessages(msg, null, students, onPCKFeedback);
+				const parsedMessages = convertResponseToMessages(msg, null, students);
 				const msgCount = parsedMessages ? parsedMessages.length : 0;
 				console.log(`✅ Parsed ${msgCount} message(s) from response`);
 				onResponse(parsedMessages, null, students);
@@ -241,7 +241,7 @@ async function callChatModel(
 
 /// Helper Functions
 
-function convertResponseToMessages(aiResponse, fromCode, students, onPCKFeedback) {
+function convertResponseToMessages(aiResponse, fromCode, students) {
 	let newMessages = [];
 
 	console.log("convertResponseToMessages called (JSON mode with Chain-of-Thought)");
@@ -288,45 +288,9 @@ function convertResponseToMessages(aiResponse, fromCode, students, onPCKFeedback
 			console.warn("No 'thinking' field in response - Chain-of-Thought may not be working");
 		}
 		
-		// Debug teacher feedback presence (new minimal approach)
-		console.log("🔍 TEACHER FEEDBACK DEBUG:");
-		console.log("  - jsonData.teacher_feedback exists:", !!jsonData.teacher_feedback);
-		console.log("  - jsonData.pck_feedback exists:", !!jsonData.pck_feedback);
-		console.log("  - onPCKFeedback callback exists:", !!onPCKFeedback);
-		
-		// Check for teacher feedback (new minimal field)
-		if (jsonData.teacher_feedback && onPCKFeedback) {
-			console.log("💡 Teacher Feedback detected - calling callback:");
-			console.log("  Feedback message:", jsonData.teacher_feedback);
-			
-			const formattedFeedback = {
-				detected_skills: [],
-				missed_opportunities: [],
-				feedback_message: jsonData.teacher_feedback,
-				should_display: true,
-				feedback_type: "positive"
-			};
-			
-			onPCKFeedback(formattedFeedback);
-		}
-		// Fallback: check for old pck_feedback format
-		else if (jsonData.pck_feedback && onPCKFeedback) {
-			console.log("💡 PCK Feedback detected - calling callback:");
-			const message = jsonData.pck_feedback.message || jsonData.pck_feedback.feedback_message || "";
-			console.log("  Feedback message:", message);
-			
-			const formattedFeedback = {
-				detected_skills: [],
-				missed_opportunities: [],
-				feedback_message: message,
-				should_display: true,
-				feedback_type: "positive"
-			};
-			
-			onPCKFeedback(formattedFeedback);
-		} else {
-			console.warn("⚠️ No teacher feedback in AI response!");
-		}
+		// NOTE: PCK feedback is now generated BEFORE student responses in a separate API call
+		// Students react based on the impact_analysis provided in the prompt
+		// No need to extract PCK feedback from student agent response
 		
 		if (!jsonData.responses || !Array.isArray(jsonData.responses)) {
 			throw new Error("Invalid JSON structure: missing 'responses' array");
@@ -375,7 +339,7 @@ function convertResponseToMessages(aiResponse, fromCode, students, onPCKFeedback
 }
 
 /** Turn the information into a paragraph */
-function makeProsePrompt(students, scenario, addendum) {
+function makeProsePrompt(students, scenario, addendum, impact_analysis = null) {
 	let retStr = "";
 	
 	// START WITH FORMATTING REQUIREMENTS - MOST CRITICAL
@@ -444,6 +408,10 @@ function makeProsePrompt(students, scenario, addendum) {
 	retStr += `\n  - If they asked a question before, did the teacher answer it? If YES, they should acknowledge the answer, NOT repeat the question!`;
 	retStr += `\n  - Confidence level (high/medium/low)`;
 	retStr += `\nSTEP 4: Generate responses ONLY for students who should respond (high/medium confidence)`;
+	
+	// NOTE: Impact analysis is now injected earlier in the prompt (lines 571-628)
+	// The PCK expert's analysis guides student reactions through the impact_analysis parameter
+	
 	retStr += `\n\n⚠️ CRITICAL CONVERSATION RULES - RESPONDING TO TEACHER'S EXPLANATIONS:`;
 	retStr += `\n- Students MUST react to the teacher's explanation - they cannot ignore it or repeat the same question`;
 	retStr += `\n- The response should be AUTHENTIC based on the quality of the teacher's explanation:`;
@@ -549,13 +517,17 @@ function makeProsePrompt(students, scenario, addendum) {
 	if (scenario.misconception_focus) {
 		retStr += "\n\n🎯 TARGETED MISCONCEPTION FOR THIS LESSON:\n";
 		retStr += scenario.misconception_focus + "\n";
-		retStr += "\n⚠️ IMPORTANT INSTRUCTIONS FOR MISCONCEPTION:\n";
-		retStr += "- ONE or TWO students should naturally express this misconception during the conversation\n";
-		retStr += "- Choose which student(s) based on their cognitive profile and the type of misconception\n";
-		retStr += "- The misconception should emerge naturally when contextually appropriate (not forced)\n";
-		retStr += "- Other students may or may not have this misconception - be realistic\n";
-		retStr += "- Present it authentically as the student's genuine thinking, not as a deliberate error\n";
-		retStr += "- The student expressing it should seem confident or uncertain based on their personality\n";
+		retStr += "\n⚠️ MISCONCEPTION LIFECYCLE (IMPORTANT):\n";
+		retStr += "**Phase 1 - Initial Expression**: ONE or TWO students should naturally express this misconception early in the conversation\n";
+		retStr += "  - Choose student(s) based on their cognitive profile and the type of misconception\n";
+		retStr += "  - Present it authentically as genuine thinking, not as deliberate error\n";
+		retStr += "  - The student should seem confident or uncertain based on their personality\n\n";
+		retStr += "**Phase 2 - Resolution**: Once the teacher addresses the misconception well:\n";
+		retStr += "  - If teacher's explanation is clear and addresses the core issue → student should show UNDERSTANDING\n";
+		retStr += "  - If teacher's explanation is vague or incomplete → student may remain confused\n";
+		retStr += "  - If teacher uses counterexample or checks definition → student should engage with that\n";
+		retStr += "  - DO NOT keep repeating the same misconception after teacher addressed it properly!\n\n";
+		retStr += "**Natural Progression**: misconception expressed → teacher addresses → student reaction (understood/still confused/new question) → conversation moves forward\n";
 	}
 	
 	// Add target PCK skills if specified (for AI context awareness)
@@ -563,6 +535,82 @@ function makeProsePrompt(students, scenario, addendum) {
 		retStr += "\n\n📋 PCK SKILLS BEING ASSESSED IN THIS SCENARIO:\n";
 		retStr += `This scenario is designed to elicit teacher responses related to: ${scenario.target_pck_skills.join(", ")}\n`;
 		retStr += "The students' misconceptions and questions should create opportunities for the teacher to demonstrate these skills.\n";
+	}
+	
+	// Add PCK impact analysis if available (NEW: from PCK expert agent)
+	if (impact_analysis) {
+		retStr += "\n\n" + "=".repeat(80) + "\n";
+		retStr += "🎯🎯🎯 CRITICAL: PCK EXPERT ANALYSIS - THIS OVERRIDES ALL OTHER INSTRUCTIONS 🎯🎯🎯\n";
+		retStr += "=".repeat(80) + "\n";
+		retStr += "A PCK expert has analyzed the teacher's last instructional move.\n";
+		retStr += "⚠️ THE FOLLOWING ANALYSIS TAKES PRIORITY OVER SCENARIO MISCONCEPTION INSTRUCTIONS!\n";
+		retStr += "⚠️ Student reactions MUST reflect the pedagogical quality determined by the expert!\n\n";
+		
+		retStr += `**Overall Pedagogical Quality**: ${impact_analysis.pedagogical_quality}\n`;
+		
+		if (impact_analysis.addressed_misconception !== undefined) {
+			retStr += `**Misconception ${impact_analysis.addressed_misconception ? 'WAS' : 'WAS NOT'} Addressed**: ${impact_analysis.how_addressed || ''}\n`;
+		}
+		
+		retStr += `**Misconception Risk Level**: ${impact_analysis.misconception_risk || 'medium'}\n\n`;
+		
+		if (impact_analysis.demonstrated_skills && impact_analysis.demonstrated_skills.length > 0) {
+			retStr += "**PCK Skills Demonstrated**:\n";
+			impact_analysis.demonstrated_skills.forEach(skill => {
+				retStr += `- ${skill.skill_id}: ${skill.evidence}\n`;
+			});
+			retStr += "\n";
+		}
+		
+		if (impact_analysis.missed_opportunities && impact_analysis.missed_opportunities.length > 0) {
+			retStr += "**Missed Opportunities**:\n";
+			impact_analysis.missed_opportunities.forEach(opp => {
+				retStr += `- ${opp.skill_id}: ${opp.what_could_have_been_done}\n`;
+			});
+			retStr += "\n";
+		}
+		
+		if (impact_analysis.predicted_student_state) {
+			retStr += "**🚨 PREDICTED STUDENT STATE - FOLLOW THESE INSTRUCTIONS 🚨**:\n";
+			const state = impact_analysis.predicted_student_state;
+			
+			retStr += `- Understanding level: ${state.understanding_level}\n`;
+			
+			if (state.who_should_respond && state.who_should_respond.length > 0) {
+				retStr += `- Who should respond: ${state.who_should_respond.join(", ")}\n`;
+			}
+			
+			retStr += `- Response tone: ${state.response_tone}\n`;
+			
+			if (state.likely_reactions && state.likely_reactions.length > 0) {
+				retStr += `- Likely reactions:\n`;
+				state.likely_reactions.forEach(reaction => {
+					retStr += `  • ${reaction}\n`;
+				});
+			}
+			retStr += "\n";
+		}
+		
+		retStr += "⚠️ **MANDATORY ALIGNMENT RULES** (NON-NEGOTIABLE):\n\n";
+		retStr += "**If pedagogical_quality = 'positive':**\n";
+		retStr += "  → Students MUST show understanding progress\n";
+		retStr += "  → Use expressions like: 'אה עכשיו הבנתי!', 'אז זה אומר ש...', 'נכון, אז...'\n";
+		retStr += "  → Students should be able to apply or demonstrate what they learned\n";
+		retStr += "  → DO NOT keep asking the same question - show you understood the answer!\n";
+		retStr += "  → Conversation should move forward to next topic or deeper question\n\n";
+		retStr += "**If pedagogical_quality = 'problematic':**\n";
+		retStr += "  → Students should show confusion or persist in misconception\n";
+		retStr += "  → Use expressions like: 'אני עדיין לא מבין', 'רגע, אז...', 'למה?'\n\n";
+		retStr += "**If pedagogical_quality = 'neutral':**\n";
+		retStr += "  → Students make modest progress or stay similar\n";
+		retStr += "  → Partial understanding with follow-up questions\n\n";
+		retStr += "**Additional Rules:**\n";
+		retStr += "- Follow the 'who_should_respond' guidance from the PCK expert\n";
+		retStr += "- Match the 'response_tone' predicted by the PCK expert\n";
+		retStr += "- Use the 'likely_reactions' as guidance for what students might say\n";
+		retStr += "- If understanding_level = 'improved' → MUST show improvement, not repeat confusion\n";
+		retStr += "- If understanding_level = 'more_confused' → MUST show confusion\n";
+		retStr += "- If addressed_misconception = true → student should acknowledge the clarification\n\n";
 	}
 	
 	// Add conversation flow instructions
@@ -574,27 +622,56 @@ function makeProsePrompt(students, scenario, addendum) {
 	retStr += "- NEVER refer to the teacher in third person (המורה, המורה אמרה)\n";
 	retStr += "- Use SIMPLE, NATURAL Hebrew like real 13-14 year old Israelis\n";
 	retStr += "- Keep sentences SHORT and CASUAL - avoid formal academic language\n";
-	retStr += "- Use everyday expressions: 'רגע', 'אז', 'אבל', 'אה', 'טוב', 'אוקיי', 'למה'\n";
+	retStr += "- Use everyday expressions: 'רגע', 'אז', 'אבל', 'אה', 'טוב', 'אוקיי', 'למה'\n\n";
+	retStr += "🚫 AVOID CONVERSATION LOOPS:\n";
+	retStr += "- DO NOT repeat the same question after teacher answered it clearly\n";
+	retStr += "- DO NOT stay stuck on the same confusion if teacher explained well\n";
+	retStr += "- If you asked something and teacher explained → show you engaged with the explanation\n";
+	retStr += "- Conversation should progress: question → explanation → reaction → new topic/deeper question\n";
+	retStr += "- Real students don't endlessly repeat the same confusion after good teaching!\n";
 
 	// Students is an array of student objects, each with a 'name' property
+	retStr += `\n\n👥 STUDENT PERSONAS:\n`;
+	retStr += `Each student has structured behavioral fields. Use these to inform responses:\n`;
 	students.forEach((student) => {
 		retStr += "\n" + student.description;
+		
+		// Add structured fields if available
+		if (student.participation) {
+			retStr += `\n  • Participation: baseline=${student.participation.baseline}`;
+			retStr += `, speaks_when=[${student.participation.speaks_when.join(", ")}]`;
+			retStr += `, avoids_when=[${student.participation.avoids_when.join(", ")}]`;
+		}
+		if (student.reasoning_style) {
+			retStr += `\n  • Reasoning style: [${student.reasoning_style.join(", ")}]`;
+		}
+		if (student.misconception_tendencies) {
+			retStr += `\n  • Misconception tendencies: [${student.misconception_tendencies.join(", ")}]`;
+		}
+		if (student.update_response) {
+			retStr += `\n  • Update response: after_good_scaffold="${student.update_response.after_good_scaffold}"`;
+			retStr += `, after_counterexample="${student.update_response.after_counterexample}"`;
+		}
+		if (student.escalation_if_confused) {
+			retStr += `\n  • Escalation if confused: ${student.escalation_if_confused}`;
+		}
+		retStr += `\n`;
 	});
+	
+	retStr += `\n\n💡 USING PERSONA FIELDS WITH PCK ANALYSIS:`;
+	retStr += `\n- Match student's update_response to the impact_analysis understanding_level`;
+	retStr += `\n- If understanding_level = "improved" → use student's "after_good_scaffold" behavior`;
+	retStr += `\n- If understanding_level = "more_confused" → use student's "escalation_if_confused" behavior`;
+	retStr += `\n- If misconception_risk is "high" → choose student with matching misconception_tendencies`;
+	retStr += `\n- Respect each student's participation baseline and speaks_when/avoids_when conditions`;
+	retStr += `\n- Follow the PCK expert's "who_should_respond" guidance strictly\n`;
 
 	retStr +=
 		"\n\n" + Constants.RESPONSE_INSTRUCTIONS + "\n" + addendum;
 	
-	// MINIMAL SINGLE FIELD APPROACH
-	retStr += `\n\nIMPORTANT: Add teacher_feedback field to your response:`;
-	retStr += `\n{`;
-	retStr += `\n  "responses": [{"student": "name", "message": "..."}],`;
-	retStr += `\n  "teacher_feedback": "Brief Hebrew comment about teacher's move"`;
-	retStr += `\n}`;
-	retStr += `\n\nExample:`;
-	retStr += `\n{`;
-	retStr += `\n  "responses": [{"student": "נועה", "message": "שלום!"}],`;
-	retStr += `\n  "teacher_feedback": "שאלה טובה לפתיחה!"`;
-	retStr += `\n}\n\n`;
+	// NOTE: Teacher feedback is now generated by a separate PCK expert agent BEFORE student responses
+	// Students simply respond based on the impact_analysis provided above
+	// No need for students to generate their own PCK feedback
 
 	return retStr;
 }
