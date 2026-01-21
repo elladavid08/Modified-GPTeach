@@ -7,6 +7,8 @@ global.Response = Response;
 
 import express from 'express';
 import cors from 'cors';
+import https from 'https';
+import fs from 'fs';
 import { VertexAI } from '@google-cloud/vertexai';
 import { GoogleAuth } from 'google-auth-library';
 import { formatTaxonomyForPrompt, getPCKSkillById, formatConversationHistory } from './pck_taxonomy.js';
@@ -957,8 +959,36 @@ app.use((req, res) => {
   });
 });
 
-app.listen(PORT, () => {
-	console.log(`🚀 Teaching Simulator backend running on http://localhost:${PORT}`);
+// app.listen(PORT, () => {
+// 	console.log(`🚀 Teaching Simulator backend running on http://localhost:${PORT}`);
+//   console.log('🔐 Using Application Default Credentials from gcloud');
+//   console.log('🎯 Project:', PROJECT_ID);
+//   console.log('🌍 Location:', LOCATION);
+//   console.log('🤖 Model: gemini-2.5-flash-lite');
+//   console.log('');
+//   console.log('Available endpoints:');
+//   console.log('  GET  /api/health - Health check');
+//   console.log('  GET  /api/test   - Test AI connection');
+//   if (ENABLE_CREDENTIAL_DEBUG) {
+//     console.log('  GET  /api/debug/credentials - Inspect ADC identity');
+//   }
+//   console.log('  POST /api/generate - Chat completions');
+//   console.log('  POST /api/completion - Text completions');
+//   console.log('  POST /api/pck-feedback - PCK feedback analysis');
+//   console.log('  POST /api/pck-summary - PCK comprehensive summary');
+// });
+
+
+// Read SSL certificate files
+const httpsOptions = {
+  key: fs.readFileSync('./server.key'),
+  cert: fs.readFileSync('./server.cert')
+};
+
+// Create HTTPS server
+https.createServer(httpsOptions, app).listen(PORT, () => {
+	console.log(`🚀 Teaching Simulator backend running on https://localhost:${PORT}`);
+  console.log('🔐 Using HTTPS with self-signed certificate');
   console.log('🔐 Using Application Default Credentials from gcloud');
   console.log('🎯 Project:', PROJECT_ID);
   console.log('🌍 Location:', LOCATION);
@@ -975,5 +1005,3 @@ app.listen(PORT, () => {
   console.log('  POST /api/pck-feedback - PCK feedback analysis');
   console.log('  POST /api/pck-summary - PCK comprehensive summary');
 });
-
-
