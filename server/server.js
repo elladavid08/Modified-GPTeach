@@ -5,10 +5,18 @@ global.Headers = Headers;
 global.Request = Request;
 global.Response = Response;
 
+// Load environment variables from .env file
+import 'dotenv/config';
+
 import express from 'express';
 import cors from 'cors';
 import https from 'https';
 import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import { VertexAI } from '@google-cloud/vertexai';
 import { GoogleAuth } from 'google-auth-library';
 import { formatTaxonomyForPrompt, getPCKSkillById, formatConversationHistory } from './pck_taxonomy.js';
@@ -19,6 +27,11 @@ const PORT = process.env.PORT || 3001;
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: '10mb' })); // Increased limit for base64 image uploads
+
+// Serve static frontend files in production
+const buildPath = path.join(__dirname, '..', 'build');
+console.log('📁 Serving static files from:', buildPath);
+app.use(express.static(buildPath));
 
 console.log('🔧 Initializing Vertex AI with Application Default Credentials...');
 
@@ -939,6 +952,13 @@ if (ENABLE_CREDENTIAL_DEBUG) {
   console.log('🛡️  Credential debug route disabled (set ENABLE_DEBUG_CREDENTIALS=true to enable)');
 }
 
+// Catch-all route: serve index.html for any non-API routes (React Router support)
+app.get('*', (req, res) => {
+  if (!req.path.startsWith('/api')) {
+    res.sendFile(path.join(buildPath, 'index.html'));
+  }
+});
+
 // Error handling middleware
 app.use((error, req, res, next) => {
   console.error('🚨 Unhandled error:', error);
@@ -979,29 +999,58 @@ app.use((req, res) => {
 // });
 
 
-// Read SSL certificate files
-const httpsOptions = {
-  key: fs.readFileSync('./server.key'),
-  cert: fs.readFileSync('./server.cert')
-};
+// Check if SSL certificates exist (production) or use HTTP (development)
+const sslKeyPath = path.join(__dirname, 'server.key');
+const sslCertPath = path.join(__dirname, 'server.cert');
 
-// Create HTTPS server
-https.createServer(httpsOptions, app).listen(PORT, () => {
-	console.log(`🚀 Teaching Simulator backend running on https://localhost:${PORT}`);
-  console.log('🔐 Using HTTPS with self-signed certificate');
-  console.log('🔐 Using Application Default Credentials from gcloud');
-  console.log('🎯 Project:', PROJECT_ID);
-  console.log('🌍 Location:', LOCATION);
-  console.log('🤖 Model: gemini-2.5-flash-lite');
-  console.log('');
-  console.log('Available endpoints:');
-  console.log('  GET  /api/health - Health check');
-  console.log('  GET  /api/test   - Test AI connection');
-  if (ENABLE_CREDENTIAL_DEBUG) {
-    console.log('  GET  /api/debug/credentials - Inspect ADC identity');
-  }
-  console.log('  POST /api/generate - Chat completions');
-  console.log('  POST /api/completion - Text completions');
-  console.log('  POST /api/pck-feedback - PCK feedback analysis');
-  console.log('  POST /api/pck-summary - PCK comprehensive summary');
-});
+if (fs.existsSync(sslKeyPath) && fs.existsSync(sslCertPath)) {
+  // Production: HTTPS
+  const httpsOptions = {
+    key: fs.readFileSync(sslKeyPath),
+    cert: fs.readFileSync(sslCertPath)
+  };
+
+  https.createServer(httpsOptions, app).listen(PORT, () => {
+    console.log(`🚀 Teaching Simulator running on https://localhost:${PORT}`);
+    console.log('🔐 Using HTTPS with SSL certificate');
+    console.log('🔐 Using Application Default Credentials from gcloud');
+    console.log('🎯 Project:', PROJECT_ID);
+    console.log('🌍 Location:', LOCATION);
+    console.log('🤖 Model: gemini-2.5-flash-lite');
+    console.log('📁 Serving frontend from:', buildPath);
+    console.log('');
+    console.log('Available endpoints:');
+    console.log('  GET  / - Frontend application');
+    console.log('  GET  /api/health - Health check');
+    console.log('  GET  /api/test   - Test AI connection');
+    if (ENABLE_CREDENTIAL_DEBUG) {
+      console.log('  GET  /api/debug/credentials - Inspect ADC identity');
+    }
+    console.log('  POST /api/generate - Chat completions');
+    console.log('  POST /api/completion - Text completions');
+    console.log('  POST /api/pck-feedback - PCK feedback analysis');
+    console.log('  POST /api/pck-summary - PCK comprehensive summary');
+  });
+} else {
+  // Development: HTTP (fallback if no certificates)
+  app.listen(PORT, () => {
+    console.log(`🚀 Teaching Simulator backend running on http://localhost:${PORT}`);
+    console.log('⚠️  No SSL certificates found - running in HTTP mode');
+    console.log('⚠️  Generate certificates with: openssl req -nodes -new -x509 -keyout server.key -out server.cert');
+    console.log('🔐 Using Application Default Credentials from gcloud');
+    console.log('🎯 Project:', PROJECT_ID);
+    console.log('🌍 Location:', LOCATION);
+    console.log('🤖 Model: gemini-2.5-flash-lite');
+    console.log('');
+    console.log('Available endpoints:');
+    console.log('  GET  /api/health - Health check');
+    console.log('  GET  /api/test   - Test AI connection');
+    if (ENABLE_CREDENTIAL_DEBUG) {
+      console.log('  GET  /api/debug/credentials - Inspect ADC identity');
+    }
+    console.log('  POST /api/generate - Chat completions');
+    console.log('  POST /api/completion - Text completions');
+    console.log('  POST /api/pck-feedback - PCK feedback analysis');
+    console.log('  POST /api/pck-summary - PCK comprehensive summary');
+  });
+}
