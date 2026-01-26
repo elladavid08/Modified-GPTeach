@@ -29,7 +29,9 @@
 		"start:backend": "cd server && npm install && npm start",
 		"start:frontend": "react-scripts start",
 		"dev": "concurrently \"npm run start:backend\" \"npm run start:frontend\"",
-		"install:all": "npm install && cd server && npm install"
+		"install:all": "npm install && cd server && npm install",
+		"build:prod": "npm run build && echo Production build complete! Frontend is in build/ folder",
+		"start:prod": "cd server && set NODE_ENV=production && npm start"
 	},
 	"eslintConfig": {
 		"extends": [

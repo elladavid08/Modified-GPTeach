@@ -18,10 +18,18 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const NODE_ENV = process.env.NODE_ENV || 'development';
 
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: '10mb' })); // Increased limit for base64 image uploads
+
+// Serve static files in production (React build)
+if (NODE_ENV === 'production') {
+  const buildPath = path.join(__dirname, '..', 'build');
+  console.log('🌐 Serving static files from:', buildPath);
+  app.use(express.static(buildPath));
+}
 
 console.log('🔧 Initializing Vertex AI with Service Account...');
 
@@ -962,14 +970,19 @@ app.use((error, req, res, next) => {
   });
 });
 
-// 404 handler
+// 404 handler - but serve index.html for non-API routes in production (React Router)
 app.use((req, res) => {
-  console.log('❓ 404 - Route not found:', req.path);
-  res.status(404).json({
-    success: false,
-    error: 'Route not found',
-    path: req.path
-  });
+  if (NODE_ENV === 'production' && !req.path.startsWith('/api')) {
+    // Send React app for client-side routing
+    res.sendFile(path.join(__dirname, '..', 'build', 'index.html'));
+  } else {
+    console.log('❓ 404 - Route not found:', req.path);
+    res.status(404).json({
+      success: false,
+      error: 'Route not found',
+      path: req.path
+    });
+  }
 });
 
 app.listen(PORT, () => {
