@@ -7,9 +7,14 @@ global.Response = Response;
 
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { VertexAI } from '@google-cloud/vertexai';
 import { GoogleAuth } from 'google-auth-library';
 import { formatTaxonomyForPrompt, getPCKSkillById, formatConversationHistory } from './pck_taxonomy.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -18,25 +23,35 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json({ limit: '10mb' })); // Increased limit for base64 image uploads
 
-console.log('🔧 Initializing Vertex AI with Application Default Credentials...');
+console.log('🔧 Initializing Vertex AI with Service Account...');
 
 const PROJECT_ID = process.env.GOOGLE_CLOUD_PROJECT || 'cloud-run-455609';
 const LOCATION = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
 const ENABLE_CREDENTIAL_DEBUG = process.env.ENABLE_DEBUG_CREDENTIALS === 'true';
 
-// Initialize Vertex AI with Application Default Credentials
+// Service Account Key Path (from environment variable or default location)
+const keyPath = process.env.GOOGLE_APPLICATION_CREDENTIALS || 
+                path.join(__dirname, 'service-account-key.json');
+
+console.log('🔑 Using service account key from:', keyPath);
+
+// Initialize Vertex AI with Service Account
 const vertexAI = new VertexAI({
   project: PROJECT_ID,
-  location: LOCATION
+  location: LOCATION,
+  googleAuthOptions: {
+    keyFilename: keyPath
+  }
 });
 
 const model = vertexAI.getGenerativeModel({
   model: 'gemini-2.5-flash-lite'
 });
 
-console.log('✅ Vertex AI initialized successfully');
+console.log('✅ Vertex AI initialized successfully with service account');
 
 const auth = new GoogleAuth({
+  keyFilename: keyPath,
   scopes: ['https://www.googleapis.com/auth/cloud-platform']
 });
 
@@ -69,11 +84,11 @@ async function fetchCredentialDetails() {
 (async () => {
   const details = await fetchCredentialDetails();
   if (details.error) {
-    console.error('⚠️  Unable to load ADC details:', details.error);
+    console.error('⚠️  Unable to load service account details:', details.error);
   } else {
-    console.log('🔐 ADC project ID:', details.projectId ?? '(unknown)');
+    console.log('🔐 Service Account project ID:', details.projectId ?? '(unknown)');
     console.log('🔐 Credential type:', details.credentialType);
-    console.log('🔐 Client email:', details.clientEmail ?? '(not provided)');
+    console.log('🔐 Service account email:', details.clientEmail ?? '(not provided)');
     console.log('🔐 Access token available:', details.tokenAvailable);
     console.log('🔐 Access token length:', details.tokenLength);
     if (details.tokenExpiry) {
@@ -959,7 +974,8 @@ app.use((req, res) => {
 
 app.listen(PORT, () => {
 	console.log(`🚀 Teaching Simulator backend running on http://localhost:${PORT}`);
-  console.log('🔐 Using Application Default Credentials from gcloud');
+  console.log('🔐 Using Service Account Authentication');
+  console.log('🔑 Key file:', keyPath);
   console.log('🎯 Project:', PROJECT_ID);
   console.log('🌍 Location:', LOCATION);
   console.log('🤖 Model: gemini-2.5-flash-lite');
@@ -968,7 +984,7 @@ app.listen(PORT, () => {
   console.log('  GET  /api/health - Health check');
   console.log('  GET  /api/test   - Test AI connection');
   if (ENABLE_CREDENTIAL_DEBUG) {
-    console.log('  GET  /api/debug/credentials - Inspect ADC identity');
+    console.log('  GET  /api/debug/credentials - Inspect service account identity');
   }
   console.log('  POST /api/generate - Chat completions');
   console.log('  POST /api/completion - Text completions');
