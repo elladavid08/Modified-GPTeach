@@ -1,4 +1,54 @@
-<!-- 28d4c9eb-b741-415a-a633-590602e42498 5e341a87-25db-4a06-9441-19505e392da2 -->
+---
+name: PCK Assessment & Training System
+overview: ""
+todos:
+  - id: 30e5000d-657e-4433-8cbb-6993b4d28fbc
+    content: Create PCK taxonomy template and documentation for education team
+    status: pending
+  - id: f96f076f-5dae-4acd-9afb-8254089d67c9
+    content: Implement PCK taxonomy data structure and sample config
+    status: pending
+  - id: dd32f1b9-d5e2-4432-9226-58cfce7d1aa8
+    content: Build PCK analyzer engine with GPT-4 meta-analysis
+    status: pending
+  - id: 50d0ca90-10cf-41f0-bde6-fe29f5cbd0e1
+    content: Create PCKSession and PCKProfile objects for state management
+    status: pending
+  - id: f82256c2-361e-47c7-bbef-dfe4ad81f4dc
+    content: Implement non-blocking PCK analysis service
+    status: pending
+  - id: 8a8cec28-38af-43d2-84be-0e0945e41f12
+    content: Build Phase 2 targeted prompting system
+    status: pending
+  - id: d7ee81ad-b242-4456-ab40-5bc36d345c1b
+    content: Integrate targeted prompting into student generation
+    status: pending
+  - id: e26bd4f4-9710-43fe-b5c7-086724deb859
+    content: Create PCKReport component with visualizations
+    status: pending
+  - id: a4b82d1c-7b34-493e-91c6-c46bf7732f80
+    content: Build ScenarioReview page with annotated transcript
+    status: pending
+  - id: fbc1c230-7a03-4e8f-9ddc-99d1635eda58
+    content: Implement PCKDashboard with progress tracking
+    status: pending
+  - id: e90f9a44-7602-4d25-ad64-e2bf0c2e50be
+    content: Add data persistence and export functionality
+    status: pending
+  - id: 243ff7be-2d9b-4d49-b359-e6c83a440bab
+    content: Integrate PCK features into existing Chat component
+    status: pending
+  - id: 5a64f042-767c-4a21-8803-3b18b75dde8c
+    content: Expand scenario bank with PCK-focused scenarios
+    status: pending
+  - id: 4663ba9a-7832-4ab4-84e6-febb05c136d4
+    content: Build research analytics and export tools
+    status: pending
+  - id: 40623560-d7b7-4efd-ae5b-e17d8e091e79
+    content: Test full system and prepare validation protocol
+    status: pending
+---
+
 # PCK Assessment & Training System
 
 ## Overview
@@ -245,21 +295,3 @@ Provide them with `PCK_TAXONOMY_TEMPLATE.md` requesting:
 **Documentation** (1):
 
 - `PCK_TAXONOMY_TEMPLATE.md` (for education team)
-
-### To-dos
-
-- [ ] Create PCK taxonomy template and documentation for education team
-- [ ] Implement PCK taxonomy data structure and sample config
-- [ ] Build PCK analyzer engine with GPT-4 meta-analysis
-- [ ] Create PCKSession and PCKProfile objects for state management
-- [ ] Implement non-blocking PCK analysis service
-- [ ] Build Phase 2 targeted prompting system
-- [ ] Integrate targeted prompting into student generation
-- [ ] Create PCKReport component with visualizations
-- [ ] Build ScenarioReview page with annotated transcript
-- [ ] Implement PCKDashboard with progress tracking
-- [ ] Add data persistence and export functionality
-- [ ] Integrate PCK features into existing Chat component
-- [ ] Expand scenario bank with PCK-focused scenarios
-- [ ] Build research analytics and export tools
-- [ ] Test full system and prepare validation protocol
