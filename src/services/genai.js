@@ -1,5 +1,9 @@
 // Backend API base URL
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
+// In production: REACT_APP_API_URL should be empty string (requests go to same domain)
+// In development: Falls back to localhost:3001
+const API_BASE_URL = process.env.REACT_APP_API_URL !== undefined 
+  ? process.env.REACT_APP_API_URL 
+  : 'http://localhost:3001';
 
 console.log('🔗 GenAI service initialized with backend URL:', API_BASE_URL);
 
