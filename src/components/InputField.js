@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState, useContext } from "react";
 import { FaPaperPlane, FaUndo } from "react-icons/fa"; // eslint-disable-line no-unused-vars
 import ChatMessage from "../objects/ChatMessage";
 import { AppContext } from "../objects/AppContext";
-import RecordingButton from "./RecordingButton";
 
 export const InputField = ({ disabled, onSend, undoMessage, onKeystroke }) => {
 	const appData = useContext(AppContext);
@@ -26,21 +25,26 @@ export const InputField = ({ disabled, onSend, undoMessage, onKeystroke }) => {
 		}
 	}, [disabled, myMsg]);
 
+	// Handle Enter key press
+	const handleKeyDown = (event) => {
+		// Check if Enter is pressed WITHOUT Shift
+		if (event.key === "Enter" && !event.shiftKey) {
+			event.preventDefault(); // Prevent new line from being added
+			handleSubmit(event);
+			setTextareaHeight("auto");
+		}
+		// If Shift+Enter, do nothing - allow default behavior (new line)
+	};
+
 	const handleKeypress = (event) => {
 		setMyMsg(event.target.value);
 
-		// Return key = submit form
-		if (event.nativeEvent.inputType === "insertLineBreak") {
-			handleSubmit(event);
-			setTextareaHeight("auto");
-		} else {
-			// Resize the textarea based on what the user has typed
-			setTextareaHeight(`${inputRef.current.scrollHeight}px`);
+		// Resize the textarea based on what the user has typed
+		setTextareaHeight(`${inputRef.current.scrollHeight}px`);
 
-			// If the user deletes all the text, reset the textarea height
-			if (event.target.value === "") {
-				setTextareaHeight("auto");
-			}
+		// If the user deletes all the text, reset the textarea height
+		if (event.target.value === "") {
+			setTextareaHeight("auto");
 		}
 
 		onKeystroke();
@@ -78,6 +82,7 @@ export const InputField = ({ disabled, onSend, undoMessage, onKeystroke }) => {
 							marginBottom: "2px",
 						}}
 						onChange={handleKeypress}
+						onKeyDown={handleKeyDown}
 						autoFocus={true}
 						ref={inputRef}
 					/>
@@ -92,8 +97,6 @@ export const InputField = ({ disabled, onSend, undoMessage, onKeystroke }) => {
 							>
 								<FaUndo />
 							</button> */}
-
-							<RecordingButton onTranscribe={setMyMsg} />
 
 						<button
 							title="שלח"

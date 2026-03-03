@@ -75,29 +75,6 @@ export const LessonTargetsSidebar = ({ scenario }) => {
           </div>
         </div>
       )}
-
-      {/* Pedagogical Guidance */}
-      {scenario.pck_guidance && (
-        <div style={{ 
-          marginBottom: '20px',
-          padding: '15px',
-          backgroundColor: '#f3e5f5',
-          borderRadius: '8px',
-          borderRight: '4px solid #9c27b0'
-        }}>
-          <h6 style={{ color: '#6a1b9a', marginBottom: '10px', fontWeight: 'bold' }}>
-            💡 עצה פדגוגית
-          </h6>
-          <div style={{ 
-            whiteSpace: 'pre-wrap', 
-            lineHeight: '1.7', 
-            color: '#495057',
-            fontSize: '0.95rem'
-          }}>
-            {scenario.pck_guidance}
-          </div>
-        </div>
-      )}
     </div>
   );
 };

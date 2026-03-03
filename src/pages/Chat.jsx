@@ -346,7 +346,7 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 						<span role="img" aria-label="classroom">
 							🏫
 						</span>{" "}
-						שיעור גיאומטריה - כיתה ח׳
+						שיעור גיאומטריה
 					</h1>
 
 					<div style={{ 
