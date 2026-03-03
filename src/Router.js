@@ -1,6 +1,5 @@
 import React from "react";
 import { Routes, Route } from "react-router";
-import { BrowserRouter } from "react-router-dom";
 import { Chat } from "./pages/Chat";
 import { ChatWithCode } from "./pages/ChatWithCode";
 import { LandingPage } from "./pages/LandingPage";
@@ -10,31 +9,36 @@ import StudyGoogleForm from "./pages/StudyGoogleForm";
 import ConfigPage from "./pages/Config";
 import LoginPage from "./pages/LoginPage";
 import SignUpPage from "./pages/SignUpPage";
+import ProfileSetupPage from "./pages/ProfileSetupPage";
 import UserInfoPage from "./pages/UserInfoPage";
 import ConversationLogs from "./pages/ConversationLogs";
+import { ProtectedRoute } from "./components/ProtectedRoute";
 
 export const Router = () => {
 	return (
-		<BrowserRouter>
-			<Routes>
-				<Route path="/chat" element={<Chat />} />
-				<Route path="/code" element={<ChatWithCode />} />
-				<Route path="/logs" element={<ConversationLogs />} />
+		<Routes>
+			{/* Authentication routes - no protection needed */}
+			<Route path="/login" element={<LoginPage />} />
+			<Route path="/sign-up" element={<SignUpPage />} />
+			<Route path="/profile-setup" element={<ProfileSetupPage />} />
 
-				<Route path="/sequence/" element={<StudySplashPage />} />
-				<Route path="/sequence/postTest" element={<StudyGoogleForm />} />
-				<Route path="/sequence/:num" element={<StudyScenario />} />
+			{/* Main chat route - protected */}
+			<Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
+			<Route path="/" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
 
-				<Route path="/config/" element={<ConfigPage />} />
-				<Route path="/login" element={<LoginPage />} />
-				<Route path="/sign-up" element={<SignUpPage />} />
-				<Route path="/user-info" element={<UserInfoPage />} />
+			{/* Other protected routes */}
+			<Route path="/code" element={<ProtectedRoute><ChatWithCode /></ProtectedRoute>} />
+			<Route path="/logs" element={<ProtectedRoute><ConversationLogs /></ProtectedRoute>} />
+			<Route path="/config/" element={<ProtectedRoute><ConfigPage /></ProtectedRoute>} />
+			<Route path="/user-info" element={<ProtectedRoute><UserInfoPage /></ProtectedRoute>} />
 
-		{/* If you add or change any routes, remember to update the Landing Page! */}
-		<Route path="/home" element={<LandingPage />} />
-		<Route path="/" element={<Chat />} />
+			{/* Study sequence routes - protected */}
+			<Route path="/sequence/" element={<ProtectedRoute><StudySplashPage /></ProtectedRoute>} />
+			<Route path="/sequence/postTest" element={<ProtectedRoute><StudyGoogleForm /></ProtectedRoute>} />
+			<Route path="/sequence/:num" element={<ProtectedRoute><StudyScenario /></ProtectedRoute>} />
 
-			</Routes>
-		</BrowserRouter>
+			{/* Landing page - protected */}
+			<Route path="/home" element={<ProtectedRoute><LandingPage /></ProtectedRoute>} />
+		</Routes>
 	);
 };

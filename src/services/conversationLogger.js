@@ -3,11 +3,16 @@
  * Tracks and saves complete conversation logs including PCK feedback
  */
 
+import { saveConversation, addMessageToConversation } from './firestoreService';
+
 export class ConversationLog {
-  constructor(scenario, students) {
+  constructor(scenario, students, userId, userProfile, systemVersion = "1.0") {
     this.sessionId = this.generateSessionId();
     this.startTime = new Date().toISOString();
     this.endTime = null;
+    this.userId = userId;
+    this.userProfile = userProfile;
+    this.systemVersion = systemVersion;
     
     // Scenario context
     this.scenario = {
@@ -33,6 +38,9 @@ export class ConversationLog {
       totalStudentMessages: 0,
       totalPCKFeedbacks: 0
     };
+    
+    // Initialize conversation in Firestore
+    this.initializeFirestoreConversation();
   }
   
   /**
@@ -43,9 +51,44 @@ export class ConversationLog {
   }
   
   /**
+   * Initialize conversation in Firestore
+   */
+  async initializeFirestoreConversation() {
+    if (!this.userId) {
+      console.warn('⚠️  No userId provided, skipping Firestore initialization');
+      return;
+    }
+    
+    const conversationData = {
+      sessionId: this.sessionId,
+      userId: this.userId,
+      systemVersion: this.systemVersion,
+      userProfile: this.userProfile,
+      scenario: this.scenario,
+      students: this.students,
+      startTime: this.startTime,
+      endTime: this.endTime,
+      turns: [],
+      stats: this.stats,
+      summaryFeedback: null
+    };
+    
+    try {
+      const result = await saveConversation(conversationData);
+      if (result.error) {
+        console.error('❌ Failed to initialize conversation in Firestore:', result.error);
+      } else {
+        console.log('✅ Conversation initialized in Firestore:', this.sessionId);
+      }
+    } catch (error) {
+      console.error('❌ Error initializing conversation in Firestore:', error);
+    }
+  }
+  
+  /**
    * Add a conversation turn (teacher message, student responses, PCK feedback)
    */
-  addTurn(teacherMessage, studentResponses, pckFeedback) {
+  async addTurn(teacherMessage, studentResponses, pckFeedback) {
     const turn = {
       turnNumber: this.turns.length + 1,
       timestamp: new Date().toISOString(),
@@ -75,27 +118,35 @@ export class ConversationLog {
     if (pckFeedback) {
       this.stats.totalPCKFeedbacks++;
     }
+    
+    // Save to Firestore
+    await this.saveToFirestore();
   }
   
   /**
    * End the conversation session
    */
-  endSession() {
+  async endSession() {
     this.endTime = new Date().toISOString();
     
     // Calculate session duration
     const start = new Date(this.startTime);
     const end = new Date(this.endTime);
     this.stats.durationMinutes = Math.round((end - start) / 1000 / 60);
+    
+    // Save to Firestore
+    await this.saveToFirestore();
   }
   
   /**
    * Add summary feedback to the log
    */
-  addSummaryFeedback(summaryFeedback) {
+  async addSummaryFeedback(summaryFeedback) {
     this.summaryFeedback = summaryFeedback;
     // Auto-save to localStorage when feedback is added
     this.saveToLocalStorage();
+    // Also save to Firestore
+    await this.saveToFirestore();
   }
   
   /**
@@ -104,6 +155,9 @@ export class ConversationLog {
   toJSON() {
     return {
       sessionId: this.sessionId,
+      userId: this.userId,
+      userProfile: this.userProfile,
+      systemVersion: this.systemVersion,
       startTime: this.startTime,
       endTime: this.endTime,
       scenario: this.scenario,
@@ -115,6 +169,25 @@ export class ConversationLog {
   }
   
   /**
+   * Save to Firestore
+   */
+  async saveToFirestore() {
+    if (!this.userId) {
+      console.warn('⚠️  No userId provided, skipping Firestore save');
+      return;
+    }
+    
+    try {
+      const result = await saveConversation(this.toJSON());
+      if (result.error) {
+        console.error('❌ Failed to save conversation to Firestore:', result.error);
+      }
+    } catch (error) {
+      console.error('❌ Error saving conversation to Firestore:', error);
+    }
+  }
+  
+  /**
    * Save to localStorage
    */
   saveToLocalStorage() {
@@ -123,6 +196,11 @@ export class ConversationLog {
     
     // Also update the list of all session IDs
     this.updateSessionsList();
+    
+    // Also save to Firestore (non-blocking)
+    this.saveToFirestore().catch(err => 
+      console.error('Failed to sync with Firestore:', err)
+    );
   }
   
   /**

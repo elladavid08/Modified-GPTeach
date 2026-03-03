@@ -1,65 +1,176 @@
 import React, { useState } from "react";
-import User from "../objects/User";
+import { useNavigate, Link } from "react-router-dom";
+import { signUpWithEmail, signInWithGoogle, getUserProfile } from "../services/authService";
 
 export default function SignUpPage() {
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
-	const [name, setName] = useState("");
+	const [confirmPassword, setConfirmPassword] = useState("");
+	const [error, setError] = useState("");
+	const [loading, setLoading] = useState(false);
+	const navigate = useNavigate();
 
-	const handleSignUp = () => {
-		// Create the user
-		const user = new User(email, name, password);
-		user.saveUser();
-		// Then redirect to user info page
-		window.location.href = "/user-info";
+	const handleEmailSignUp = async (e) => {
+		e.preventDefault();
+		
+		if (!email || !password || !confirmPassword) {
+			setError("נא למלא את כל השדות");
+			return;
+		}
+
+		if (password.length < 6) {
+			setError("הסיסמה חייבת להכיל לפחות 6 תווים");
+			return;
+		}
+
+		if (password !== confirmPassword) {
+			setError("הסיסמאות אינן תואמות");
+			return;
+		}
+
+		setError("");
+		setLoading(true);
+
+		const { user, error: signupError } = await signUpWithEmail(email, password, null);
+
+		if (signupError) {
+			setError(getHebrewErrorMessage(signupError));
+			setLoading(false);
+		} else if (user) {
+			// Check if user has completed profile (unlikely for new signup)
+			const { profile } = await getUserProfile(user.uid);
+			if (profile && profile.profileComplete) {
+				// Profile complete - go to home
+				navigate("/");
+			} else {
+				// Profile incomplete - go to profile setup
+				navigate("/profile-setup");
+			}
+		}
+	};
+
+	const handleGoogleSignUp = async () => {
+		setError("");
+		setLoading(true);
+
+		const { user, error: signupError } = await signInWithGoogle();
+
+		if (signupError) {
+			setError(getHebrewErrorMessage(signupError));
+			setLoading(false);
+		} else if (user) {
+			// Check if user has completed profile
+			const { profile } = await getUserProfile(user.uid);
+			if (profile && profile.profileComplete) {
+				// Profile complete - go to home
+				navigate("/");
+			} else {
+				// Profile incomplete - go to profile setup
+				navigate("/profile-setup");
+			}
+		}
+	};
+
+	const getHebrewErrorMessage = (error) => {
+		if (error.includes("email-already-in-use")) {
+			return "כתובת האימייל כבר רשומה במערכת. נסה להתחבר";
+		}
+		if (error.includes("invalid-email")) {
+			return "כתובת אימייל לא תקינה";
+		}
+		if (error.includes("weak-password")) {
+			return "הסיסמה חלשה מדי. השתמש לפחות ב-6 תווים";
+		}
+		return "שגיאה ביצירת חשבון. נסה שוב";
 	};
 
 	return (
-		<div className="container">
+		<div className="container" dir="rtl" style={{ paddingTop: '80px', paddingBottom: '50px' }}>
 			<div className="row justify-content-center">
 				<div className="col-md-6">
-					<div className="card mt-5">
-						<div className="card-body">
-							<h2 className="card-title">Create Account</h2>
-							<form onSubmit={handleSignUp}>
-								<div className="form-group">
-									<label>Email:</label>
+					<div className="card shadow" style={{ marginTop: '20px', marginBottom: '30px' }}>
+						<div className="card-body p-5">
+							<h2 className="card-title text-center mb-4">הרשמה למערכת RAMBAM</h2>
+							<p className="text-center text-muted mb-4">
+								הצטרף לסימולטור RAMBAM לתרגול הוראת גיאומטריה
+							</p>
+							
+							{error && (
+								<div className="alert alert-danger" role="alert">
+									{error}
+								</div>
+							)}
+
+							<form onSubmit={handleEmailSignUp}>
+								<div className="form-group mb-3">
+									<label className="form-label">אימייל:</label>
 									<input
-										type="text"
+										type="email"
 										className="form-control"
 										value={email}
 										onChange={(e) => setEmail(e.target.value)}
+										placeholder="your.email@example.com"
+										disabled={loading}
 									/>
 								</div>
 
-								<div className="form-group">
-									<label>Password:</label>
+								<div className="form-group mb-3">
+									<label className="form-label">סיסמה (לפחות 6 תווים):</label>
 									<input
 										type="password"
 										className="form-control"
 										value={password}
 										onChange={(e) => setPassword(e.target.value)}
+										placeholder="••••••••"
+										disabled={loading}
 									/>
 								</div>
 
-								<div className="form-group">
-									<label>Display Name:</label>
+								<div className="form-group mb-4">
+									<label className="form-label">אימות סיסמה:</label>
 									<input
-										type="name"
+										type="password"
 										className="form-control"
-										value={name}
-										onChange={(e) => setName(e.target.value)}
+										value={confirmPassword}
+										onChange={(e) => setConfirmPassword(e.target.value)}
+										placeholder="••••••••"
+										disabled={loading}
 									/>
 								</div>
 
 								<button
-									type="button"
-									className="btn btn-primary"
-									onClick={handleSignUp}
+									type="submit"
+									className="btn btn-primary w-100 mb-3"
+									disabled={loading}
 								>
-									Create Account
+									{loading ? "מבצע הרשמה..." : "הירשם"}
 								</button>
 							</form>
+
+							<div className="text-center mb-3">
+								<span className="text-muted">או</span>
+							</div>
+
+							<button
+								type="button"
+								className="btn btn-outline-danger w-100 mb-4"
+								onClick={handleGoogleSignUp}
+								disabled={loading}
+							>
+								<svg width="18" height="18" viewBox="0 0 18 18" style={{ marginLeft: '8px' }}>
+									<path fill="#4285F4" d="M16.51 8H8.98v3h4.3c-.18 1-.74 1.48-1.6 2.04v2.01h2.6a7.8 7.8 0 0 0 2.38-5.88c0-.57-.05-.66-.15-1.18z"></path>
+									<path fill="#34A853" d="M8.98 17c2.16 0 3.97-.72 5.3-1.94l-2.6-2a4.8 4.8 0 0 1-7.18-2.54H1.83v2.07A8 8 0 0 0 8.98 17z"></path>
+									<path fill="#FBBC05" d="M4.5 10.52a4.8 4.8 0 0 1 0-3.04V5.41H1.83a8 8 0 0 0 0 7.18l2.67-2.07z"></path>
+									<path fill="#EA4335" d="M8.98 4.18c1.17 0 2.23.4 3.06 1.2l2.3-2.3A8 8 0 0 0 1.83 5.4L4.5 7.49a4.77 4.77 0 0 1 4.48-3.3z"></path>
+								</svg>
+								הירשם עם Google
+							</button>
+
+							<div className="text-center">
+								<p className="text-muted mb-0">
+									כבר יש לך חשבון? <Link to="/login">התחבר כאן</Link>
+								</p>
+							</div>
 						</div>
 					</div>
 				</div>

@@ -159,3 +159,29 @@ export const saveCompleteConversation = async (conversationData) => {
     return { conversationId: null, error: error.message };
   }
 };
+
+/**
+ * Save or update conversation (for conversation logger)
+ * Uses sessionId as the document ID to enable updates
+ */
+export const saveConversation = async (conversationData) => {
+  try {
+    const conversationRef = doc(db, 'conversations', conversationData.sessionId);
+    await setDoc(conversationRef, {
+      ...conversationData,
+      lastUpdated: serverTimestamp()
+    }, { merge: true });
+    
+    return { error: null };
+  } catch (error) {
+    console.error('Error saving conversation:', error);
+    return { error: error.message };
+  }
+};
+
+/**
+ * Add message to conversation (for conversation logger compatibility)
+ */
+export const addMessageToConversation = async (sessionId, messageData) => {
+  return addMessage(sessionId, messageData);
+};

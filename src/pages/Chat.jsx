@@ -1,5 +1,6 @@
 import React, { useState, useContext, useEffect, useRef } from "react";
 import { Constants } from "../config/constants";
+import { SYSTEM_VERSION } from "../config/version";
 import callAI from "../utils/ai.js";
 import { getPCKFeedback, getPCKSummary } from "../services/genai.js";
 import { Messages } from "../components/Messages";
@@ -10,11 +11,13 @@ import { HistoryContext } from "../objects/ChatHistory";
 import { AppContext } from "../objects/AppContext";
 import { shuffleArray } from "../utils/primitiveManipulation";
 import { ConversationLog } from "../services/conversationLogger";
+import { useAuth } from "../contexts/AuthContext";
 import "../style/ChatOnly.css";
 
 export const Chat = () => {
 	const history = useContext(HistoryContext);
 	const appData = useContext(AppContext);
+	const { currentUser, userProfile } = useAuth();
 	const [isQuerying, setIsQuerying] = useState(false);
 	const [hasInitiated, setHasInitiated] = useState(false);
 	const [scenario, setScenario] = useState(null);
@@ -42,12 +45,18 @@ export const Chat = () => {
 	
 	// Initialize conversation logger when scenario and students are ready
 	useEffect(() => {
-		if (scenario && students.length > 0 && !conversationLoggerRef.current) {
+		if (scenario && students.length > 0 && !conversationLoggerRef.current && currentUser) {
 			console.log("📊 Initializing conversation logger...");
-			conversationLoggerRef.current = new ConversationLog(scenario, students);
+			conversationLoggerRef.current = new ConversationLog(
+				scenario, 
+				students, 
+				currentUser.uid, 
+				userProfile, 
+				SYSTEM_VERSION
+			);
 			console.log("✅ Conversation logger initialized:", conversationLoggerRef.current.sessionId);
 		}
-	}, [scenario, students]);
+	}, [scenario, students, currentUser, userProfile]);
 	
 	const students = appData.students ? appData.students.slice(0, Constants.NUM_STUDENTS) : [];
 
@@ -322,8 +331,8 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 				className="d-flex flex-column"
 				style={{
 					position: 'fixed',
-					left: '300px',
-					right: '300px',
+					left: '22%',
+					right: '22%',
 					top: '60px',
 					bottom: 0,
 					height: 'calc(100vh - 60px)',
@@ -420,9 +429,7 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 					border: "2px solid #0d6efd",
 					borderRadius: "10px",
 					direction: "rtl",
-					flex: "0 0 auto",
-					maxHeight: "400px",
-					overflowY: "auto"
+					flex: "0 0 auto"
 				}}
 			>
 			{/* Header */}

@@ -9,7 +9,7 @@ export const LessonTargetsSidebar = ({ scenario }) => {
       left: 0,
       top: '60px',
       height: 'calc(100vh - 60px)',
-      width: '300px',
+      width: '22%',
       backgroundColor: '#f8f9fa',
       borderRight: '2px solid #dee2e6',
       padding: '20px',

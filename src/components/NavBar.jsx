@@ -1,11 +1,32 @@
 import React from "react";
+import { useAuth } from "../contexts/AuthContext";
+import { logout } from "../services/authService";
+import { useNavigate } from "react-router-dom";
 
 export default function Navbar() {
+	const { isAuthenticated, currentUser, userProfile } = useAuth();
+	const navigate = useNavigate();
+
+	const handleLogout = async () => {
+		await logout();
+		navigate("/login");
+	};
+
+	const getUserDisplayName = () => {
+		if (userProfile && userProfile.fullName) {
+			return userProfile.fullName;
+		}
+		if (currentUser && currentUser.email) {
+			return currentUser.email;
+		}
+		return 'פרופיל';
+	};
+
 	return (
 		<nav className="navbar navbar-expand-lg navbar-light bg-primary" style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 1000, height: '60px' }}>
 			<div className="container">
-				<a className="navbar-brand text-light" href="/home">
-					Geometry Teaching Simulator
+				<a className="navbar-brand text-light" href="/">
+					סימולטור RAMBAM
 				</a>
 				<button
 					className="navbar-toggler"
@@ -20,47 +41,55 @@ export default function Navbar() {
 				</button>
 
 				<div className="collapse navbar-collapse" id="navbarNav">
-					<ul className="navbar-nav ml-auto">
-						<li className="nav-item">
-							<a className="nav-link text-light" href="/">
-								Home
-							</a>
-						</li>
-						
-						<li className="nav-item">
-							<a 
-								className="nav-link text-light" 
-								href="/logs" 
-								target="_blank"
-								rel="noopener noreferrer"
-							>
-								📊 Conversation Logs
-							</a>
-						</li>
+					<ul className="navbar-nav ms-auto">
+						{isAuthenticated ? (
+							<>
+								<li className="nav-item">
+									<a className="nav-link text-light" href="/">
+										דף הבית
+									</a>
+								</li>
+								
+								<li className="nav-item">
+									<a 
+										className="nav-link text-light" 
+										href="/logs"
+									>
+										היסטוריית שיחות
+									</a>
+								</li>
 
-						<li className="nav-item">
-							<a className="nav-link text-light" href="/sign-up">
-								Sign Up
-							</a>
-						</li>
+								<li className="nav-item">
+									<a className="nav-link text-light" href="/user-info">
+										{getUserDisplayName()}
+									</a>
+								</li>
 
-						<li className="nav-item">
-							<a className="nav-link text-light" href="/user-info">
-								User Info
-							</a>
-						</li>
+								<li className="nav-item">
+									<button
+										className="btn btn-outline-light btn-sm"
+										onClick={handleLogout}
+										style={{ marginTop: '4px' }}
+									>
+										יציאה
+									</button>
+								</li>
+							</>
+						) : (
+							<>
+								<li className="nav-item">
+									<a className="nav-link text-light" href="/login">
+										התחברות
+									</a>
+								</li>
 
-						<li className="nav-item">
-							<button
-								className="btn btn-outline-light"
-								onClick={() => {
-									localStorage.clear();
-									window.location.href = "/sign-up";
-								}}
-							>
-								Sign Out
-							</button>
-						</li>
+								<li className="nav-item">
+									<a className="nav-link text-light" href="/sign-up">
+										הרשמה
+									</a>
+								</li>
+							</>
+						)}
 					</ul>
 				</div>
 			</div>
