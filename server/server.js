@@ -12,6 +12,7 @@ import { fileURLToPath } from 'url';
 import { VertexAI } from '@google-cloud/vertexai';
 import { GoogleAuth } from 'google-auth-library';
 import { formatTaxonomyForPrompt, getPCKSkillById, formatConversationHistory } from './pck_taxonomy.js';
+import { saveConversation, saveMessage, createUserProfile, getUserProfile } from './services/firebaseAdmin.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -960,6 +961,132 @@ if (ENABLE_CREDENTIAL_DEBUG) {
   console.log('🛡️  Credential debug route disabled (set ENABLE_DEBUG_CREDENTIALS=true to enable)');
 }
 
+// ==========================================
+// FIREBASE / FIRESTORE ENDPOINTS
+// ==========================================
+
+// Save a complete conversation to Firestore
+app.post('/api/conversations', async (req, res) => {
+  try {
+    console.log('💾 Saving conversation to Firestore');
+    const conversationData = req.body;
+    
+    if (!conversationData.userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId is required'
+      });
+    }
+    
+    const { conversationId, error } = await saveConversation(conversationData);
+    
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        error: error
+      });
+    }
+    
+    res.json({
+      success: true,
+      conversationId
+    });
+  } catch (error) {
+    console.error('❌ Error saving conversation:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Add a message to an existing conversation
+app.post('/api/conversations/:id/messages', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const messageData = req.body;
+    
+    console.log(`💾 Adding message to conversation ${id}`);
+    
+    const { error } = await saveMessage(id, messageData);
+    
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        error: error
+      });
+    }
+    
+    res.json({
+      success: true
+    });
+  } catch (error) {
+    console.error('❌ Error adding message:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Create or update user profile
+app.post('/api/users/:id/profile', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const profileData = req.body;
+    
+    console.log(`👤 Creating/updating profile for user ${id}`);
+    
+    const { error } = await createUserProfile(id, profileData);
+    
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        error: error
+      });
+    }
+    
+    res.json({
+      success: true
+    });
+  } catch (error) {
+    console.error('❌ Error creating/updating profile:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Get user profile
+app.get('/api/users/:id/profile', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    console.log(`👤 Getting profile for user ${id}`);
+    
+    const { profile, error } = await getUserProfile(id);
+    
+    if (error) {
+      return res.status(404).json({
+        success: false,
+        error: error
+      });
+    }
+    
+    res.json({
+      success: true,
+      profile
+    });
+  } catch (error) {
+    console.error('❌ Error getting profile:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // Error handling middleware
 app.use((error, req, res, next) => {
   console.error('🚨 Unhandled error:', error);
@@ -1003,6 +1130,12 @@ app.listen(PORT, () => {
   console.log('  POST /api/completion - Text completions');
   console.log('  POST /api/pck-feedback - PCK feedback analysis');
   console.log('  POST /api/pck-summary - PCK comprehensive summary');
+  console.log('');
+  console.log('Firebase/Firestore endpoints:');
+  console.log('  POST /api/conversations - Save conversation');
+  console.log('  POST /api/conversations/:id/messages - Add message');
+  console.log('  POST /api/users/:id/profile - Create/update profile');
+  console.log('  GET  /api/users/:id/profile - Get user profile');
 });
 
 

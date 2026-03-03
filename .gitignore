@@ -16,6 +16,8 @@ server/node_modules/
 .env.development.local
 .env.test.local
 .env.production.local
+.env.production-backup
+.env.*backup
 
 # Google Cloud service account keys (NEVER commit these!)
 **/service-account-key.json
