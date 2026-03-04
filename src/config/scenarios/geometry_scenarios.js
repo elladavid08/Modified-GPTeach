@@ -340,9 +340,10 @@ const scenarios = [
 		],
 		
 		pck_guidance: "זהה הסתמכות על דימוי חזותי. החזר להגדרה פורמלית והפרד בין מראה לבין תכונות מתמטיות"
-	},
+	}
 	
-	// SCENARIO 4: Diagonal Bisecting Angle - Over-generalization (9th Grade)
+	// SCENARIO 4: Diagonal Bisecting Angle - Over-generalization (9th Grade) - COMMENTED OUT
+	/*
 	{
 		text: "השיעור של השבוע הוא על תכונות אלכסונים במרובעים שונים",
 		keywords: ["אלכסונים", "חוצה זווית", "מעוין", "מלבן", "מקבילית", "הכללת יתר"],
@@ -423,6 +424,7 @@ const scenarios = [
 		
 		pck_guidance: "זהה הכללת יתר מצורה אחת לכל המרובעים. הוביל לבדיקה במקרים ספציפיים (מלבן עם זוויות 90 מעלות)"
 	}
+	*/
 	
 	// ==================== END OF EDUCATION TEAM SCENARIOS ====================
 ];
