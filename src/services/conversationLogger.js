@@ -3,7 +3,7 @@
  * Tracks and saves complete conversation logs including PCK feedback
  */
 
-import { saveConversation, addMessageToConversation } from './firestoreService';
+import { saveConversation, addMessageToConversation, saveOrGetStudentPersona } from './firestoreService';
 
 export class ConversationLog {
 	constructor(scenario, students, userId, userProfile, systemVersion = "1.0") {
@@ -23,11 +23,11 @@ export class ConversationLog {
 			initiated_by: scenario.initiated_by
 		};
 		
-		// Students in this session
-		this.students = students.map(s => ({
-			name: s.name,
-			description: s.description
-		}));
+		// Store student data temporarily for initialization
+		this.studentsData = students;
+		
+		// Student persona references (will be populated on first save)
+		this.studentRefs = [];
 		
 		// Conversation turns (teacher message + student responses + PCK feedback)
 		this.turns = [];
@@ -51,40 +51,49 @@ export class ConversationLog {
     return `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
   
-  /**
-   * Initialize conversation in Firestore
-   */
-  async initializeFirestoreConversation() {
-    if (!this.userId) {
-      console.warn('⚠️  No userId provided, skipping Firestore initialization');
-      return;
-    }
-    
-    const conversationData = {
-      sessionId: this.sessionId,
-      userId: this.userId,
-      systemVersion: this.systemVersion,
-      userProfile: this.userProfile,
-      scenario: this.scenario,
-      students: this.students,
-      startTime: this.startTime,
-      endTime: this.endTime,
-      turns: [],
-      stats: this.stats,
-      summaryFeedback: null
-    };
-    
-    try {
-      const result = await saveConversation(conversationData);
-      if (result.error) {
-        console.error('❌ Failed to initialize conversation in Firestore:', result.error);
-      } else {
-        console.log('✅ Conversation initialized in Firestore:', this.sessionId);
-      }
-    } catch (error) {
-      console.error('❌ Error initializing conversation in Firestore:', error);
-    }
-  }
+	/**
+	 * Initialize conversation in Firestore
+	 */
+	async initializeFirestoreConversation() {
+		if (!this.userId) {
+			console.warn('⚠️  No userId provided, skipping Firestore initialization');
+			return;
+		}
+		
+		try {
+			// Create/get student persona references
+			console.log('📚 Creating student persona references...');
+			this.studentRefs = await Promise.all(
+				this.studentsData.map(student => 
+					saveOrGetStudentPersona(student, this.systemVersion)
+				)
+			);
+			console.log('✅ Student persona references created:', this.studentRefs);
+			
+			const conversationData = {
+				sessionId: this.sessionId,
+				userId: this.userId,
+				systemVersion: this.systemVersion,
+				userProfile: this.userProfile,
+				scenario: this.scenario,
+				studentRefs: this.studentRefs,  // Store references instead of full data
+				startTime: this.startTime,
+				endTime: this.endTime,
+				turns: [],
+				stats: this.stats,
+				summaryFeedback: null
+			};
+			
+			const result = await saveConversation(conversationData);
+			if (result.error) {
+				console.error('❌ Failed to initialize conversation in Firestore:', result.error);
+			} else {
+				console.log('✅ Conversation initialized in Firestore:', this.sessionId);
+			}
+		} catch (error) {
+			console.error('❌ Error initializing conversation in Firestore:', error);
+		}
+	}
   
 	/**
 	 * Add a conversation turn (teacher message, student responses, PCK feedback)
@@ -163,24 +172,24 @@ export class ConversationLog {
 		}
 	}
   
-  /**
-   * Get the complete log as JSON
-   */
-  toJSON() {
-    return {
-      sessionId: this.sessionId,
-      userId: this.userId,
-      userProfile: this.userProfile,
-      systemVersion: this.systemVersion,
-      startTime: this.startTime,
-      endTime: this.endTime,
-      scenario: this.scenario,
-      students: this.students,
-      turns: this.turns,
-      stats: this.stats,
-      summaryFeedback: this.summaryFeedback || null
-    };
-  }
+	/**
+	 * Get the complete log as JSON
+	 */
+	toJSON() {
+		return {
+			sessionId: this.sessionId,
+			userId: this.userId,
+			userProfile: this.userProfile,
+			systemVersion: this.systemVersion,
+			startTime: this.startTime,
+			endTime: this.endTime,
+			scenario: this.scenario,
+			studentRefs: this.studentRefs,  // Use references instead of full data
+			turns: this.turns,
+			stats: this.stats,
+			summaryFeedback: this.summaryFeedback || null
+		};
+	}
   
   /**
    * Save to Firestore

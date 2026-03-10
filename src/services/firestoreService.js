@@ -185,3 +185,80 @@ export const saveConversation = async (conversationData) => {
 export const addMessageToConversation = async (sessionId, messageData) => {
   return addMessage(sessionId, messageData);
 };
+
+/**
+ * Save or get student persona
+ * Creates a versioned student persona document if it doesn't exist
+ * Returns the persona reference ID
+ */
+export const saveOrGetStudentPersona = async (student, systemVersion) => {
+  try {
+    // Build persona ID: v{version}_{id}
+    const personaId = `v${student.version}_${student.id}`;
+    
+    // Check if this persona version already exists
+    const personaRef = doc(db, 'studentPersonas', personaId);
+    const personaSnap = await getDoc(personaRef);
+    
+    if (!personaSnap.exists()) {
+      // Create new persona version
+      await setDoc(personaRef, {
+        id: student.id,
+        name: student.name,
+        version: student.version,
+        description: student.description,
+        keywords: student.keywords || [],
+        reasoning_style: student.reasoning_style || [],
+        misconception_tendencies: student.misconception_tendencies || [],
+        systemVersion: systemVersion,
+        createdAt: serverTimestamp()
+      });
+      console.log(`✅ Created student persona: ${personaId}`);
+    } else {
+      console.log(`✅ Student persona already exists: ${personaId}`);
+    }
+    
+    return personaId;
+  } catch (error) {
+    console.error('Error saving student persona:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get student persona by reference ID
+ */
+export const getStudentPersona = async (personaId) => {
+  try {
+    const personaRef = doc(db, 'studentPersonas', personaId);
+    const personaSnap = await getDoc(personaRef);
+    
+    if (personaSnap.exists()) {
+      return { persona: personaSnap.data(), error: null };
+    } else {
+      return { persona: null, error: 'Persona not found' };
+    }
+  } catch (error) {
+    console.error('Error getting student persona:', error);
+    return { persona: null, error: error.message };
+  }
+};
+
+/**
+ * Get multiple student personas by reference IDs
+ */
+export const getStudentPersonas = async (personaIds) => {
+  try {
+    const personas = await Promise.all(
+      personaIds.map(async (id) => {
+        const result = await getStudentPersona(id);
+        return result.persona;
+      })
+    );
+    
+    return { personas: personas.filter(p => p !== null), error: null };
+  } catch (error) {
+    console.error('Error getting student personas:', error);
+    return { personas: [], error: error.message };
+  }
+};
