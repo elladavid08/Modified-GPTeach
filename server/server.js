@@ -12,6 +12,7 @@ import { fileURLToPath } from 'url';
 import { VertexAI } from '@google-cloud/vertexai';
 import { GoogleAuth } from 'google-auth-library';
 import { formatTaxonomyForPrompt, getPCKSkillById, formatConversationHistory } from './pck_taxonomy.js';
+import { formatSkillsForPrompt } from './universal_pck_skills.js';
 import { saveConversation, saveMessage, createUserProfile, getUserProfile } from './services/firebaseAdmin.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -315,8 +316,7 @@ app.post('/api/pck-feedback', async (req, res) => {
     // Build comprehensive PCK analysis prompt
     const conversationHistoryText = formatConversationHistory(conversationHistory || []);
     
-    // Import universal PCK skills
-    const { formatSkillsForPrompt } = require('./universal_pck_skills');
+    // Format universal PCK skills for prompt
     const universalSkillsText = formatSkillsForPrompt();
 
     const pckPrompt = `You are a PCK (Pedagogical Content Knowledge) expert analyzing a Hebrew geometry teacher's pedagogical moves in real-time.

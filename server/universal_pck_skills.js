@@ -426,7 +426,7 @@ Hebrew patterns: ${skill.scoring_rubric.score_2.hebrew_patterns.slice(0, 3).join
   }).join('\n---\n');
 }
 
-module.exports = {
+export {
   universalPCKSkills,
   getPCKSkillById,
   getAllPCKSkills,
