@@ -180,21 +180,26 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 				console.log("   - Addressed misconception:", impact_analysis.addressed_misconception);
 				console.log("   - Predicted understanding:", impact_analysis.predicted_student_state && impact_analysis.predicted_student_state.understanding_level);
 					
-					// Format feedback for sidebar display
-					const formattedFeedback = {
-						detected_skills: impact_analysis.demonstrated_skills || [],
-						missed_opportunities: impact_analysis.missed_opportunities || [],
-						feedback_message: impact_analysis.feedback_message_hebrew || "המורה התקדם בשיעור",
-						should_display: true,
-						feedback_type: impact_analysis.pedagogical_quality === "positive" ? "positive" : 
-									   impact_analysis.pedagogical_quality === "problematic" ? "negative" : "neutral",
-						pedagogical_quality: impact_analysis.pedagogical_quality,
-						misconception_addressed: impact_analysis.addressed_misconception,
-						scenario_alignment: impact_analysis.scenario_alignment
-					};
-					
-				// Display feedback immediately
+				// Format feedback for sidebar display
+				const formattedFeedback = {
+					detected_skills: impact_analysis.demonstrated_skills || [],
+					missed_opportunities: impact_analysis.missed_opportunities || [],
+					feedback_message: impact_analysis.feedback_message_hebrew || "",
+					should_display: impact_analysis.should_provide_feedback || false,  // Respect backend decision
+					feedback_type: impact_analysis.pedagogical_quality === "positive" ? "positive" : 
+								   impact_analysis.pedagogical_quality === "problematic" ? "negative" : "neutral",
+					pedagogical_quality: impact_analysis.pedagogical_quality,
+					misconception_addressed: impact_analysis.addressed_misconception,
+					scenario_alignment: impact_analysis.scenario_alignment
+				};
+				
+			// Display feedback only if backend says to provide it
+			if (impact_analysis.should_provide_feedback) {
 				setPckFeedback(formattedFeedback);
+			} else {
+				// Clear feedback if not needed
+				setPckFeedback(null);
+			}
 				feedbackForLog = formattedFeedback;
 				
 				// Update feedback history for persistence tracking (last 3 turns)

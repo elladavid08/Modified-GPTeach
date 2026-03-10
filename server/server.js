@@ -327,6 +327,8 @@ ${scenario ? `
 **Topic**: ${scenario.name || 'Geometry'}
 **Lesson Goals**: ${scenario.lesson_goals || 'Not specified'}
 **Target Misconception**: ${scenario.misconception_focus || 'Not specified'}
+
+⚠️ NOTE: The "Target Misconception" is what MIGHT appear in the conversation. Do NOT give feedback about it unless a STUDENT actually shows this misconception and the TEACHER responds to it. Context is for reference only - don't give preemptive tips.
 ` : 'No scenario context provided'}
 
 ## Universal PCK Skills to Assess
@@ -369,49 +371,99 @@ Even if no teacher feedback is needed, assess how this move affects students:
 
 ## 🚦 PHASE 1: Should Feedback Be Provided?
 
-Provide feedback ONLY if one or more conditions is true:
-1. ❌ Teacher gave factually incorrect information
-2. ❌ Student showed clear misconception and teacher didn't respond appropriately
-3. ❌ Teacher used problematic approach (authoritative correction, "don't think about it", epistemic abdication)
-4. ✅ Teacher demonstrated exceptionally strong PCK skill use (worth praising)
-5. 🔄 Clear opportunity to use a PCK skill was missed
+**🚨 CRITICAL RULE: NO FEEDBACK unless a STUDENT has made an ERROR/MISCONCEPTION**
 
-**Examples of NO FEEDBACK needed:**
-- "שלום, היום נדבר על משולשים" (procedural talk)
-- "אוקיי, בואו נמשיך" (normal flow)
-- Student correct + teacher acknowledges
+The 5 PCK skills are about handling student errors. Without a student error, there's nothing to assess.
 
-**Examples of FEEDBACK needed:**
-- Student: "ריבוע זה לא מלבן" + Teacher: "נכון" (incorrect content!)
-- Student shows misconception + Teacher ignores it
-- Teacher: "אל תחשבו על זה יותר מדי" (epistemic abdication)
+**Required conditions for providing feedback (ALL must be true):**
+1. ✅ At least one STUDENT has already responded in the conversation
+2. ✅ That student showed an error, misconception, or incorrect reasoning
+3. ✅ The teacher's response is being analyzed for how they handled (or didn't handle) that error
 
-## 🎯 PHASE 2: Score Relevant PCK Skills (only if Phase 1 = true)
+**Then assess if:**
+- ❌ Teacher gave incorrect information responding to the error
+- ❌ Teacher didn't address the student's misconception appropriately  
+- ❌ Teacher used problematic approach (authoritative without explanation, epistemic abdication)
+- ✅ Teacher demonstrated strong PCK skill in addressing the error (praise-worthy)
+- 🔄 Teacher missed opportunity to address the error properly
+
+**❌ NEVER provide feedback when:**
+- Teacher is opening the lesson → No student errors yet
+- Teacher is asking a question → Waiting for student response
+- Teacher is explaining content → No error to address
+- Student answered CORRECTLY → No pedagogical issue
+- General procedural talk: "שלום", "בואו נתחיל", "אוקיי", "מעולה"
+- Teacher asking students what they know → This is normal teaching, not error handling
+
+**✅ ONLY provide feedback when:**
+- Student made an error/showed misconception → Teacher responded (assess how)
+- Student showed confusion about concept → Teacher addressed it (assess quality)
+- Student used incorrect logic → Teacher handled it (assess approach)
+
+**Clear Examples:**
+
+❌ NO FEEDBACK - Teacher opening:
+"שלום לכולם! היום נלמד על ריבועים. איזה תכונות של ריבוע אתם מכירים?"
+→ should_provide_feedback: false
+→ Reason: No student has responded yet. No error to address. Normal lesson opening.
+
+❌ NO FEEDBACK - Teacher asking question:
+"בואו נבדוק: מה ההגדרה של מלבן?"
+→ should_provide_feedback: false  
+→ Reason: Teacher asking question. No student error present. Normal teaching.
+
+❌ NO FEEDBACK - Student correct:
+Student: "ריבוע יש לו 4 צלעות שוות ו-4 זוויות ישרות"
+Teacher: "נכון מאוד! תשובה מעולה"
+→ should_provide_feedback: false
+→ Reason: Student correct, no pedagogical issue to assess.
+
+✅ YES FEEDBACK - Student error, teacher addresses well:
+Student: "אבל ריבוע זה לא מלבן"
+Teacher: "בואו נבדוק - מה ההגדרה של מלבן?"
+→ should_provide_feedback: true
+→ feedback_trigger: "excellent_pck_use"
+→ Reason: Student misconception + teacher using good PCK to address it
+
+✅ YES FEEDBACK - Student error, teacher ignores:
+Student: "ריבוע לא יכול להיות מלבן"
+Teacher: "אוקיי, בואו נמשיך לנושא הבא"
+→ should_provide_feedback: true
+→ feedback_trigger: "student_misconception_not_addressed"
+→ Reason: Student misconception present but teacher didn't address it
+
+✅ YES FEEDBACK - Student error, teacher gives wrong info:
+Student: "ריבוע זה לא מלבן, נכון?"
+Teacher: "נכון, הם שתי צורות שונות לגמרי"
+→ should_provide_feedback: true
+→ feedback_trigger: "incorrect_content"
+→ Reason: Teacher reinforced incorrect information
+
+If should_provide_feedback = false → Set feedback_trigger = null, skills_assessment = [], feedback_message_hebrew = ""
+
+## 🎯 PHASE 2: Score Relevant PCK Skills (ONLY if Phase 1 = true)
 
 **CRITICAL: RELEVANCE vs. PERFORMANCE**
 
-For EACH of the 5 skills:
+For EACH of the 5 skills, determine:
 
-**STEP 1: Is this skill RELEVANT in this turn?**
-- Is there a situation calling for this skill?
-- Could the teacher have used it here?
+**STEP 1: Is this skill RELEVANT in this specific turn?**
+
+All 5 skills are about handling student errors. Ask:
+- Did a student make an error/show misconception in this conversation?
+- Is the teacher's response addressing that error?
+- Does this particular skill apply to how they're handling it?
 
 If NO → Mark is_relevant: false, provide reason_not_relevant
 If YES → Continue to STEP 2
 
-**STEP 2: Score performance (0, 1, or 2)**
-- Score 2: Excellent use matching rubric
-- Score 1: Partial or indirect use
+**STEP 2: How well did teacher perform? (Score 0, 1, or 2)**
+Use the rubrics from the Universal PCK Skills above:
+- Score 2: Excellent use matching rubric criteria
+- Score 1: Partial or indirect use  
 - Score 0: Should have used but didn't, or used poorly
 
-**Examples:**
-❌ WRONG: "Teacher said 'Hello' → error-identification: score 0"
-✅ RIGHT: "Teacher said 'Hello' → error-identification: is_relevant=false (no error present)"
-
-✅ CORRECT: "Student made error, teacher ignored → error-identification: is_relevant=true, score=0"
-✅ CORRECT: "Student made error, teacher identified well → error-identification: is_relevant=true, score=2"
-
-**Important:** Most turns have 0-2 relevant skills, not all 5!
+**Remember:** In most turns, ALL 5 skills will be is_relevant: false because there's no student error!
 
 ---
 
@@ -431,6 +483,8 @@ If YES → Continue to STEP 2
   "feedback_trigger": "student_misconception_not_addressed" | "incorrect_content" | "epistemic_abdication" | "excellent_pck_use" | "missed_opportunity" | null,
   
   "skills_assessment": [
+    // If should_provide_feedback = false, return empty array []
+    // If should_provide_feedback = true, assess relevant skills:
     {
       "skill_id": "error-identification",
       "is_relevant": true,
@@ -445,7 +499,7 @@ If YES → Continue to STEP 2
     }
   ],
   
-  "feedback_message_hebrew": "Feedback in Hebrew (2-3 sentences)" // only if should_provide_feedback = true
+  "feedback_message_hebrew": "Feedback in Hebrew (2-3 sentences)" // ONLY if should_provide_feedback = true, otherwise empty string ""
 }
 \`\`\`
 
@@ -546,8 +600,14 @@ Return JSON only, no additional text:`;
       analysis.skills_assessment = [];
     }
     
-    if (!analysis.feedback_message_hebrew && analysis.should_provide_feedback) {
-      analysis.feedback_message_hebrew = 'המורה התקדם בשיעור';
+    // Set feedback message based on should_provide_feedback
+    if (analysis.should_provide_feedback) {
+      if (!analysis.feedback_message_hebrew) {
+        analysis.feedback_message_hebrew = 'המורה התקדם בשיעור';
+      }
+    } else {
+      // If no feedback should be provided, ensure message is empty
+      analysis.feedback_message_hebrew = '';
     }
     
     res.json({ 
