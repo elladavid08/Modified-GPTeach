@@ -6,42 +6,43 @@
 import { saveConversation, addMessageToConversation } from './firestoreService';
 
 export class ConversationLog {
-  constructor(scenario, students, userId, userProfile, systemVersion = "1.0") {
-    this.sessionId = this.generateSessionId();
-    this.startTime = new Date().toISOString();
-    this.endTime = null;
-    this.userId = userId;
-    this.userProfile = userProfile;
-    this.systemVersion = systemVersion;
-    
-    // Scenario context
-    this.scenario = {
-      text: scenario.text,
-      lesson_goals: scenario.lesson_goals,
-      misconception_focus: scenario.misconception_focus,
-      target_pck_skills: scenario.target_pck_skills,
-      initiated_by: scenario.initiated_by
-    };
-    
-    // Students in this session
-    this.students = students.map(s => ({
-      name: s.name,
-      description: s.description
-    }));
-    
-    // Conversation turns (teacher message + student responses + PCK feedback)
-    this.turns = [];
-    
-    // Summary statistics
-    this.stats = {
-      totalTeacherMessages: 0,
-      totalStudentMessages: 0,
-      totalPCKFeedbacks: 0
-    };
-    
-    // Initialize conversation in Firestore
-    this.initializeFirestoreConversation();
-  }
+	constructor(scenario, students, userId, userProfile, systemVersion = "1.0") {
+		this.sessionId = this.generateSessionId();
+		this.startTime = new Date().toISOString();
+		this.endTime = null;
+		this.userId = userId;
+		this.userProfile = userProfile;
+		this.systemVersion = systemVersion;
+		
+		// Scenario context
+		this.scenario = {
+			text: scenario.text,
+			lesson_goals: scenario.lesson_goals,
+			misconception_focus: scenario.misconception_focus,
+			target_pck_skills: scenario.target_pck_skills,
+			initiated_by: scenario.initiated_by
+		};
+		
+		// Students in this session
+		this.students = students.map(s => ({
+			name: s.name,
+			description: s.description
+		}));
+		
+		// Conversation turns (teacher message + student responses + PCK feedback)
+		this.turns = [];
+		
+		// Summary statistics
+		this.stats = {
+			totalTeacherMessages: 0,
+			totalStudentMessages: 0,
+			totalPCKFeedbacks: 0
+		};
+		
+		// Track if Firestore has been initialized
+		// Only initialize on first message to avoid saving empty conversations
+		this.firestoreInitialized = false;
+	}
   
   /**
    * Generate unique session ID
@@ -85,69 +86,82 @@ export class ConversationLog {
     }
   }
   
-  /**
-   * Add a conversation turn (teacher message, student responses, PCK feedback)
-   */
-  async addTurn(teacherMessage, studentResponses, pckFeedback) {
-    const turn = {
-      turnNumber: this.turns.length + 1,
-      timestamp: new Date().toISOString(),
-      teacher: {
-        message: teacherMessage,
-        timestamp: new Date().toISOString()
-      },
-      students: studentResponses.map(msg => ({
-        name: msg.name,
-        message: msg.text,
-        timestamp: new Date().toISOString()
-      })),
-      pckFeedback: pckFeedback ? {
-        feedback_message: pckFeedback.feedback_message,
-        feedback_type: pckFeedback.feedback_type,
-        detected_skills: pckFeedback.detected_skills || [],
-        missed_opportunities: pckFeedback.missed_opportunities || [],
-        timestamp: new Date().toISOString()
-      } : null
-    };
-    
-    this.turns.push(turn);
-    
-    // Update statistics
-    this.stats.totalTeacherMessages++;
-    this.stats.totalStudentMessages += studentResponses.length;
-    if (pckFeedback) {
-      this.stats.totalPCKFeedbacks++;
-    }
-    
-    // Save to Firestore
-    await this.saveToFirestore();
-  }
+	/**
+	 * Add a conversation turn (teacher message, student responses, PCK feedback)
+	 */
+	async addTurn(teacherMessage, studentResponses, pckFeedback) {
+		// Initialize Firestore on first turn (lazy initialization)
+		if (!this.firestoreInitialized) {
+			console.log('📊 First message - initializing conversation in Firestore...');
+			await this.initializeFirestoreConversation();
+			this.firestoreInitialized = true;
+		}
+		
+		const turn = {
+			turnNumber: this.turns.length + 1,
+			timestamp: new Date().toISOString(),
+			teacher: {
+				message: teacherMessage,
+				timestamp: new Date().toISOString()
+			},
+			students: studentResponses.map(msg => ({
+				name: msg.name,
+				message: msg.text,
+				timestamp: new Date().toISOString()
+			})),
+			pckFeedback: pckFeedback ? {
+				feedback_message: pckFeedback.feedback_message,
+				feedback_type: pckFeedback.feedback_type,
+				detected_skills: pckFeedback.detected_skills || [],
+				missed_opportunities: pckFeedback.missed_opportunities || [],
+				timestamp: new Date().toISOString()
+			} : null
+		};
+		
+		this.turns.push(turn);
+		
+		// Update statistics
+		this.stats.totalTeacherMessages++;
+		this.stats.totalStudentMessages += studentResponses.length;
+		if (pckFeedback) {
+			this.stats.totalPCKFeedbacks++;
+		}
+		
+		// Save to Firestore
+		await this.saveToFirestore();
+	}
   
-  /**
-   * End the conversation session
-   */
-  async endSession() {
-    this.endTime = new Date().toISOString();
-    
-    // Calculate session duration
-    const start = new Date(this.startTime);
-    const end = new Date(this.endTime);
-    this.stats.durationMinutes = Math.round((end - start) / 1000 / 60);
-    
-    // Save to Firestore
-    await this.saveToFirestore();
-  }
+	/**
+	 * End the conversation session
+	 */
+	async endSession() {
+		this.endTime = new Date().toISOString();
+		
+		// Calculate session duration
+		const start = new Date(this.startTime);
+		const end = new Date(this.endTime);
+		this.stats.durationMinutes = Math.round((end - start) / 1000 / 60);
+		
+		// Only save if conversation has messages (Firestore was initialized)
+		if (this.firestoreInitialized) {
+			await this.saveToFirestore();
+		} else {
+			console.log('⚠️  No messages in conversation, not saving to Firestore');
+		}
+	}
   
-  /**
-   * Add summary feedback to the log
-   */
-  async addSummaryFeedback(summaryFeedback) {
-    this.summaryFeedback = summaryFeedback;
-    // Auto-save to localStorage when feedback is added
-    this.saveToLocalStorage();
-    // Also save to Firestore
-    await this.saveToFirestore();
-  }
+	/**
+	 * Add summary feedback to the log
+	 */
+	async addSummaryFeedback(summaryFeedback) {
+		this.summaryFeedback = summaryFeedback;
+		// Auto-save to localStorage when feedback is added
+		this.saveToLocalStorage();
+		// Also save to Firestore (only if conversation has messages)
+		if (this.firestoreInitialized) {
+			await this.saveToFirestore();
+		}
+	}
   
   /**
    * Get the complete log as JSON
