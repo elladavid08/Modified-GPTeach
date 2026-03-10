@@ -760,17 +760,12 @@ Write the summary now IN HEBREW:`;
 
     const summaryText = candidate.content.parts[0].text;
     console.log('✅ PCK Summary generated (length:', summaryText.length, 'chars)');
+    console.log(`📊 PCK moments in conversation: ${pckMoments.length}`);
+    console.log(`📊 Conversation length classification: ${pckMoments.length <= 2 ? 'short' : pckMoments.length <= 5 ? 'medium' : 'long'}`);
     
     res.json({ 
       success: true,
-      summary: {
-        summary_text: summaryText.trim(),
-        metadata: {
-          conversation_length: pckMoments.length <= 2 ? 'short' : pckMoments.length <= 5 ? 'medium' : 'long',
-          pck_moments_count: pckMoments.length,
-          total_turns: conversationLog.turns.length
-        }
-      },
+      summary: summaryText.trim(),  // Return as string, not object
       analyzed_turns: conversationLog.turns.length,
       session_id: conversationLog.sessionId
     });
