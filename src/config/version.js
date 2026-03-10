@@ -13,10 +13,18 @@
  * - Z: Patch version (bug fixes, minor improvements)
  */
 
-export const SYSTEM_VERSION = "1.0.0";
+export const SYSTEM_VERSION = "1.1.0";
 
 /**
  * Version History:
+ * 
+ * 1.1.0 (2026-03-10):
+ * - Universal PCK Skills Framework (5 skills from education team)
+ * - Filtered real-time feedback (only when pedagogically relevant)
+ * - Adaptive summary feedback (length proportional to content)
+ * - Skill-based scoring (0-1-2 rubrics) with relevance detection
+ * - Bilingual AI prompts (English reasoning + Hebrew patterns)
+ * - RAG-ready structure for future improvements
  * 
  * 1.0.0 (2026-03-03):
  * - Initial production version with Firebase authentication
