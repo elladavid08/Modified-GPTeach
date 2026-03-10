@@ -11,7 +11,13 @@ export class ConversationLog {
 		this.startTime = new Date().toISOString();
 		this.endTime = null;
 		this.userId = userId;
-		this.userProfile = userProfile;
+		
+		// Create minimal user snapshot (only critical fields for research)
+		this.userSnapshot = {
+			fullName: userProfile && userProfile.fullName ? userProfile.fullName : 'Unknown',
+			role: userProfile && userProfile.role ? userProfile.role : 'unknown'
+		};
+		
 		this.systemVersion = systemVersion;
 		
 		// Scenario context
@@ -73,8 +79,8 @@ export class ConversationLog {
 			const conversationData = {
 				sessionId: this.sessionId,
 				userId: this.userId,
+				userSnapshot: this.userSnapshot,  // Store minimal snapshot instead of full profile
 				systemVersion: this.systemVersion,
-				userProfile: this.userProfile,
 				scenario: this.scenario,
 				studentRefs: this.studentRefs,  // Store references instead of full data
 				startTime: this.startTime,
@@ -179,7 +185,7 @@ export class ConversationLog {
 		return {
 			sessionId: this.sessionId,
 			userId: this.userId,
-			userProfile: this.userProfile,
+			userSnapshot: this.userSnapshot,  // Use snapshot instead of full profile
 			systemVersion: this.systemVersion,
 			startTime: this.startTime,
 			endTime: this.endTime,
