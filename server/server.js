@@ -315,256 +315,156 @@ app.post('/api/pck-feedback', async (req, res) => {
     // Build comprehensive PCK analysis prompt
     const conversationHistoryText = formatConversationHistory(conversationHistory || []);
     
-    // Format target PCK skills if available
-    let targetSkillsText = "";
-    if (scenario && scenario.target_pck_skills && Array.isArray(scenario.target_pck_skills)) {
-      targetSkillsText = "\n## מיומנויות PCK שהתרחיש בודק:\n";
-      scenario.target_pck_skills.forEach(skillId => {
-        const skill = getPCKSkillById(skillId);
-        if (skill) {
-          targetSkillsText += `\n**${skill.skill_name.he}**\n`;
-          targetSkillsText += `תיאור: ${skill.description.he}\n`;
-          targetSkillsText += `מה לחפש:\n`;
-          skill.indicators.forEach(ind => {
-            targetSkillsText += `- ${ind}\n`;
-          });
-          
-          if (skill.examples && skill.examples.positive) {
-            targetSkillsText += `דוגמאות חיוביות:\n`;
-            skill.examples.positive.forEach(ex => {
-              targetSkillsText += `- "${ex.text}" (${ex.why})\n`;
-            });
-          }
-          
-          if (skill.examples && skill.examples.negative) {
-            targetSkillsText += `דוגמאות שליליות:\n`;
-            skill.examples.negative.forEach(ex => {
-              targetSkillsText += `- "${ex.text}" (${ex.why})\n`;
-            });
-          }
-          
-          if (skill.common_teacher_mistakes) {
-            targetSkillsText += `טעויות נפוצות של מורים:\n`;
-            skill.common_teacher_mistakes.forEach(mistake => {
-              targetSkillsText += `- ${mistake.mistake}: "${mistake.example}"\n`;
-            });
-          }
-          targetSkillsText += "\n";
-        }
-      });
-    }
+    // Import universal PCK skills
+    const { formatSkillsForPrompt } = require('./universal_pck_skills');
+    const universalSkillsText = formatSkillsForPrompt();
 
-    const pckPrompt = `אתה מומחה PCK (Pedagogical Content Knowledge) שמנתח מהלך הוראתי של מורה לגאומטריה.
+    const pckPrompt = `You are a PCK (Pedagogical Content Knowledge) expert analyzing a Hebrew geometry teacher's pedagogical moves in real-time.
 
-## הקשר התרחיש
+## Lesson Context
 ${scenario ? `
-**רמת כיתה**: ${scenario.grade_level || 'חטיבת ביניים'}
-**נושא**: ${scenario.name || 'גאומטריה'}
-**מטרות השיעור**: ${scenario.lesson_goals || 'לא צוין'}
-**תפיסה שגויה ממוקדת**: ${scenario.misconception_focus || 'לא צוין'}
-` : 'אין הקשר תרחיש'}
-${targetSkillsText}
-${scenario && scenario.optimal_response_pattern ? `
-## דפוסי תגובה אופטימליים של מורה:
-${scenario.optimal_response_pattern}
-` : ''}
-${scenario && scenario.common_teacher_mistakes ? `
-## טעויות נפוצות של מורים שיש להימנע מהן:
-${scenario.common_teacher_mistakes}
-` : ''}
+**Grade Level**: ${scenario.grade_level || 'Middle School'}
+**Topic**: ${scenario.name || 'Geometry'}
+**Lesson Goals**: ${scenario.lesson_goals || 'Not specified'}
+**Target Misconception**: ${scenario.misconception_focus || 'Not specified'}
+` : 'No scenario context provided'}
 
-## היסטוריית השיחה:
+## Universal PCK Skills to Assess
+
+${universalSkillsText}
+
+## Conversation History (Hebrew)
 ${conversationHistoryText}
 
-## ההודעה האחרונה של המורה שיש לנתח:
+## Teacher's Latest Message to Analyze
 "${teacherMessage}"
 
 ${feedbackHistory && feedbackHistory.length > 0 ? `
-## 📊 היסטוריית משוב קודמת (${feedbackHistory.length} תורות אחרונים):
+## 📊 Previous Feedback History (last ${feedbackHistory.length} turns)
 ${feedbackHistory.map((fb, idx) => `
-**תור ${feedbackHistory.length - idx} לפני כעת:**
-- איכות פדגוגית: ${fb.pedagogical_quality}
-- הודעת משוב: "${fb.feedback_message_hebrew}"
-- רמת הבנה חזויה: ${fb.predicted_student_state && fb.predicted_student_state.understanding_level}
+**Turn ${feedbackHistory.length - idx} ago:**
+- Pedagogical quality: ${fb.pedagogical_quality}
+- Feedback: "${fb.feedback_message_hebrew}"
+- Understanding level: ${fb.predicted_student_state && fb.predicted_student_state.understanding_level}
 `).join('\n')}
 
-⚠️ **כללי התמדה (Persistence Rules):**
-- אם אותה בעיה מתודולוגית חוזרת על עצמה ללא תיקון מפורש מהמורה, אסור שהמשוב ישתפר מ"problematic" ל"neutral" או "positive"
-- משוב צריך להתרכך רק אחרי מהלך תיקון מפורש (כגון: חזרה להגדרה פורמלית, בדיקה שיטתית)
-- אם היו 2+ משובים שליליים/בעייתיים רצופים, תן ל-predicted_student_state אינדיקציה להגברת הביטוי (frustrated/challenge_logic)
+⚠️ **Persistence Rules:**
+If the same problem repeats without explicit correction, don't soften feedback from "problematic" to "neutral".
+If 2+ consecutive problematic turns, set response_tone to "frustrated" or "challenging".
 ` : ''}
 
 ---
 
-## המשימה שלך:
-נתח את ההודעה האחרונה של המורה וספק תגובה JSON מפורטת עם המבנה הבא:
+## Your Task - TWO PARTS
+
+### PART A: STUDENT IMPACT ASSESSMENT (ALWAYS REQUIRED)
+Even if no teacher feedback is needed, assess how this move affects students:
+
+**Guidelines:**
+- "improved" = Explicit corrective move (formal definition, systematic checking, guided discovery)
+- "same" = Correct content but no formal precision, or partial explanation
+- "confused"/"more_confused" = Incorrect info, confusing explanation, or authoritative correction without explanation
+
+### PART B: TEACHER FEEDBACK (CONDITIONAL)
+
+## 🚦 PHASE 1: Should Feedback Be Provided?
+
+Provide feedback ONLY if one or more conditions is true:
+1. ❌ Teacher gave factually incorrect information
+2. ❌ Student showed clear misconception and teacher didn't respond appropriately
+3. ❌ Teacher used problematic approach (authoritative correction, "don't think about it", epistemic abdication)
+4. ✅ Teacher demonstrated exceptionally strong PCK skill use (worth praising)
+5. 🔄 Clear opportunity to use a PCK skill was missed
+
+**Examples of NO FEEDBACK needed:**
+- "שלום, היום נדבר על משולשים" (procedural talk)
+- "אוקיי, בואו נמשיך" (normal flow)
+- Student correct + teacher acknowledges
+
+**Examples of FEEDBACK needed:**
+- Student: "ריבוע זה לא מלבן" + Teacher: "נכון" (incorrect content!)
+- Student shows misconception + Teacher ignores it
+- Teacher: "אל תחשבו על זה יותר מדי" (epistemic abdication)
+
+## 🎯 PHASE 2: Score Relevant PCK Skills (only if Phase 1 = true)
+
+**CRITICAL: RELEVANCE vs. PERFORMANCE**
+
+For EACH of the 5 skills:
+
+**STEP 1: Is this skill RELEVANT in this turn?**
+- Is there a situation calling for this skill?
+- Could the teacher have used it here?
+
+If NO → Mark is_relevant: false, provide reason_not_relevant
+If YES → Continue to STEP 2
+
+**STEP 2: Score performance (0, 1, or 2)**
+- Score 2: Excellent use matching rubric
+- Score 1: Partial or indirect use
+- Score 0: Should have used but didn't, or used poorly
+
+**Examples:**
+❌ WRONG: "Teacher said 'Hello' → error-identification: score 0"
+✅ RIGHT: "Teacher said 'Hello' → error-identification: is_relevant=false (no error present)"
+
+✅ CORRECT: "Student made error, teacher ignored → error-identification: is_relevant=true, score=0"
+✅ CORRECT: "Student made error, teacher identified well → error-identification: is_relevant=true, score=2"
+
+**Important:** Most turns have 0-2 relevant skills, not all 5!
+
+---
+
+## Expected JSON Response
 
 \`\`\`json
 {
   "pedagogical_quality": "positive" | "neutral" | "problematic",
-  "addressed_misconception": true/false,
-  "how_addressed": "בעברית: הסבר קצר איך המורה התייחס/לא התייחס לתפיסה המוטעית",
-  "misconception_risk": "low" | "medium" | "high",
-  "demonstrated_skills": [
-    {"skill_id": "...", "evidence": "ציטוט או תיאור"}
-  ],
-  "missed_opportunities": [
-    {"skill_id": "...", "what_could_have_been_done": "בעברית: מה היה כדאי לעשות"}
-  ],
   "predicted_student_state": {
     "understanding_level": "improved" | "same" | "confused" | "more_confused",
-    "likely_reactions": ["תגובה אפשרית 1", "תגובה אפשרית 2"],
-    "who_should_respond": ["שם תלמיד 1", "שם תלמיד 2"],
-    "response_tone": "confident" | "hesitant" | "confused" | "frustrated"
+    "likely_reactions": ["reaction 1 in Hebrew", "reaction 2"],
+    "who_should_respond": ["student name 1", "student name 2"],
+    "response_tone": "confident" | "hesitant" | "confused" | "frustrated" | "thoughtful"
   },
-  "feedback_message_hebrew": "משוב קצר למורה בעברית (2-3 משפטים)",
-  "scenario_alignment": {
-    "moving_toward_goals": true/false,
-    "alignment_score": 0-100
-  }
+  
+  "should_provide_feedback": true/false,
+  "feedback_trigger": "student_misconception_not_addressed" | "incorrect_content" | "epistemic_abdication" | "excellent_pck_use" | "missed_opportunity" | null,
+  
+  "skills_assessment": [
+    {
+      "skill_id": "error-identification",
+      "is_relevant": true,
+      "score": 1,
+      "evidence": "Teacher response in Hebrew showing what they did",
+      "what_could_be_better": "Hebrew: how to improve" // only if score < 2
+    },
+    {
+      "skill_id": "error-characterization",
+      "is_relevant": false,
+      "reason_not_relevant": "No error present in this turn"
+    }
+  ],
+  
+  "feedback_message_hebrew": "Feedback in Hebrew (2-3 sentences)" // only if should_provide_feedback = true
 }
 \`\`\`
 
-## 🎯 כללי כיול משוב - CRITICAL CALIBRATION RULES:
+## Key Calibration Guidelines
 
-### 1️⃣ זיהוי "רעיון נכון אבל ביצוע רך" (Right Idea, Soft Execution):
-**אל תסמן כ-"positive" אם:**
-- המורה אומר דברים נכונים אבל לא משתמש בהגדרות פורמליות
-- המורה מכוון בכיוון הנכון אבל לא מבקש בדיקה לוגית שיטתית
-- המורה נותן הסבר חלקי ללא השלמה מדויקת
+**Epistemic Abdication (Always "problematic"):**
+If teacher says: "לא צריך להיתקע על זה", "זה לא כל כך חשוב", "סתם תסמכו עליי", "אל תחשבו על זה יותר מדי" → These undermine mathematical thinking itself.
 
-**בדוגמאות אלו, השתמש ב-"neutral" ולא "positive":**
-- "יש לו את התכונות של מלבן" (נכון, אבל לא התייחס להגדרה)
-- "נראה שזה מתאים" (אינטואיציה, לא בדיקה שיטתית)
-- "נכון, יש פה משהו דומה" (כיוון נכון, אבל לא מדויק)
+**Right Idea, Soft Execution:**
+Don't mark "positive" if teacher says correct things but without formal definitions or systematic checking.
+Use "neutral" for: "יש לו את התכונות של מלבן" (correct but not formal)
+Use "positive" only for explicit moves: "מה ההגדרה של מלבן?"
 
-**השתמש ב-"positive" רק אחרי מהלך תיקון מפורש:**
-- המורה חזר להגדרה הפורמלית: "מה ההגדרה של מלבן?"
-- המורה ביקש בדיקה שיטתית: "בואו נבדוק האם מקיים כל תנאי ההגדרה"
-- המורה הנחה את התלמיד לגלות לוגית: "איזה תנאים חייבים להתקיים?"
+**Understanding Level Rules:**
+- If teacher gave good explanation with formal definitions/systematic checking → MUST be "improved"
+- If correct content but no formal precision → "same" (not "improved")
+- Never assume future correction when evaluating current turn
 
-### 2️⃣ זיהוי והענשה של "נטישה אפיסטמית" (Epistemic Abdication):
-**ביטויים שחייבים לגרום ל-"problematic" באופן מהימן:**
-- "לא צריך להיתקע על זה" (הקלה על דיוק)
-- "זה רק רעיון כללי" (החלפת הגדרה לוגית באינטואיציה)
-- "זה לא כל כך חשוב" (התייחסות לנכונות כאופציונלית)
-- "סתם תסמכו עליי" (סמכותיות במקום הסבר)
-- "זה יותר תחושה" (יחסותיות במתמטיקה)
-- "אל תחשבו על זה יותר מדי" (דיכוי חשיבה ביקורתית)
-- "זה סבבה גם ככה" (התייחסות לדיוק כרצוי ולא הכרחי)
-
-**אלו אינן סתם טעויות - הן סותרות את טבע המתמטיקה!**
-כאשר מורה משתמש בשפה כזו:
-- pedagogical_quality: "problematic"
-- feedback_message חייב להתייחס לבעיה זו במפורש
-- missed_opportunities צריך לכלול את המיומנות הרלוונטית
-
-### 3️⃣ הסלמת תגובות תלמידים אחרי משוב שלילי מתמשך:
-אם feedbackHistory מראה 2+ תורות רצופות עם pedagogical_quality: "problematic":
-- הוסף ל-predicted_student_state.response_tone: "frustrated" או "challenging"
-- הוסף ל-predicted_student_state.likely_reactions ביטויים כמו:
-  • "אני לא בטוח שהבנתי את מה שאמרת"
-  • "זה לא ממש עונה על השאלה שלי"
-  • "רגע, איך זה קשור למה ששאלתי?"
-  
-**חשוב:** אל תשנה את כללי בחירת התלמידים או את הפרסונות - רק הגבר את עוצמת הביטוי.
-
-## 🚨 הנחיות קריטיות לזיהוי מיומנויות PCK:
-
-**כללי יסוד:**
-1. **לא כל תגובה טובה = מיומנות PCK ספציפית!** רוב התגובות של המורה הן המשך שיחה רגיל.
-2. **demonstrated_skills צריך להיות ריק [] ברוב המקרים!**
-3. זהה מיומנות רק אם **כל התנאים הבאים מתקיימים**:
-
-**תנאים לזיהוי מיומנות (חייבים להתקיים ביחד):**
-
-א. **התלמיד הציג טעות או תפיסה שגויה** בתור הנוכחי או הקודם
-   - אם התלמיד לא הציג טעות - אין מיומנות לזהות!
-   - המשך שיחה רגיל אינו מזדמנות לזיהוי מיומנות
-
-ב. **התגובה של המורה מכוונת ספציפית לטיפול בטעות זו**
-   - לא רק "המשיך הלאה"
-   - לא רק "אמר משהו טוב"
-   - אלא: התייחס ישירות לתפיסה השגויה
-
-ג. **המורה הפגין לפחות אחד מה"אינדיקטורים" המפורטים למעלה**
-   - בדוק את רשימת האינדיקטורים של המיומנות
-   - האם המורה עשה בדיוק מה שרשום שם?
-   - אם לא - אין זיהוי מיומנות
-
-**דוגמאות לזיהוי נכון:**
-
-✅ **כן - יש לזהות מיומנות:**
-- תלמיד: "אבל זה ריבוע, לא מלבן"
-- מורה: "בואו נבדוק - מה ההגדרה של מלבן?"
-- ← זיהוי מיומנות! המורה שואל על ההגדרה (אינדיקטור) בתגובה לטעות
-
-✅ **כן - יש לזהות מיומנות:**
-- תלמיד: "זה חייב להיות מעויין כי האלכסונים מאונכים"
-- מורה: "נכון שבמעויין האלכסונים מאונכים. אבל האם זו הצורה היחידה?"
-- ← זיהוי מיומנות! המורה מזהה את החלק הנכון ומערער (אינדיקטור)
-
-❌ **לא - אין לזהות מיומנות:**
-- מורה: "היום נדבר על מלבנים וריבועים"
-- ← אין טעות של תלמיד, אין זיהוי מיומנות
-
-❌ **לא - אין לזהות מיומנות:**
-- תלמיד: "אוקיי, הבנתי"
-- מורה: "מעולה, בואו נמשיך"
-- ← אין טעות, רק המשך שיחה
-
-❌ **לא - אין לזהות מיומנות:**
-- תלמיד: "למה ריבוע נחשב מלבן?"
-- מורה: "כי יש לו את כל התכונות של מלבן"
-- ← תשובה טובה אבל לא מפגינה אינדיקטור ספציפי (לא שואל על הגדרה, לא מכוון לבדיקה לוגית)
-
-**תדירות צפויה:**
-- בשיחה רגילה: demonstrated_skills יהיה ריק [] ב-70-80% מהמקרים
-- רק כאשר יש **אירוע ספציפי** של טיפול בתפיסה שגויה - זהה מיומנות
-
-**missed_opportunities:**
-- זהה רק כאשר התלמיד הציג טעות והמורה **לא טיפל בה בכלל** או טיפל בצורה בעייתית
-- אם המורה פשוט מדבר על נושא אחר - אין missed opportunity
-
-**predicted_student_state - CRITICAL FOR CONVERSATION FLOW:**
-
-ה-understanding_level חייב לשקף באופן מדויק את איכות ההוראה **בתור הנוכחי**:
-
-- **"improved"** - השתמש כאשר המורה ביצע מהלך תיקון מפורש:
-  • המורה חזר להגדרה פורמלית במפורש
-  • המורה ביקש בדיקה שיטתית של תנאים
-  • המורה כיוון לגלות לוגית באמצעות שאלות מכוונות
-  • ההסבר מתאים לגיל, מדויק, ועונה על השאלה
-  
-- **"same"** - השתמש כאשר:
-  • המורה אומר דברים נכונים אבל ללא שימוש בהגדרות פורמליות
-  • המורה מכוון בכיוון הנכון אבל לא מבקש בדיקה שיטתית
-  • המורה נותן הסבר חלקי ("רעיון נכון, ביצוע רך")
-  • המורה ממשיך הלאה בלי לטפל ישירות בשאלה
-  
-- **"confused" / "more_confused"** - השתמש כאשר:
-  • המורה הפגין "נטישה אפיסטמית" (ראה סעיף 2 למעלה)
-  • המורה נתן הסבר מבלבל או סתמי
-  • המורה השתמש בשפה לא מותאמת
-  • המורה תיקן בצורה סמכותית בלי הסבר
-  • המורה ממשיך בבעיה מתודולוגית מתור קודם
-
-⚠️ **עקרונות מאזן:**
-- אם המורה הסביר טוב עם שימוש בהגדרות/בדיקה שיטתית → חובה "improved" (מניעת לולאות)
-- אם המורה אמר דברים נכונים אבל ללא דיוק פורמלי → "same" (לא "improved")
-- אל תניח תיקון עתידי בעת הערכת התור הנוכחי
-
-**הנחיות נוספות:**
-- השתמש ב-skill_id בדיוק כפי שמופיע למעלה
-- ב-evidence: צטט בדיוק מה המורה אמר שמתאים לאינדיקטור
-- התמקד ב-feedback_message_hebrew - זה מה שהמורה יראה!
-- היה שמרן ומדויק בזיהוי מיומנויות
-- **אבל היה נדיב ב-understanding_level כאשר המורה מלמד טוב באמת!**
-- **אל תחליש משוב חיובי כאשר ההוראה חזקה באמת**
-- **אל תניח תיקון עתידי - הערך רק את התור הנוכחי**
-- **אם יש התמדה של אותה בעיה - אל תרכך את המשוב**
-
-תשובה JSON בלבד, ללא טקסט נוסף:`;
+Return JSON only, no additional text:`;
 
     const contents = [{
       role: 'user',
@@ -625,28 +525,29 @@ ${feedbackHistory.map((fb, idx) => `
       throw new Error('Failed to parse AI response as JSON');
     }
     
-    // Validate the structure
+    // Validate and fill defaults for new structure
     if (!analysis.pedagogical_quality || !analysis.predicted_student_state) {
       console.warn('⚠️ Incomplete analysis structure, filling in defaults');
-      analysis = {
-        pedagogical_quality: analysis.pedagogical_quality || 'neutral',
-        addressed_misconception: analysis.addressed_misconception || false,
-        how_addressed: analysis.how_addressed || 'לא ניתן לקבוע',
-        misconception_risk: analysis.misconception_risk || 'medium',
-        demonstrated_skills: analysis.demonstrated_skills || [],
-        missed_opportunities: analysis.missed_opportunities || [],
-        predicted_student_state: analysis.predicted_student_state || {
-          understanding_level: 'same',
-          likely_reactions: [],
-          who_should_respond: [],
-          response_tone: 'neutral'
-        },
-        feedback_message_hebrew: analysis.feedback_message_hebrew || 'המורה התקדם בשיעור',
-        scenario_alignment: analysis.scenario_alignment || {
-          moving_toward_goals: true,
-          alignment_score: 50
-        }
+      analysis.pedagogical_quality = analysis.pedagogical_quality || 'neutral';
+      analysis.predicted_student_state = analysis.predicted_student_state || {
+        understanding_level: 'same',
+        likely_reactions: [],
+        who_should_respond: [],
+        response_tone: 'neutral'
       };
+    }
+    
+    // Ensure new fields have defaults
+    if (analysis.should_provide_feedback === undefined) {
+      analysis.should_provide_feedback = false;
+    }
+    
+    if (!analysis.skills_assessment) {
+      analysis.skills_assessment = [];
+    }
+    
+    if (!analysis.feedback_message_hebrew && analysis.should_provide_feedback) {
+      analysis.feedback_message_hebrew = 'המורה התקדם בשיעור';
     }
     
     res.json({ 
@@ -676,92 +577,153 @@ app.post('/api/pck-summary', async (req, res) => {
       });
     }
 
-    // Build comprehensive conversation summary for analysis
-    const conversationText = conversationLog.turns.map((turn, index) => {
-      let turnText = `\n--- תור ${turn.turnNumber} ---\n`;
-      turnText += `מורה: ${turn.teacher.message}\n`;
+    // Build conversation text
+    const conversationText = conversationLog.turns.map((turn) => {
+      let turnText = `\n--- Turn ${turn.turnNumber} ---\n`;
+      turnText += `Teacher: ${turn.teacher.message}\n`;
       turnText += turn.students.map(s => `${s.name}: ${s.message}`).join('\n');
-      if (turn.pckFeedback) {
-        turnText += `\n[משוב מיידי: ${turn.pckFeedback.feedback_message}]`;
-      }
       return turnText;
     }).join('\n');
 
-    // Get target PCK skills for this scenario
-    let targetPCKSkillsText = "";
-    if (conversationLog.scenario.target_pck_skills && conversationLog.scenario.target_pck_skills.length > 0) {
-      targetPCKSkillsText = "\n## מיומנות PCK מרכזית לתרחיש זה:\n";
-      conversationLog.scenario.target_pck_skills.forEach(skillId => {
-        const skill = getPCKSkillById(skillId);
-        if (skill) {
-          targetPCKSkillsText += `\n**${skill.skill_name.he}**\n`;
-          targetPCKSkillsText += `תיאור: ${skill.description.he}\n`;
-          targetPCKSkillsText += `מה מצפים מהמורה:\n`;
-          skill.indicators.forEach(ind => {
-            targetPCKSkillsText += `- ${ind}\n`;
+    // Extract PCK feedback moments with skill assessments
+    const pckMoments = conversationLog.turns
+      .filter(turn => turn.pckFeedback && turn.pckFeedback.should_provide_feedback)
+      .map(turn => ({
+        turnNumber: turn.turnNumber,
+        teacherMessage: turn.teacher.message,
+        skills_assessment: turn.pckFeedback.skills_assessment || [],
+        feedback_message: turn.pckFeedback.feedback_message_hebrew || turn.pckFeedback.feedback_message
+      }));
+    
+    console.log(`📊 Found ${pckMoments.length} PCK moments with feedback in ${conversationLog.turns.length} turns`);
+    
+    // Build PCK moments summary
+    let pckMomentsText = "";
+    if (pckMoments.length > 0) {
+      pckMomentsText = `\n## PCK Moments Identified in Real-Time\n\nThere were ${pckMoments.length} moments where PCK skills were assessed:\n\n`;
+      pckMoments.forEach(moment => {
+        pckMomentsText += `**Turn ${moment.turnNumber}:**\n`;
+        pckMomentsText += `Teacher said: "${moment.teacherMessage.substring(0, 100)}..."\n`;
+        
+        const relevantSkills = moment.skills_assessment.filter(s => s.is_relevant);
+        if (relevantSkills.length > 0) {
+          relevantSkills.forEach(skill => {
+            const scoreLabel = skill.score === 2 ? '✅ Excellent' : skill.score === 1 ? '⚠️ Partial' : '❌ Missed';
+            pckMomentsText += `  - ${skill.skill_id}: ${scoreLabel}\n`;
+            pckMomentsText += `    Evidence: ${skill.evidence}\n`;
+            if (skill.what_could_be_better) {
+              pckMomentsText += `    Could improve: ${skill.what_could_be_better}\n`;
+            }
           });
         }
+        pckMomentsText += `\n`;
       });
+    } else {
+      pckMomentsText = "\nNo significant PCK moments were identified (likely a very short conversation or test).\n";
     }
     
-    // Comprehensive PCK analysis prompt
-    const summaryPrompt = `אתה מומחה בידע תוכן פדגוגי (PCK) בגיאומטריה. תפקידך לספק ניתוח מקיף אך תמציתי של ביצועי המורה בשיחה זו.
+    // Comprehensive PCK summary prompt
+    const summaryPrompt = `You are a PCK (Pedagogical Content Knowledge) expert analyzing a Hebrew geometry teacher's performance. Provide a qualitative, adaptive-length summary IN HEBREW.
 
-**הקשר השיעור:**
-${conversationLog.scenario.text}
+## Lesson Context
+${conversationLog.scenario.text || 'Geometry lesson'}
 
-**מטרות השיעור:**
-${conversationLog.scenario.lesson_goals || 'לא צוין'}
+**Lesson Goals:** ${conversationLog.scenario.lesson_goals || 'Not specified'}
+**Target Misconception:** ${conversationLog.scenario.misconception_focus || 'Not specified'}
 
-**תפיסה שגויה שהשיעור התמקד בה:**
-${conversationLog.scenario.misconception_focus || 'לא צוין'}
-
-${targetPCKSkillsText}
-
-**השיחה המלאה (${conversationLog.turns.length} תגובות):**
+## Full Conversation (${conversationLog.turns.length} turns)
 ${conversationText}
 
-**סטטיסטיקה:**
-- תגובות מורה: ${conversationLog.stats.totalTeacherMessages}
-- תגובות תלמידים: ${conversationLog.stats.totalStudentMessages}
-- משך זמן: ${conversationLog.stats.durationMinutes || 'לא צוין'} דקות
+${pckMomentsText}
+
+## Statistics
+- Teacher messages: ${conversationLog.stats.totalTeacherMessages}
+- Student messages: ${conversationLog.stats.totalStudentMessages}
 
 ---
 
-**הנחיות לניתוח:**
+## Your Task: Create an ADAPTIVE-LENGTH summary in Hebrew
 
-1. **התמקד בעיקר במיומנות ה-PCK המרכזית** שהוגדרה למעלה - האם המורה הפגין אותה?
-2. **אך אל תהיה מוגבל רק לזה** - אתה יכול לדבר גם על היבטים כלליים של ההוראה
-3. **התאם את הניתוח לשיחה הספציפית** - אל תכפה מבנה נוקשה
-4. **אם המורה הפגין את המיומנות - תן קרדיט. אם לא - הסבר מה חסר**
-5. **היה אמיתי** - לא כל שיחה צריכה 2 דברים טובים ו-2 רעים
-6. **דוגמאות ספציפיות** מהשיחה - ציטוטים, התנהגויות
-7. **טיפים קצרים וממוקדים** - לא לחזור על אותו דבר
+**Length Guidelines (PROPORTIONAL to content):**
 
----
+### If 0-2 PCK moments (short conversation/test):
+- 2-3 sentences ONLY
+- "בשיחה קצרה זו [what happened]. [one sentence about what was good/could improve]"
+- DO NOT write a long summary if there's nothing to discuss!
 
-**פורמט הניתוח (בעברית):**
+### If 3-5 PCK moments (medium conversation):
+- One paragraph (4-6 lines) + 2-3 focused tips
+- Focus on main moments
 
-## 📊 ניתוח כללי
-
-[פסקה ראשונה: סיכום כללי של מה ראית בשיחה - איך המורה התמודד עם התלמידים, מה היה טוב, מה פחות. התמקד במיומנות ה-PCK המרכזית אם רלוונטי]
-
-[פסקה שנייה: הערכה מעמיקה יותר - האם המורה הצליח להגיע למטרות השיעור? איך טיפל בתפיסה השגויה? מה בלט בגישה שלו?]
-
-## 💡 טיפים לשיפור
-
-- [טיפ קצר וממוקד 1]
-- [טיפ קצר וממוקד 2]
-- [טיפ קצר וממוקד 3]
-- [אם יש עוד משהו חשוב - טיפ 4]
+### If 6+ PCK moments (full conversation):
+- 2 paragraphs (each 5-7 lines) + 3-5 tips
+- Deeper analysis of patterns
+- But NO MORE than one page!
 
 ---
 
-**חשוב**: 
-- אל תכתוב "מה עשית טוב" ו"מה ניתן לשפר" כשני חלקים נפרדים - שלב הכל בפסקאות
-- הטיפים צריכים להיות פרקטיים וישימים, לא רק חזרה על מה שכתבת בפסקאות
-- היה תמציתי - 2 פסקאות + 3-4 נקודות טיפים
-- אם המיומנות המרכזית לא התבטאה - חשוב להדגיש את זה ולהסביר למה זה היה חשוב כאן`;
+## Summary Structure (adapt length)
+
+**If short conversation (0-2 moments):**
+"בשיחה קצרה זו [what happened]. [one point for improvement or reinforcement]."
+
+**If medium or long conversation:**
+
+### סיכום כללי
+[1-2 paragraphs adapted to conversation length, in Hebrew]
+
+Naturally integrate:
+
+**Score 2 (Excellent):**
+- "בתור X זיהית מצוין..."
+- "הצלחת לזהות..."
+- "גישה טובה כאשר..."
+
+**Score 1 (Partial - acknowledge but explain how to improve):**
+- "בתור Y התחלת טוב בכך ש-[what you did], אבל [how to complete]"
+- "ניסית ל-[X] אבל הייתה הזדמנות ל-[Y]"
+
+**Score 0 (Missed - explain what's missing):**
+- "בתור Z התלמיד [what happened] אבל לא התייחסת. היה חשוב לזהות ש-[what should have been done]"
+- "הוחמצה הזדמנות כאשר [situation] - כדאי היה [action]"
+
+### טיפים לשיפור (if relevant)
+- [Focused tip 1 - only if there's something to say]
+- [Focused tip 2]
+- [Focused tip 3 - if needed]
+
+---
+
+## Critical Rules
+
+1. **Adapt length to content:**
+   - 2-3 turn conversation → 2-3 sentences
+   - Long conversation with many PCK moments → up to one page
+   
+2. **Do not fabricate content:**
+   - If there weren't many PCK moments - don't write a long summary
+   - Don't repeat the same thing in different phrasings to fill space
+   
+3. **Focus on what's relevant:**
+   - Only discuss moments where skills were relevant
+   - Don't discuss skills that weren't relevant at all
+   
+4. **Be specific:**
+   - Quote examples from the conversation
+   - Reference specific turns when relevant
+   - Avoid vague generalizations
+   
+5. **Real balance:**
+   - If everything was good - say so
+   - If there were problems - focus on them
+   - Don't force a "50% positive 50% negative" structure
+   
+6. **Natural Hebrew language:**
+   - Don't write separate "מה עשית טוב" and "מה לשפר" sections
+   - Integrate everything in natural paragraphs
+   - Tips can be a list but keep concise
+
+Write the summary now IN HEBREW:`;
 
     const contents = [{
       role: 'user',
@@ -801,7 +763,14 @@ ${conversationText}
     
     res.json({ 
       success: true,
-      summary: summaryText.trim(),
+      summary: {
+        summary_text: summaryText.trim(),
+        metadata: {
+          conversation_length: pckMoments.length <= 2 ? 'short' : pckMoments.length <= 5 ? 'medium' : 'long',
+          pck_moments_count: pckMoments.length,
+          total_turns: conversationLog.turns.length
+        }
+      },
       analyzed_turns: conversationLog.turns.length,
       session_id: conversationLog.sessionId
     });
