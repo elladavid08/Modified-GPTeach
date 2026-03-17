@@ -2,8 +2,6 @@ import ChatMessage from "../objects/ChatMessage";
 import { Constants } from "../config/constants";
 import { toTitleCase } from "./primitiveManipulation";
 import { generateWithGenAI, generateWithGenAICompletion } from "../services/genai";
-import { formatTaxonomyForPrompt } from "../config/pck/pck_taxonomy.js";
-
 // ==================== OpenAI Configuration (COMMENTED OUT - Currently using Google Vertex AI) ====================
 // Kept for potential future use if switching back to OpenAI
 // const { Configuration, OpenAIApi } = require("openai");

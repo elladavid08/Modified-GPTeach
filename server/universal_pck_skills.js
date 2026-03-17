@@ -426,9 +426,33 @@ Hebrew patterns: ${skill.scoring_rubric.score_2.hebrew_patterns.slice(0, 3).join
   }).join('\n---\n');
 }
 
+/**
+ * Format conversation history for AI prompt
+ * @param {Array} history - Array of message objects with role and text
+ * @returns {string} Formatted conversation string in Hebrew
+ */
+function formatConversationHistory(history) {
+  if (!history || history.length === 0) {
+    return "אין היסטוריה קודמת - זו התגובה הראשונה של המורה";
+  }
+
+  let formatted = "";
+  history.forEach((msg) => {
+    if (msg.role === 'user') {
+      formatted += `מורה: ${msg.text}\n`;
+    } else if (msg.role === 'assistant' || msg.name) {
+      const name = msg.name || 'תלמיד';
+      formatted += `${name}: ${msg.text}\n`;
+    }
+  });
+
+  return formatted.trim();
+}
+
 export {
   universalPCKSkills,
   getPCKSkillById,
   getAllPCKSkills,
-  formatSkillsForPrompt
+  formatSkillsForPrompt,
+  formatConversationHistory
 };

@@ -11,8 +11,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { VertexAI } from '@google-cloud/vertexai';
 import { GoogleAuth } from 'google-auth-library';
-import { formatTaxonomyForPrompt, getPCKSkillById, formatConversationHistory } from './pck_taxonomy.js';
-import { formatSkillsForPrompt } from './universal_pck_skills.js';
+import { formatSkillsForPrompt, formatConversationHistory } from './universal_pck_skills.js';
 import { saveConversation, saveMessage, createUserProfile, getUserProfile } from './services/firebaseAdmin.js';
 
 const __filename = fileURLToPath(import.meta.url);
