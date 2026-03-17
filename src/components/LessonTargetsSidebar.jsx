@@ -43,7 +43,7 @@ export const LessonTargetsSidebar = ({ scenario }) => {
           borderRight: '4px solid #007bff'
         }}>
           <h6 style={{ color: '#0056b3', marginBottom: '10px', fontWeight: 'bold' }}>
-            📖 תיאור השיעור
+            📖 נושא השיעור
           </h6>
           <p style={{ margin: 0, lineHeight: '1.6', color: '#495057' }}>
             {scenario.text}
