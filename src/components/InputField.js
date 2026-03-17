@@ -3,7 +3,7 @@ import { FaPaperPlane, FaUndo } from "react-icons/fa"; // eslint-disable-line no
 import ChatMessage from "../objects/ChatMessage";
 import { AppContext } from "../objects/AppContext";
 
-export const InputField = ({ disabled, onSend, undoMessage, onKeystroke }) => {
+export const InputField = ({ disabled, onSend, undoMessage, onKeystroke, boardOpen, onToggleBoard }) => {
 	const appData = useContext(AppContext);
 	const [myMsg, setMyMsg] = useState("");
 	const [textareaHeight, setTextareaHeight] = useState("auto");
@@ -87,28 +87,39 @@ export const InputField = ({ disabled, onSend, undoMessage, onKeystroke }) => {
 						ref={inputRef}
 					/>
 
-						<div className="d-flex justify-content-between align-items-flex-end">
-							{/* <button
-								title="Undo"
-								className="btn btn-outline-secondary"
+					<div className="d-flex justify-content-between align-items-flex-end">
+						{/* Drawing board toggle button */}
+						{onToggleBoard && (
+							<button
+								type="button"
+								title={boardOpen ? "סגור לוח ציור" : "פתח לוח ציור"}
 								disabled={disabled}
-								onClick={undoMessage}
-								value="Undo"
+								onClick={() => onToggleBoard(!boardOpen)}
+								style={{
+									backgroundColor: boardOpen ? "#e7f3ff" : "transparent",
+									border: boardOpen ? "1px solid #007bff" : "1px solid #ccc",
+									borderRadius: "4px",
+									padding: "4px 8px",
+									fontSize: "16px",
+									cursor: "pointer",
+									lineHeight: 1
+								}}
 							>
-								<FaUndo />
-							</button> */}
+								✏️
+							</button>
+						)}
 
-						<button
-							title="שלח"
-							className="btn btn-primary ml-auto"
-							disabled={disabled}
-							onClick={undoMessage}
-							type="submit"
-							value="Submit"
-						>
-							<FaPaperPlane />
-						</button>
-						</div>
+					<button
+						title="שלח"
+						className="btn btn-primary ml-auto"
+						disabled={disabled}
+						onClick={undoMessage}
+						type="submit"
+						value="Submit"
+					>
+						<FaPaperPlane />
+					</button>
+					</div>
 					</div>
 				</form>
 			</div>

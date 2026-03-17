@@ -12,6 +12,7 @@ import { AppContext } from "../objects/AppContext";
 import { shuffleArray } from "../utils/primitiveManipulation";
 import { ConversationLog } from "../services/conversationLogger";
 import { useAuth } from "../contexts/AuthContext";
+import ChatMessage from "../objects/ChatMessage";
 import "../style/ChatOnly.css";
 
 export const Chat = () => {
@@ -30,6 +31,10 @@ export const Chat = () => {
 	
 	// Use ref to maintain conversation logger across renders
 	const conversationLoggerRef = useRef(null);
+	
+	// Drawing board
+	const drawingBoardRef = useRef(null);
+	const [showBoard, setShowBoard] = useState(false);
 	
 	// Select scenario once when appData is loaded
 	useEffect(() => {
@@ -61,8 +66,33 @@ export const Chat = () => {
 	const students = appData.students ? appData.students.slice(0, Constants.NUM_STUDENTS) : [];
 
 	/** Add the teacher's message and wait for a response */
-	function addUserResponse(TAmessage) {
-		history.addMessage(TAmessage);
+	async function addUserResponse(TAmessage) {
+		let messageWithImage = TAmessage;
+		
+		// Attach drawing to message if the board is open and teacher opted to include it
+		if (drawingBoardRef.current) {
+			const shouldInclude = drawingBoardRef.current.shouldInclude();
+			const hasDrawing = drawingBoardRef.current.hasDrawing();
+			
+			if (shouldInclude && hasDrawing) {
+				const imageBase64 = await drawingBoardRef.current.exportAsImage();
+				if (imageBase64) {
+					messageWithImage = new ChatMessage(
+						TAmessage.agent,
+						TAmessage.text,
+						TAmessage.role,
+						imageBase64
+					);
+				}
+			}
+			// Always close the board after sending a message and reset the checkbox
+			setShowBoard(false);
+			if (drawingBoardRef.current.resetInclude) {
+				drawingBoardRef.current.resetInclude();
+			}
+		}
+		
+		history.addMessage(messageWithImage);
 		setIsQuerying(true);
 	}
 
@@ -247,13 +277,14 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 						const teacherMessages = history.getMessages().filter(msg => msg.role === "user");
 						const lastTeacherMessage = teacherMessages[teacherMessages.length - 1];
 						
-						if (lastTeacherMessage) {
-							console.log("📊 Logging conversation turn...");
-							conversationLoggerRef.current.addTurn(
-								lastTeacherMessage.text,
-								aiMessages.map(msg => ({ name: msg.name, text: msg.text })),
-								feedbackForLog
-							);
+					if (lastTeacherMessage) {
+						console.log("📊 Logging conversation turn...");
+						conversationLoggerRef.current.addTurn(
+							lastTeacherMessage.text,
+							aiMessages.map(msg => ({ name: msg.name, text: msg.text })),
+							feedbackForLog,
+							lastTeacherMessage.image || null  // include drawing image if teacher sent one
+						);
 							console.log("✅ Turn logged. Total turns:", conversationLoggerRef.current.turns.length);
 						}
 					}
@@ -467,10 +498,13 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 			)}
 
 				<div style={{ flex: "1 1 auto", overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
-					<Messages
-						isWaitingOnStudent={isQuerying}
-						onMessageSend={addUserResponse}
-					/>
+				<Messages
+					isWaitingOnStudent={isQuerying}
+					onMessageSend={addUserResponse}
+					showBoard={showBoard}
+					onToggleBoard={setShowBoard}
+					drawingBoardRef={drawingBoardRef}
+				/>
 				</div>
 			</div>
 

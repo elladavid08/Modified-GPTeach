@@ -104,7 +104,7 @@ export class ConversationLog {
 	/**
 	 * Add a conversation turn (teacher message, student responses, PCK feedback)
 	 */
-	async addTurn(teacherMessage, studentResponses, pckFeedback) {
+	async addTurn(teacherMessage, studentResponses, pckFeedback, teacherImage = null) {
 		// Initialize Firestore on first turn (lazy initialization)
 		if (!this.firestoreInitialized) {
 			console.log('📊 First message - initializing conversation in Firestore...');
@@ -117,6 +117,7 @@ export class ConversationLog {
 			timestamp: new Date().toISOString(),
 			teacher: {
 				message: teacherMessage,
+				image: teacherImage || null,   // base64 PNG drawing if teacher sent one
 				timestamp: new Date().toISOString()
 			},
 			students: studentResponses.map(msg => ({
