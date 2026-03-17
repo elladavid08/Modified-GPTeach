@@ -389,8 +389,14 @@ Even if no teacher feedback is needed, assess how this move affects students:
 
 **Guidelines:**
 - "improved" = Explicit corrective move (formal definition, systematic checking, guided discovery)
-- "same" = Correct content but no formal precision, or partial explanation
-- "confused"/"more_confused" = Incorrect info, confusing explanation, or authoritative correction without explanation
+- "same" = Correct content but only partial progress
+- "confused"/"more_confused" = Incorrect, vague, or hard-to-follow teaching
+- "misconception_reinforced" = The teacher explicitly validates a wrong idea. Students who held that idea tend to accept it with more confidence; students who did not hold it may respond with a cautious clarification question
+
+Use student_reaction_hints to specify which students are most likely to respond next and what kind of reaction each one is likely to have.
+- Choose students based on the recent conversation: who spoke, who showed confusion or misconception, and whose prior stance makes a response likely
+- Keep each reason short and evidence-based
+- reaction_type should be one of: "understanding_progress", "partial_understanding", "persistent_confusion", "reinforced_acceptance", "cautious_clarification", "misapplied_new_rule"
 
 ### PART B: TEACHER FEEDBACK (CONDITIONAL)
 
@@ -505,10 +511,16 @@ Use the rubrics from the Universal PCK Skills above:
 {
   "pedagogical_quality": "positive" | "neutral" | "problematic",
   "predicted_student_state": {
-    "understanding_level": "improved" | "same" | "confused" | "more_confused",
-    "likely_reactions": ["reaction 1 in Hebrew", "reaction 2"],
-    "who_should_respond": ["student name 1", "student name 2"],
-    "response_tone": "confident" | "hesitant" | "confused" | "frustrated" | "thoughtful"
+    "understanding_level": "improved" | "same" | "confused" | "more_confused" | "misconception_reinforced",
+    "response_tone": "confident" | "hesitant" | "confused" | "frustrated" | "thoughtful",
+    "student_reaction_hints": [
+      {
+        "student": "student name 1",
+        "likelihood": "high" | "medium" | "low",
+        "reaction_type": "understanding_progress" | "partial_understanding" | "persistent_confusion" | "reinforced_acceptance" | "cautious_clarification" | "misapplied_new_rule",
+        "reason": "short explanation"
+      }
+    ]
   },
   
   "should_provide_feedback": true/false,
@@ -617,10 +629,17 @@ Return JSON only, no additional text:`;
       analysis.pedagogical_quality = analysis.pedagogical_quality || 'neutral';
       analysis.predicted_student_state = analysis.predicted_student_state || {
         understanding_level: 'same',
-        likely_reactions: [],
-        who_should_respond: [],
-        response_tone: 'neutral'
+        response_tone: 'thoughtful',
+        student_reaction_hints: []
       };
+    }
+
+    if (!analysis.predicted_student_state.response_tone) {
+      analysis.predicted_student_state.response_tone = 'thoughtful';
+    }
+
+    if (!Array.isArray(analysis.predicted_student_state.student_reaction_hints)) {
+      analysis.predicted_student_state.student_reaction_hints = [];
     }
     
     // Ensure new fields have defaults

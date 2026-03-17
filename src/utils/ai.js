@@ -413,6 +413,7 @@ function makeProsePrompt(students, scenario, addendum, impact_analysis = null) {
 	retStr += `\n  - What does this student currently KNOW based on their previous responses? Stay consistent with that knowledge unless teacher changed it!`;
 	retStr += `\n  - If they asked a question before, did the teacher answer it? If YES, they should acknowledge the answer, NOT repeat the question!`;
 	retStr += `\n  - If teacher gave multi-part instruction before, is this the SECOND request? If yes, student MUST fully comply now`;
+	retStr += `\n  - If you refer to something said earlier, it must appear in the actual conversation history. Do not invent earlier teacher or student statements`;
 	retStr += `\n  - Confidence level (high/medium/low)`;
 	retStr += `\nSTEP 4: Generate responses ONLY for students who should respond (high/medium confidence)`;
 	
@@ -568,17 +569,31 @@ function makeProsePrompt(students, scenario, addendum, impact_analysis = null) {
 			
 			retStr += `- Understanding level: ${state.understanding_level}\n`;
 			
-			if (state.who_should_respond && state.who_should_respond.length > 0) {
-				retStr += `- Who should respond: ${state.who_should_respond.join(", ")}\n`;
-			}
-			
 			retStr += `- Response tone: ${state.response_tone}\n`;
 			
-			if (state.likely_reactions && state.likely_reactions.length > 0) {
-				retStr += `- Likely reactions:\n`;
-				state.likely_reactions.forEach(reaction => {
-					retStr += `  • ${reaction}\n`;
+			if (state.student_reaction_hints && state.student_reaction_hints.length > 0) {
+				retStr += `- Student reaction hints:\n`;
+				state.student_reaction_hints.forEach((hint) => {
+					retStr += `  • ${hint.student}: ${hint.reaction_type}`;
+					if (hint.likelihood) {
+						retStr += ` (${hint.likelihood})`;
+					}
+					if (hint.reason) {
+						retStr += ` - ${hint.reason}`;
+					}
+					retStr += `\n`;
 				});
+			} else {
+				if (state.who_should_respond && state.who_should_respond.length > 0) {
+					retStr += `- Who should respond: ${state.who_should_respond.join(", ")}\n`;
+				}
+				
+				if (state.likely_reactions && state.likely_reactions.length > 0) {
+					retStr += `- Likely reactions:\n`;
+					state.likely_reactions.forEach(reaction => {
+						retStr += `  • ${reaction}\n`;
+					});
+				}
 			}
 			retStr += "\n";
 		}
@@ -596,12 +611,22 @@ function makeProsePrompt(students, scenario, addendum, impact_analysis = null) {
 		retStr += "**If pedagogical_quality = 'neutral':**\n";
 		retStr += "  → Students make modest progress or stay similar\n";
 		retStr += "  → Partial understanding with follow-up questions\n\n";
+		retStr += "Reaction types:\n";
+		retStr += "  - understanding_progress = clearer understanding that moves the discussion forward\n";
+		retStr += "  - partial_understanding = some progress with a remaining gap\n";
+		retStr += "  - persistent_confusion = still unsure or confused\n";
+		retStr += "  - reinforced_acceptance = accepts a wrong idea more confidently after teacher validation\n";
+		retStr += "  - cautious_clarification = senses a mismatch and asks a careful clarification question\n";
+		retStr += "  - misapplied_new_rule = tries to apply the new idea but uses it incorrectly\n\n";
 		retStr += "**Additional Rules:**\n";
-		retStr += "- Follow the 'who_should_respond' guidance from the PCK expert\n";
+		retStr += "- Use student_reaction_hints as the main bridge between the PCK analysis and the student personas\n";
+		retStr += "- For each hinted student, combine the suggested reaction_type with the student's prior stance in the conversation and their persona\n";
 		retStr += "- Match the 'response_tone' predicted by the PCK expert\n";
-		retStr += "- Use the 'likely_reactions' as guidance for what students might say\n";
+		retStr += "- If no student_reaction_hints exist, fall back to the older who_should_respond and likely_reactions guidance\n";
 		retStr += "- If understanding_level = 'improved' → MUST show improvement, not repeat confusion\n";
 		retStr += "- If understanding_level = 'more_confused' → MUST show confusion\n";
+		retStr += "- If understanding_level = 'misconception_reinforced' → students who already held that idea usually accept it with more confidence; students who were more secure may ask a cautious clarification question\n";
+		retStr += "- Choose between those reactions based on the student's prior stance in the conversation and their persona\n";
 		retStr += "- If addressed_misconception = true → student should acknowledge the clarification\n\n";
 	}
 	
@@ -610,6 +635,10 @@ function makeProsePrompt(students, scenario, addendum, impact_analysis = null) {
 	retStr += "- Students can build on each other's comments (using: 'נכון', 'וגם', 'אז', 'רגע')\n";
 	retStr += "- Students can introduce independent points when relevant\n";
 	retStr += "- Create natural discussion flow - not everyone needs to speak every turn\n";
+	retStr += "- Ground responses in the actual conversation history\n";
+	retStr += "- If a student challenges the teacher, base it on what was really said or on the student's own mathematical thinking\n";
+	retStr += "- Do not attribute earlier statements to the teacher unless they actually appear in the conversation\n";
+	retStr += "- If a student senses a contradiction but it was not explicitly said earlier, phrase it as their own doubt rather than as 'אמרת קודם ש...'\n";
 	retStr += "- When teacher gives multi-part instructions (e.g., \"give 2 definitions\"), initial compliance depends on student persona:\n";
 	retStr += "  • High-participation students (תמר, דנה, יונתן) may fully or mostly comply\n";
 	retStr += "  • Medium-participation students (יובל, הילה, מעיין) may give partial response (1 of 2)\n";
@@ -627,7 +656,7 @@ function makeProsePrompt(students, scenario, addendum, impact_analysis = null) {
 	retStr += "- MAINTAIN CONSISTENT KNOWLEDGE: If you gave a definition or explanation, use those SAME core concepts in future responses\n";
 	retStr += "  • Allow minor wording variations (\"4 זוויות ישרות\" vs \"כל הזוויות ישרות\" - same concept)\n";
 	retStr += "  • BUT keep core concepts identical unless teacher explicitly corrected you\n";
-	retStr += "  • Your understanding changes ONLY when: (1) teacher explicitly corrects you, (2) teacher provides new info you accept, (3) PCK analysis shows understanding improved\n";
+	retStr += "  • Your understanding changes ONLY when: (1) teacher explicitly corrects you, (2) teacher provides new info you accept, (3) PCK analysis shows understanding improved, or (4) the teacher validates a wrong idea and that realistically strengthens or destabilizes your current view\n";
 	retStr += "- Conversation should progress: question → explanation → reaction → new topic/deeper question\n";
 	retStr += "- Real students don't endlessly repeat the same confusion after good teaching!\n";
 
@@ -665,7 +694,7 @@ function makeProsePrompt(students, scenario, addendum, impact_analysis = null) {
 	retStr += `\n- If understanding_level = "more_confused" → use student's "escalation_if_confused" behavior`;
 	retStr += `\n- If misconception_risk is "high" → choose student with matching misconception_tendencies`;
 	retStr += `\n- Respect each student's participation baseline and speaks_when/avoids_when conditions`;
-	retStr += `\n- Follow the PCK expert's "who_should_respond" guidance strictly\n`;
+	retStr += `\n- Use the PCK expert's student_reaction_hints to decide who reacts and what kind of response they are likely to have\n`;
 
 	retStr +=
 		"\n\n" + Constants.RESPONSE_INSTRUCTIONS + "\n" + addendum;
