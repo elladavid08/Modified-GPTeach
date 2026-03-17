@@ -360,11 +360,29 @@ function makeProsePrompt(students, scenario, addendum, impact_analysis = null) {
 	// The student agent receives the PCK analysis and uses it to inform responses
 	// No need for the student agent to generate its own PCK feedback
 	
-	// Simplified scenario context
+	// Compact scenario context: enough to anchor the lesson without scripting responses
 	retStr += `\n### Current Lesson Focus:`;
-	if (scenario.misconception_focus) {
-		retStr += `\nMisconception to watch for: ${scenario.misconception_focus}`;
+	if (scenario.grade_level) {
+		retStr += `\nGrade level: ${scenario.grade_level}`;
 	}
+	if (scenario.ai_context_summary) {
+		retStr += `\nLesson context: ${scenario.ai_context_summary}`;
+	} else if (scenario.text) {
+		retStr += `\nLesson context: ${scenario.text}`;
+	}
+	if (scenario.ai_prior_knowledge) {
+		retStr += `\nPrior knowledge: ${scenario.ai_prior_knowledge}`;
+	}
+	if (scenario.misconception_focus) {
+		retStr += `\nPossible misconception to watch for: ${scenario.misconception_focus}`;
+	}
+	if (scenario.ai_pedagogical_focus && scenario.ai_pedagogical_focus.length > 0) {
+		retStr += `\nPedagogical focus areas:`;
+		scenario.ai_pedagogical_focus.forEach((focus) => {
+			retStr += `\n- ${focus}`;
+		});
+	}
+	retStr += `\nScenario context is BACKGROUND ONLY. Do not force the misconception into every turn, do not copy fixed wording, and do not treat the pedagogical focus as a script. Base student responses on the actual conversation, the student personas, and the teacher's latest move.`;
 	
 	// Natural conversation flow instructions
 	retStr += `\n\n🎭 NATURAL CONVERSATION FLOW (CRITICAL):`;
@@ -480,12 +498,8 @@ function makeProsePrompt(students, scenario, addendum, impact_analysis = null) {
 			retStr += "The TEACHER is leading this lesson. The teacher has started the conversation.\n";
 			retStr += "Students should respond naturally to what the teacher says or asks.\n";
 			retStr += "Students are in 'receiving mode' - answering questions, asking for clarification, or engaging with the teacher's topic.\n";
-			if (scenario.lesson_goals) {
-				// Handle both array and string formats
-				const goalsText = Array.isArray(scenario.lesson_goals) 
-					? scenario.lesson_goals.join("; ") 
-					: scenario.lesson_goals;
-				retStr += `\nThe teacher's goals for this lesson are:\n${goalsText}\n`;
+			if (scenario.ai_context_summary) {
+				retStr += `\nShort lesson summary: ${scenario.ai_context_summary}\n`;
 			}
 		} else if (scenario.initiated_by === "students") {
 			retStr += "\n\n🎓 LESSON CONTEXT:\n";
@@ -513,13 +527,6 @@ function makeProsePrompt(students, scenario, addendum, impact_analysis = null) {
 		retStr += "  - If teacher uses counterexample or checks definition → student should engage with that\n";
 		retStr += "  - DO NOT keep repeating the same misconception after teacher addressed it properly!\n\n";
 		retStr += "**Natural Progression**: misconception expressed → teacher addresses → student reaction (understood/still confused/new question) → conversation moves forward\n";
-	}
-	
-	// Add target PCK skills if specified (for AI context awareness)
-	if (scenario.target_pck_skills && scenario.target_pck_skills.length > 0) {
-		retStr += "\n\n📋 PCK SKILLS BEING ASSESSED IN THIS SCENARIO:\n";
-		retStr += `This scenario is designed to elicit teacher responses related to: ${scenario.target_pck_skills.join(", ")}\n`;
-		retStr += "The students' misconceptions and questions should create opportunities for the teacher to demonstrate these skills.\n";
 	}
 	
 	// Add PCK impact analysis if available (NEW: from PCK expert agent)

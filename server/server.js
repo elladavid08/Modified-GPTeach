@@ -90,6 +90,39 @@ async function fetchCredentialDetails() {
   }
 }
 
+function formatScenarioContextForPrompt(scenario) {
+  if (!scenario) {
+    return 'No scenario context provided';
+  }
+
+  const lines = [];
+
+  lines.push(`**Grade Level**: ${scenario.grade_level || 'Middle School'}`);
+  lines.push(`**Topic**: ${scenario.ai_context_summary || scenario.text || 'Geometry lesson'}`);
+
+  if (scenario.ai_prior_knowledge) {
+    lines.push(`**Prior Knowledge**: ${scenario.ai_prior_knowledge}`);
+  }
+
+  if (scenario.misconception_focus) {
+    lines.push(`**Likely Misconception**: ${scenario.misconception_focus}`);
+  }
+
+  if (scenario.ai_pedagogical_focus && scenario.ai_pedagogical_focus.length > 0) {
+    lines.push('**Pedagogical Focus Areas**:');
+    scenario.ai_pedagogical_focus.forEach((focus) => {
+      lines.push(`- ${focus}`);
+    });
+  }
+
+  lines.push('');
+  lines.push('⚠️ Use this scenario context only as background for the lesson setting and likely misconception.');
+  lines.push('⚠️ Evaluate the teacher based on the universal PCK taxonomy and the actual conversation evidence.');
+  lines.push("⚠️ The pedagogical focus areas are not a script, and strong teaching may look different from the scenario's typical move.");
+
+  return lines.join('\n');
+}
+
 (async () => {
   const details = await fetchCredentialDetails();
   if (details.error) {
@@ -321,14 +354,7 @@ app.post('/api/pck-feedback', async (req, res) => {
     const pckPrompt = `You are a PCK (Pedagogical Content Knowledge) expert analyzing a Hebrew geometry teacher's pedagogical moves in real-time.
 
 ## Lesson Context
-${scenario ? `
-**Grade Level**: ${scenario.grade_level || 'Middle School'}
-**Topic**: ${scenario.name || 'Geometry'}
-**Lesson Goals**: ${scenario.lesson_goals || 'Not specified'}
-**Target Misconception**: ${scenario.misconception_focus || 'Not specified'}
-
-⚠️ NOTE: The "Target Misconception" is what MIGHT appear in the conversation. Do NOT give feedback about it unless a STUDENT actually shows this misconception and the TEACHER responds to it. Context is for reference only - don't give preemptive tips.
-` : 'No scenario context provided'}
+${formatScenarioContextForPrompt(scenario)}
 
 ## Universal PCK Skills to Assess
 
@@ -373,6 +399,13 @@ Even if no teacher feedback is needed, assess how this move affects students:
 **🚨 CRITICAL RULE: NO FEEDBACK unless a STUDENT has made an ERROR/MISCONCEPTION**
 
 The 5 PCK skills are about handling student errors. Without a student error, there's nothing to assess.
+
+**Taxonomy-first rule:**
+- Analyze the teacher using the universal PCK taxonomy and the actual interaction evidence
+- Do NOT expect one exact teacher sentence or one exact pedagogical move
+- Do NOT penalize a teacher just because they used a different valid move than the scenario's common pattern
+- Use the scenario context only to understand the lesson setting and the likely misconception
+- If the teacher responds effectively in another pedagogically sound way, score that positively based on evidence
 
 **Required conditions for providing feedback (ALL must be true):**
 1. ✅ At least one STUDENT has already responded in the conversation
@@ -685,10 +718,7 @@ app.post('/api/pck-summary', async (req, res) => {
     const summaryPrompt = `You are a PCK (Pedagogical Content Knowledge) expert analyzing a Hebrew geometry teacher's performance. Provide a qualitative, adaptive-length summary IN HEBREW.
 
 ## Lesson Context
-${conversationLog.scenario.text || 'Geometry lesson'}
-
-**Lesson Goals:** ${conversationLog.scenario.lesson_goals || 'Not specified'}
-**Target Misconception:** ${conversationLog.scenario.misconception_focus || 'Not specified'}
+${formatScenarioContextForPrompt(conversationLog.scenario)}
 
 ## Full Conversation (${conversationLog.turns.length} turns)
 ${conversationText}

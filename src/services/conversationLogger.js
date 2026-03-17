@@ -23,7 +23,10 @@ export class ConversationLog {
 		// Scenario context
 		this.scenario = {
 			text: scenario.text,
-			lesson_goals: scenario.lesson_goals,
+			grade_level: scenario.grade_level,
+			ai_context_summary: scenario.ai_context_summary,
+			ai_prior_knowledge: scenario.ai_prior_knowledge,
+			ai_pedagogical_focus: scenario.ai_pedagogical_focus,
 			misconception_focus: scenario.misconception_focus,
 			target_pck_skills: scenario.target_pck_skills,
 			initiated_by: scenario.initiated_by
