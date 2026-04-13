@@ -11,7 +11,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { VertexAI } from '@google-cloud/vertexai';
 import { GoogleAuth } from 'google-auth-library';
-import { formatSkillsForPrompt, formatConversationHistory } from './universal_pck_skills.js';
+import { formatSkillsForPrompt, formatConversationHistory, getPCKSkillById } from './universal_pck_skills.js';
 import { saveConversation, saveMessage, createUserProfile, getUserProfile } from './services/firebaseAdmin.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -505,6 +505,25 @@ Use the rubrics from the Universal PCK Skills above:
 
 ---
 
+## Deriving demonstrated_skills and missed_opportunities
+
+After filling in \`skills_assessment\`, derive these two fields:
+- \`demonstrated_skills\`: copy every entry where \`is_relevant: true\` AND \`score >= 1\`. Include only \`skill_id\` and \`evidence\`.
+- \`missed_opportunities\`: copy every entry where \`is_relevant: true\` AND \`score = 0\`. Include only \`skill_id\` and \`what_could_be_better\` (renamed to \`what_could_have_been_done\`).
+- If no skills are relevant (no student error present), both arrays must be \`[]\`.
+
+For \`addressed_misconception\`:
+- Set \`true\` only if the teacher's message explicitly addressed a misconception a student expressed earlier in this conversation.
+- Set \`false\` if: no misconception was present, or the teacher ignored/bypassed it.
+- In \`how_addressed\`, briefly describe the move in Hebrew (e.g., "שאל שאלה שמחזירה לתלמיד להגדרה"), or leave as empty string \`""\` if false.
+
+For \`misconception_risk\`:
+- \`"high"\` if the teacher's move is likely to create or reinforce a misconception (e.g., validated wrong idea, gave ambiguous explanation)
+- \`"low"\` if the teacher's move clearly prevents or corrects misconceptions
+- \`"medium"\` otherwise
+
+---
+
 ## Expected JSON Response
 
 \`\`\`json
@@ -523,6 +542,19 @@ Use the rubrics from the Universal PCK Skills above:
     ]
   },
   
+  "addressed_misconception": true/false, // true if teacher explicitly addressed an active student misconception this turn
+  "how_addressed": "Hebrew: brief description of how teacher addressed it, or empty string if false",
+  "misconception_risk": "high" | "medium" | "low", // how likely this move is to create/reinforce a misconception
+  
+  "demonstrated_skills": [
+    // Skills where is_relevant=true AND score >= 1. Empty array [] if none.
+    { "skill_id": "error-identification", "evidence": "Hebrew: what the teacher did that shows this skill" }
+  ],
+  "missed_opportunities": [
+    // Skills where is_relevant=true AND score = 0. Empty array [] if none.
+    { "skill_id": "error-leveraging", "what_could_have_been_done": "Hebrew: what the teacher could have done" }
+  ],
+
   "should_provide_feedback": true/false,
   "feedback_trigger": "student_misconception_not_addressed" | "incorrect_content" | "epistemic_abdication" | "excellent_pck_use" | "missed_opportunity" | null,
   
@@ -543,9 +575,46 @@ Use the rubrics from the Universal PCK Skills above:
     }
   ],
   
-  "feedback_message_hebrew": "Feedback in Hebrew (2-3 sentences)" // ONLY if should_provide_feedback = true, otherwise empty string ""
+  "feedback_message_hebrew": "..." // See rules below. ONLY if should_provide_feedback = true, otherwise empty string ""
 }
 \`\`\`
+
+## Feedback Message Rules (MANDATORY — must follow these exactly)
+
+**When to set should_provide_feedback:**
+- pedagogical_quality = "positive" AND a student error was present → should_provide_feedback: true
+- pedagogical_quality = "problematic" AND a student error was present → should_provide_feedback: true
+- pedagogical_quality = "neutral" → should_provide_feedback: false, feedback_message_hebrew: ""
+- No student error present (regardless of quality) → should_provide_feedback: false, feedback_message_hebrew: ""
+
+Your \`feedback_message_hebrew\` MUST be consistent with your \`pedagogical_quality\` score.
+NEVER write a critical message when pedagogical_quality = "positive".
+NEVER write a positive/encouraging message when pedagogical_quality = "problematic".
+
+**The feedback message MUST explicitly name the relevant PCK skill** using its Hebrew name.
+The 5 skills and their Hebrew names are:
+- error-identification → "זיהוי השגיאה"
+- error-characterization → "אפיון סוג השגיאה"
+- diagnostic-interpretation → "פרשנות אבחונית של חשיבת התלמיד"
+- adapted-pedagogical-response → "תגובה פדגוגית מותאמת"
+- error-leveraging → "מינוף השגיאה ללמידה"
+
+To find which skill(s) to name: use the skill(s) from \`demonstrated_skills\` (for positive feedback) or \`missed_opportunities\` (for problematic feedback). If multiple skills apply, name the most prominent one.
+
+**Structure when should_provide_feedback = true:**
+
+If pedagogical_quality = "positive":
+→ Write 1-2 validating sentences.
+→ Sentence 1: Name the skill demonstrated and what the teacher specifically did.
+→ Format: "[skill name Hebrew]: [what the teacher did, closely paraphrased]."
+→ Example: "זיהוי השגיאה: זיהית שהתלמיד מבלבל בין תנאי הכרחי למספיק ושאלת שאלה שמחזירה אותו להגדרה — מצוין."
+
+If pedagogical_quality = "problematic":
+→ Write 2-3 sentences structured as:
+   (1) Open with: "הוחמצה הזדמנות ל[skill name Hebrew]:" — this prefix makes the critical tone immediately clear.
+   (2) State what the student's error was and what the teacher did or failed to do.
+   (3) Give one concrete alternative move: "במקום זאת, אפשר היה לשאול/לומר: '...'"
+→ Example: "הוחמצה הזדמנות לתגובה פדגוגית מותאמת: התלמיד טען שריבוע אינו מלבן, אך המורה אישר את הטענה מבלי להפנות אותו להגדרה. במקום זאת, אפשר היה לשאול: 'מה ההגדרה של מלבן? האם ריבוע מקיים אותה?'"
 
 ## Key Calibration Guidelines
 
@@ -650,6 +719,29 @@ Return JSON only, no additional text:`;
     if (!analysis.skills_assessment) {
       analysis.skills_assessment = [];
     }
+
+    // Defaults for new fields
+    if (analysis.addressed_misconception === undefined) {
+      analysis.addressed_misconception = false;
+    }
+    if (!analysis.how_addressed) {
+      analysis.how_addressed = '';
+    }
+    if (!analysis.misconception_risk) {
+      analysis.misconception_risk = 'medium';
+    }
+    if (!Array.isArray(analysis.demonstrated_skills)) {
+      // Derive from skills_assessment as fallback
+      analysis.demonstrated_skills = analysis.skills_assessment
+        .filter(s => s.is_relevant && s.score >= 1)
+        .map(s => ({ skill_id: s.skill_id, evidence: s.evidence || '' }));
+    }
+    if (!Array.isArray(analysis.missed_opportunities)) {
+      // Derive from skills_assessment as fallback
+      analysis.missed_opportunities = analysis.skills_assessment
+        .filter(s => s.is_relevant && s.score === 0)
+        .map(s => ({ skill_id: s.skill_id, what_could_have_been_done: s.what_could_be_better || '' }));
+    }
     
     // Set feedback message based on should_provide_feedback
     if (analysis.should_provide_feedback) {
@@ -720,7 +812,9 @@ app.post('/api/pck-summary', async (req, res) => {
         if (relevantSkills.length > 0) {
           relevantSkills.forEach(skill => {
             const scoreLabel = skill.score === 2 ? '✅ Excellent' : skill.score === 1 ? '⚠️ Partial' : '❌ Missed';
-            pckMomentsText += `  - ${skill.skill_id}: ${scoreLabel}\n`;
+            const skillDef = getPCKSkillById(skill.skill_id);
+            const hebrewName = skillDef ? skillDef.skill_name.he : skill.skill_id;
+            pckMomentsText += `  - ${hebrewName} (${skill.skill_id}): ${scoreLabel}\n`;
             pckMomentsText += `    Evidence: ${skill.evidence}\n`;
             if (skill.what_could_be_better) {
               pckMomentsText += `    Could improve: ${skill.what_could_be_better}\n`;
@@ -750,22 +844,36 @@ ${pckMomentsText}
 
 ---
 
+## PCK Skills Reference (use these Hebrew names when naming skills)
+- זיהוי השגיאה (error-identification): recognizing that a student's statement contains an error
+- אפיון סוג השגיאה (error-characterization): identifying the type of logical/conceptual flaw
+- פרשנות אבחונית של חשיבת התלמיד (diagnostic-interpretation): understanding the source of the student's incorrect thinking
+- תגובה פדגוגית מותאמת (adapted-pedagogical-response): choosing the right pedagogical strategy for the specific error
+- מינוף השגיאה ללמידה (error-leveraging): using the error as a resource for deeper conceptual understanding
+
+---
+
 ## Your Task: Create an ADAPTIVE-LENGTH summary in Hebrew
+
+**Core requirement: Ground the summary in the PCK skills above and in the real-time feedbacks given during the conversation.**
+- Every point you make must connect to one of the 5 named PCK skills.
+- Use the real-time feedback moments (listed above) as your primary evidence — do not invent new assessments that contradict them.
+- Name each skill explicitly using its Hebrew name when discussing it (positive or negative).
 
 **Length Guidelines (PROPORTIONAL to content):**
 
 ### If 0-2 PCK moments (short conversation/test):
 - 2-3 sentences ONLY
-- "בשיחה קצרה זו [what happened]. [one sentence about what was good/could improve]"
+- Mention which skill(s) appeared (or didn't appear) and why
 - DO NOT write a long summary if there's nothing to discuss!
 
 ### If 3-5 PCK moments (medium conversation):
 - One paragraph (4-6 lines) + 2-3 focused tips
-- Focus on main moments
+- Each tip must name the relevant PCK skill
 
 ### If 6+ PCK moments (full conversation):
 - 2 paragraphs (each 5-7 lines) + 3-5 tips
-- Deeper analysis of patterns
+- Deeper analysis of patterns across skills
 - But NO MORE than one page!
 
 ---
@@ -773,60 +881,63 @@ ${pckMomentsText}
 ## Summary Structure (adapt length)
 
 **If short conversation (0-2 moments):**
-"בשיחה קצרה זו [what happened]. [one point for improvement or reinforcement]."
+"בשיחה קצרה זו [what happened with which skill]. [one point for improvement or reinforcement, naming the skill]."
 
 **If medium or long conversation:**
 
 ### סיכום כללי
 [1-2 paragraphs adapted to conversation length, in Hebrew]
 
-Naturally integrate:
+When discussing skills, use these patterns:
 
-**Score 2 (Excellent):**
-- "בתור X זיהית מצוין..."
-- "הצלחת לזהות..."
-- "גישה טובה כאשר..."
+**Score 2 (Excellent) — name the skill positively:**
+- "[שם המיומנות]: הצלחת [what you did specifically]."
+- "גישה מצוינת ב[שם המיומנות] — [specific evidence from conversation]."
 
-**Score 1 (Partial - acknowledge but explain how to improve):**
-- "בתור Y התחלת טוב בכך ש-[what you did], אבל [how to complete]"
-- "ניסית ל-[X] אבל הייתה הזדמנות ל-[Y]"
+**Score 1 (Partial) — name the skill, acknowledge partial use, explain what was missing:**
+- "[שם המיומנות]: התחלת טוב בכך ש-[what you did], אבל [how to complete it]."
+- "ניסית [שם המיומנות] אבל הייתה הזדמנות להעמיק — [what could have been done]."
 
-**Score 0 (Missed - explain what's missing):**
-- "בתור Z התלמיד [what happened] אבל לא התייחסת. היה חשוב לזהות ש-[what should have been done]"
-- "הוחמצה הזדמנות כאשר [situation] - כדאי היה [action]"
+**Score 0 (Missed) — use "הוחמצה הזדמנות ל[שם המיומנות]":**
+- "הוחמצה הזדמנות ל[שם המיומנות]: [what student said/did] אבל [what teacher did instead]. כדאי היה [concrete alternative]."
 
 ### טיפים לשיפור (if relevant)
-- [Focused tip 1 - only if there's something to say]
-- [Focused tip 2]
-- [Focused tip 3 - if needed]
+- [Tip 1 — must name the PCK skill it relates to]
+- [Tip 2]
+- [Tip 3 — if needed]
 
 ---
 
 ## Critical Rules
 
-1. **Adapt length to content:**
+1. **Every point must connect to a named PCK skill:**
+   - Do not write general pedagogical comments that don't reference one of the 5 skills
+   - If a skill wasn't relevant in this conversation, don't discuss it
+
+2. **Ground in real-time feedbacks:**
+   - Use the PCK moments listed above as your primary evidence
+   - Do not contradict the scores already given in real-time
+   - You may add context or nuance, but the skill assessments are fixed
+
+3. **Adapt length to content:**
    - 2-3 turn conversation → 2-3 sentences
    - Long conversation with many PCK moments → up to one page
    
-2. **Do not fabricate content:**
+4. **Do not fabricate content:**
    - If there weren't many PCK moments - don't write a long summary
    - Don't repeat the same thing in different phrasings to fill space
-   
-3. **Focus on what's relevant:**
-   - Only discuss moments where skills were relevant
-   - Don't discuss skills that weren't relevant at all
-   
-4. **Be specific:**
-   - Quote examples from the conversation
+
+5. **Be specific:**
+   - Quote or paraphrase examples from the conversation
    - Reference specific turns when relevant
    - Avoid vague generalizations
    
-5. **Real balance:**
+6. **Real balance:**
    - If everything was good - say so
    - If there were problems - focus on them
    - Don't force a "50% positive 50% negative" structure
    
-6. **Natural Hebrew language:**
+7. **Natural Hebrew language:**
    - Don't write separate "מה עשית טוב" and "מה לשפר" sections
    - Integrate everything in natural paragraphs
    - Tips can be a list but keep concise

@@ -9,7 +9,7 @@ import { PCKFeedbackSidebar } from "../components/PCKFeedbackSidebar";
 import { PCKSummaryModal } from "../components/PCKSummaryModal";
 import { HistoryContext } from "../objects/ChatHistory";
 import { AppContext } from "../objects/AppContext";
-import { shuffleArray } from "../utils/primitiveManipulation";
+import { ScenarioSelector } from "../components/ScenarioSelector";
 import { ConversationLog } from "../services/conversationLogger";
 import { useAuth } from "../contexts/AuthContext";
 import ChatMessage from "../objects/ChatMessage";
@@ -36,17 +36,7 @@ export const Chat = () => {
 	const drawingBoardRef = useRef(null);
 	const [showBoard, setShowBoard] = useState(false);
 	
-	// Select scenario once when appData is loaded
-	useEffect(() => {
-		if (appData.scenarios && !scenario) {
-			const selectedScenario = shuffleArray(appData.scenarios)[0];
-			console.log("📝 Selected scenario:", {
-				text: selectedScenario.text ? selectedScenario.text.substring(0, 50) : '',
-				initiatedBy: selectedScenario.initiated_by
-			});
-			setScenario(selectedScenario);
-		}
-	}, [appData.scenarios, scenario]);
+	// Scenario is set by the ScenarioSelector — no random pre-selection
 	
 	// Initialize conversation logger when scenario and students are ready
 	useEffect(() => {
@@ -67,6 +57,9 @@ export const Chat = () => {
 
 	/** Add the teacher's message and wait for a response */
 	async function addUserResponse(TAmessage) {
+		// Clear any previous feedback immediately so it doesn't persist into the next turn
+		setPckFeedback(null);
+
 		let messageWithImage = TAmessage;
 		
 		// Attach drawing to message if the board is open and teacher opted to include it
@@ -348,12 +341,25 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 		}
 	};
 	
-	// Show loading state if data isn't ready
-	if (!scenario || !appData.students) {
+	// Show spinner while app data is still loading
+	if (!appData.students || !appData.scenarios) {
 		return (
 			<div style={{ padding: "50px", textAlign: "center", direction: "rtl" }}>
 				<h2>טוען...</h2>
 			</div>
+		);
+	}
+
+	// Show scenario selector until teacher picks a lesson
+	if (!scenario) {
+		return (
+			<ScenarioSelector
+				scenarios={appData.scenarios}
+				onSelect={(chosen) => {
+					console.log("📝 Scenario selected:", chosen.text);
+					setScenario(chosen);
+				}}
+			/>
 		);
 	}
 	

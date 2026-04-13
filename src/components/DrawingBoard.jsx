@@ -346,31 +346,101 @@ export const DrawingBoard = ({ onDrawingCapture }) => {
 					if (!shape) return;
 					shape.set({ x2: pointer.x, y2: pointer.y });
 
-				} else if (drawingMode === "parallelogram") {
-					// Recreate polygon dynamically on each mouse:move
-					if (tempShapeRef.current) {
-						canvas.remove(tempShapeRef.current);
-					}
-					const absX = Math.abs(dx);
-					const absY = Math.abs(dy);
-					const slant = absX * 0.25;
-					const pts = [
-						{ x: slant, y: 0 },
-						{ x: absX, y: 0 },
-						{ x: absX - slant, y: absY },
-						{ x: 0, y: absY },
-					];
-					const newShape = new fabric.Polygon(pts, {
-						left: Math.min(pointer.x, startPointRef.current.x),
-						top: Math.min(pointer.y, startPointRef.current.y),
-						fill: "transparent",
-						stroke: "#000000",
-						strokeWidth: 2,
-						objectCaching: false,
-					});
-					canvas.add(newShape);
-					tempShapeRef.current = newShape;
+			} else if (drawingMode === "parallelogram") {
+				// Recreate polygon dynamically on each mouse:move
+				if (tempShapeRef.current) {
+					canvas.remove(tempShapeRef.current);
 				}
+				const absX = Math.abs(dx);
+				const absY = Math.abs(dy);
+				const slant = absX * 0.25;
+				const pts = [
+					{ x: slant, y: 0 },
+					{ x: absX, y: 0 },
+					{ x: absX - slant, y: absY },
+					{ x: 0, y: absY },
+				];
+				const newShape = new fabric.Polygon(pts, {
+					left: Math.min(pointer.x, startPointRef.current.x),
+					top: Math.min(pointer.y, startPointRef.current.y),
+					fill: "transparent",
+					stroke: "#000000",
+					strokeWidth: 2,
+					objectCaching: false,
+				});
+				canvas.add(newShape);
+				tempShapeRef.current = newShape;
+
+			} else if (drawingMode === "trapezoid") {
+				if (tempShapeRef.current) {
+					canvas.remove(tempShapeRef.current);
+				}
+				const absX = Math.abs(dx);
+				const absY = Math.abs(dy);
+				const inset = absX * 0.2;
+				const pts = [
+					{ x: inset,        y: 0    },
+					{ x: absX - inset, y: 0    },
+					{ x: absX,         y: absY },
+					{ x: 0,            y: absY },
+				];
+				const newShape = new fabric.Polygon(pts, {
+					left: Math.min(pointer.x, startPointRef.current.x),
+					top: Math.min(pointer.y, startPointRef.current.y),
+					fill: "transparent",
+					stroke: "#000000",
+					strokeWidth: 2,
+					objectCaching: false,
+				});
+				canvas.add(newShape);
+				tempShapeRef.current = newShape;
+
+			} else if (drawingMode === "rhombus") {
+				if (tempShapeRef.current) {
+					canvas.remove(tempShapeRef.current);
+				}
+				const absX = Math.abs(dx);
+				const absY = Math.abs(dy);
+				const pts = [
+					{ x: absX / 2, y: 0        },
+					{ x: absX,     y: absY / 2  },
+					{ x: absX / 2, y: absY      },
+					{ x: 0,        y: absY / 2  },
+				];
+				const newShape = new fabric.Polygon(pts, {
+					left: Math.min(pointer.x, startPointRef.current.x),
+					top: Math.min(pointer.y, startPointRef.current.y),
+					fill: "transparent",
+					stroke: "#000000",
+					strokeWidth: 2,
+					objectCaching: false,
+				});
+				canvas.add(newShape);
+				tempShapeRef.current = newShape;
+
+			} else if (drawingMode === "kite") {
+				if (tempShapeRef.current) {
+					canvas.remove(tempShapeRef.current);
+				}
+				const absX = Math.abs(dx);
+				const absY = Math.abs(dy);
+				const pts = [
+					{ x: absX / 2, y: 0           },
+					{ x: absX,     y: absY * 0.4   },
+					{ x: absX / 2, y: absY         },
+					{ x: 0,        y: absY * 0.4   },
+				];
+				const newShape = new fabric.Polygon(pts, {
+					left: Math.min(pointer.x, startPointRef.current.x),
+					top: Math.min(pointer.y, startPointRef.current.y),
+					fill: "transparent",
+					stroke: "#000000",
+					strokeWidth: 2,
+					objectCaching: false,
+				});
+				canvas.add(newShape);
+				tempShapeRef.current = newShape;
+			}
 
 				canvas.renderAll();
 			});
@@ -513,9 +583,24 @@ export const DrawingBoard = ({ onDrawingCapture }) => {
 					<button onClick={() => setDrawingMode("square")} style={buttonStyle("square")}>
 						<span role="img" aria-label="square">⬜</span> ריבוע
 					</button>
-					<button onClick={() => setDrawingMode("parallelogram")} style={buttonStyle("parallelogram")}>
-						<span role="img" aria-label="parallelogram">▱</span> מקבילית
-					</button>
+				<button onClick={() => setDrawingMode("parallelogram")} style={buttonStyle("parallelogram")}>
+					<span role="img" aria-label="parallelogram">▱</span> מקבילית
+				</button>
+				<button onClick={() => setDrawingMode("rhombus")} style={buttonStyle("rhombus")}>
+					<svg width="14" height="16" viewBox="0 0 14 16" style={{ display: "inline-block", verticalAlign: "middle", marginLeft: "3px" }}>
+						<polygon points="7,1 13,8 7,15 1,8" fill="none" stroke="currentColor" strokeWidth="1.5"/>
+					</svg> מעוין
+				</button>
+				<button onClick={() => setDrawingMode("trapezoid")} style={buttonStyle("trapezoid")}>
+					<svg width="16" height="14" viewBox="0 0 16 14" style={{ display: "inline-block", verticalAlign: "middle", marginLeft: "3px" }}>
+						<polygon points="3,1 13,1 16,13 0,13" fill="none" stroke="currentColor" strokeWidth="1.5"/>
+					</svg> טרפז
+				</button>
+				<button onClick={() => setDrawingMode("kite")} style={buttonStyle("kite")}>
+					<svg width="14" height="16" viewBox="0 0 14 16" style={{ display: "inline-block", verticalAlign: "middle", marginLeft: "3px" }}>
+						<polygon points="7,1 13,7 7,15 1,7" fill="none" stroke="currentColor" strokeWidth="1.5"/>
+					</svg> דלתון
+				</button>
 					<button 
 						onClick={handleClearDrawing}
 						style={{
