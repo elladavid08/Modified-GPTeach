@@ -312,6 +312,12 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 	};
 	
 	const handleGetSummary = async () => {
+		// If analysis was already generated, just re-show it without a new API call
+		if (summaryFeedback) {
+			setShowSummary(true);
+			return;
+		}
+
 		if (!conversationLoggerRef.current) {
 			console.warn("No conversation logger found");
 			alert("לא נמצא לוג שיחה. אנא סיים את השיחה תחילה.");
@@ -446,7 +452,7 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 									disabled={isLoadingSummary}
 									style={{ direction: "rtl", fontSize: "12px", padding: "4px 12px" }}
 								>
-									{isLoadingSummary ? "⏳ מכין ניתוח..." : "📊 קבל ניתוח PCK"}
+									{isLoadingSummary ? "⏳ מכין ניתוח..." : summaryFeedback ? "📊 צפה בניתוח PCK" : "📊 קבל ניתוח PCK"}
 								</button>
 							)}
 							<button
