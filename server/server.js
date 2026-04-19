@@ -59,6 +59,38 @@ const model = vertexAI.getGenerativeModel({
 
 console.log('✅ Vertex AI initialized successfully with service account');
 
+/**
+ * Retries an async function on Vertex AI quota/rate-limit errors using
+ * exponential backoff. Retries only on 429 / RESOURCE_EXHAUSTED signals;
+ * all other errors are re-thrown immediately.
+ *
+ * @param {() => Promise<any>} fn - The async call to attempt
+ * @param {number} maxRetries - Maximum number of extra attempts (default 3)
+ * @param {number} baseDelayMs - Initial delay in ms; doubles each attempt (default 2000)
+ */
+async function withRetry(fn, maxRetries = 3, baseDelayMs = 2000) {
+  for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const isRateLimit =
+        err.message?.includes('429') ||
+        err.message?.includes('RESOURCE_EXHAUSTED') ||
+        err.message?.includes('Too Many Requests') ||
+        err.message?.includes('quota') ||
+        err.status === 429;
+
+      if (isRateLimit && attempt <= maxRetries) {
+        const delay = baseDelayMs * Math.pow(2, attempt - 1); // 2 s, 4 s, 8 s
+        console.warn(`⏳ Rate limit hit (attempt ${attempt}/${maxRetries + 1}). Retrying after ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        throw err;
+      }
+    }
+  }
+}
+
 const auth = new GoogleAuth({
   keyFilename: keyPath,
   scopes: ['https://www.googleapis.com/auth/cloud-platform']
@@ -279,10 +311,10 @@ app.post('/api/generate', async (req, res) => {
 
     console.log('📤 Calling Vertex AI with config:', generationConfig);
     
-    const result = await model.generateContent({
+    const result = await withRetry(() => model.generateContent({
       contents,
       generationConfig
-    });
+    }));
 
     console.log('📦 Raw result structure:', JSON.stringify(result, null, 2));
 
@@ -646,10 +678,10 @@ Return JSON only, no additional text:`;
 
     console.log('📤 Calling Vertex AI for comprehensive PCK analysis...');
     
-    const result = await model.generateContent({
+    const result = await withRetry(() => model.generateContent({
       contents,
       generationConfig
-    });
+    }));
 
     if (!result || !result.response) {
       throw new Error('No response received from Vertex AI');
@@ -958,10 +990,10 @@ Write the summary now IN HEBREW:`;
     console.log('📤 Calling Vertex AI for comprehensive PCK analysis...');
     console.log(`   Analyzing ${conversationLog.turns.length} conversation turns`);
     
-    const result = await model.generateContent({
+    const result = await withRetry(() => model.generateContent({
       contents,
       generationConfig
-    });
+    }));
 
     if (!result || !result.response) {
       throw new Error('No response received from Vertex AI');
@@ -1031,10 +1063,10 @@ app.post('/api/completion', async (req, res) => {
 
     console.log('📤 Calling Vertex AI completion with config:', generationConfig);
     
-    const result = await model.generateContent({
+    const result = await withRetry(() => model.generateContent({
       contents,
       generationConfig
-    });
+    }));
 
     // Check if response and candidates exist
     if (!result || !result.response || !result.response.candidates || result.response.candidates.length === 0) {
@@ -1065,15 +1097,35 @@ app.post('/api/completion', async (req, res) => {
 });
 
 // Health check endpoint
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
 	console.log('🏥 Health check requested');
-	res.json({
-		status: 'OK',
+
+  // Check that Google credentials are still valid and the API is reachable.
+  // We only refresh the token — no model call — to keep this lightweight.
+  let aiStatus = 'ok';
+  let aiError = null;
+  try {
+    const client = await auth.getClient();
+    const token = await client.getAccessToken();
+    if (!token || (!token.token && typeof token !== 'string')) {
+      aiStatus = 'error';
+      aiError = 'Could not obtain access token';
+    }
+  } catch (err) {
+    aiStatus = 'error';
+    aiError = err.message;
+    console.error('🏥 Health check — AI credential error:', err.message);
+  }
+
+	res.status(aiStatus === 'ok' ? 200 : 503).json({
+		status: aiStatus === 'ok' ? 'OK' : 'DEGRADED',
 		service: 'Teaching Simulator Backend',
     timestamp: new Date().toISOString(),
     project: PROJECT_ID,
     location: LOCATION,
-    model: 'gemini-2.5-flash-lite'
+    model: 'gemini-2.5-flash-lite',
+    ai: aiStatus,
+    ...(aiError ? { ai_error: aiError } : {})
   });
 });
 
@@ -1082,7 +1134,7 @@ app.get('/api/test', async (req, res) => {
   try {
     console.log('🧪 Test endpoint called');
     
-		const result = await model.generateContent({
+		const result = await withRetry(() => model.generateContent({
 			contents: [{
 				role: "user",
 				parts: [{ text: "Say hello from Teaching Simulator backend!" }]
@@ -1091,7 +1143,7 @@ app.get('/api/test', async (req, res) => {
         maxOutputTokens: 50,
         temperature: 0.5
       }
-    });
+    }));
 
     // Check if response and candidates exist
     if (!result || !result.response || !result.response.candidates || result.response.candidates.length === 0) {

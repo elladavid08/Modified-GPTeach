@@ -5,7 +5,13 @@
   "description": "Backend server for GPTeach using Google Cloud Vertex AI with Application Default Credentials",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "pm2:start": "pm2 start ecosystem.config.cjs",
+    "pm2:stop": "pm2 stop gpteach-backend",
+    "pm2:restart": "pm2 restart gpteach-backend",
+    "pm2:logs": "pm2 logs gpteach-backend",
+    "pm2:status": "pm2 status",
+    "pm2:monit": "pm2 monit"
   },
   "dependencies": {
     "@google-cloud/vertexai": "^1.1.0",

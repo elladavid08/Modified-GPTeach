@@ -30,3 +30,6 @@ FIREBASE_KEYS_PRIVATE.txt
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# PM2 log output
+server/logs/

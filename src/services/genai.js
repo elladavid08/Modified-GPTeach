@@ -8,6 +8,32 @@ const API_BASE_URL = process.env.REACT_APP_API_URL !== undefined
 console.log('🔗 GenAI service initialized with backend URL:', API_BASE_URL);
 
 /**
+ * Wraps a fetch call with automatic retries on transient server errors
+ * (HTTP 429, 503) using linear backoff. All other non-OK statuses are
+ * returned as-is so callers can surface the real error.
+ *
+ * @param {() => Promise<Response>} fetchFn - A zero-argument function that performs the fetch
+ * @param {number} maxRetries - Number of additional attempts after the first (default 2)
+ * @param {number} baseDelayMs - Delay before first retry in ms; multiplied by attempt number (default 3000)
+ * @returns {Promise<Response>}
+ */
+async function fetchWithRetry(fetchFn, maxRetries = 2, baseDelayMs = 3000) {
+  for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+    const response = await fetchFn();
+
+    const isTransient = response.status === 429 || response.status === 503;
+    if (isTransient && attempt <= maxRetries) {
+      const delay = baseDelayMs * attempt; // 3 s, 6 s
+      console.warn(`⏳ Transient backend error (${response.status}). Retry ${attempt}/${maxRetries} after ${delay}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      continue;
+    }
+
+    return response;
+  }
+}
+
+/**
  * Generate content using backend with Google's Vertex AI
  * @param {Array} messages - OpenAI format messages
  * @param {Object} options - Additional options like stop sequences
@@ -19,7 +45,7 @@ export async function generateWithGenAI(messages, options = {}) {
     console.log('📝 Messages count:', messages.length);
     console.log('📝 Options:', options);
     
-    const response = await fetch(`${API_BASE_URL}/api/generate`, {
+    const response = await fetchWithRetry(() => fetch(`${API_BASE_URL}/api/generate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -28,7 +54,7 @@ export async function generateWithGenAI(messages, options = {}) {
         messages,
         options
       })
-    });
+    }));
 
     console.log('📥 Backend response status:', response.status);
 
@@ -73,7 +99,7 @@ export async function generateWithGenAICompletion(prompt, options = {}) {
     console.log('📝 Prompt length:', prompt.length);
     console.log('📝 Options:', options);
     
-    const response = await fetch(`${API_BASE_URL}/api/completion`, {
+    const response = await fetchWithRetry(() => fetch(`${API_BASE_URL}/api/completion`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -82,7 +108,7 @@ export async function generateWithGenAICompletion(prompt, options = {}) {
         prompt,
         options
       })
-    });
+    }));
 
     console.log('📥 Backend completion response status:', response.status);
 
@@ -128,7 +154,7 @@ export async function getPCKFeedback(teacherMessage, conversationHistory = [], s
     console.log('📝 Teacher message:', teacherMessage.substring(0, 100) + '...');
     console.log('📊 Feedback history items:', feedbackHistory.length);
     
-    const response = await fetch(`${API_BASE_URL}/api/pck-feedback`, {
+    const response = await fetchWithRetry(() => fetch(`${API_BASE_URL}/api/pck-feedback`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -139,7 +165,7 @@ export async function getPCKFeedback(teacherMessage, conversationHistory = [], s
         scenario,
         feedbackHistory
       })
-    });
+    }));
 
     console.log('📥 PCK feedback response status:', response.status);
 
@@ -243,7 +269,7 @@ export async function getPCKSummary(conversationLog) {
     console.log(`   Session: ${conversationLog.sessionId}`);
     console.log(`   Turns: ${conversationLog.turns.length}`);
     
-    const response = await fetch(`${API_BASE_URL}/api/pck-summary`, {
+    const response = await fetchWithRetry(() => fetch(`${API_BASE_URL}/api/pck-summary`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -251,7 +277,7 @@ export async function getPCKSummary(conversationLog) {
       body: JSON.stringify({
         conversationLog
       })
-    });
+    }));
 
     console.log('📥 PCK summary response status:', response.status);
 
