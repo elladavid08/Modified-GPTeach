@@ -513,27 +513,62 @@ If should_provide_feedback = false → Set feedback_trigger = null, skills_asses
 
 ## 🎯 PHASE 2: Score Relevant PCK Skills (ONLY if Phase 1 = true)
 
-**CRITICAL: RELEVANCE vs. PERFORMANCE**
+The 5 PCK skills form a **sequential pedagogical chain**. A teacher cannot meaningfully apply a later skill before the earlier ones have been addressed. Assess only the skills that are currently due — **maximum 1-3 skills per turn**.
 
-For EACH of the 5 skills, determine:
+### The Skill Chain (in order)
+1. **error-identification** — Did the teacher notice there was an error at all?
+2. **error-characterization** — Did the teacher identify *what kind* of error it is and *why* the student thinks that way?
+3. **diagnostic-interpretation** — Did the teacher show understanding of the *root cause* of the student's thinking?
+4. **adapted-pedagogical-response** — Did the teacher choose a response strategy *matched to this specific error type*?
+5. **error-leveraging** — Did the teacher turn the error into a *learning opportunity* that deepens conceptual understanding?
 
-**STEP 1: Is this skill RELEVANT in this specific turn?**
+---
 
-All 5 skills are about handling student errors. Ask:
-- Did a student make an error/show misconception in this conversation?
-- Is the teacher's response addressing that error?
-- Does this particular skill apply to how they're handling it?
+### STEP 1: Determine the current lifecycle stage
 
-If NO → Mark is_relevant: false, provide reason_not_relevant
-If YES → Continue to STEP 2
+Read the conversation history and answer:
+- **Stage A — Error just appeared this turn**: A student expressed a misconception or error for the first time.
+- **Stage B — Error identified**: The teacher has already acknowledged/named the error in a previous turn.
+- **Stage C — Error characterized**: The teacher has already identified the error type and its source in a previous turn.
+- **Stage D — Error being addressed**: The teacher has already delivered a pedagogical response and is deepening or closing the discussion.
 
-**STEP 2: How well did teacher perform? (Score 0, 1, or 2)**
+---
+
+### STEP 2: Select which skills are relevant for this stage
+
+**The skills form a strict prerequisite chain: each skill depends on the one before it.**
+A teacher cannot characterize an error they didn't identify. A teacher cannot respond pedagogically to an error they didn't characterize. Evaluate each skill in order, and stop as soon as the teacher fails one — all subsequent skills become irrelevant for this turn.
+
+**Assessment algorithm — follow in order:**
+
+1. Start with the skill that is due for the current lifecycle stage (Stage A → skill 1, Stage B → skill 2, etc.)
+2. Score that skill (0, 1, or 2).
+3. **If score = 0**: mark ALL remaining higher-numbered skills as \`is_relevant: false\` with reason "prerequisite skill [X] was not demonstrated this turn". **Stop here.**
+4. **If score ≥ 1**: optionally assess the next skill in the chain (at most one step forward).
+5. Never assess more than 2 skills as \`is_relevant: true\` in a single turn.
+
+**Starting skill by stage:**
+
+| Stage | Start with | May also assess |
+|-------|-----------|-----------------|
+| A — Error just appeared this turn | skill 1 (error-identification) | skill 2 only if skill 1 score ≥ 1 |
+| B — Error already identified in prior turn | skill 2 (error-characterization) | skill 3 only if skill 2 score ≥ 1 |
+| C — Error already characterized in prior turn | skill 3 (diagnostic-interpretation) | skill 4 only if skill 3 score ≥ 1 |
+| D — Error being addressed / deepening | skill 4 (adapted-pedagogical-response) | skill 5 only if skill 4 score ≥ 1 |
+
+**Hard rules:**
+- Mark \`is_relevant: false\` for any skill outside the current window, with \`reason_not_relevant\` explaining why it's not yet due (or already passed).
+- Never mark all 5 as \`is_relevant: true\` in a single turn. If you find yourself doing that, you have misread the stage.
+- Skill 5 (error-leveraging) is only relevant when the error has been substantially addressed and the teacher has an opportunity to deepen the learning — not on the first or second response to an error.
+- **If the teacher did not identify the error at all (skill 1 score = 0), give feedback on skill 1 only. Do not comment on skills 2-5.**
+
+---
+
+### STEP 3: Score each selected skill (Score 0, 1, or 2)
 Use the rubrics from the Universal PCK Skills above:
 - Score 2: Excellent use matching rubric criteria
-- Score 1: Partial or indirect use  
-- Score 0: Should have used but didn't, or used poorly
-
-**Remember:** In most turns, ALL 5 skills will be is_relevant: false because there's no student error!
+- Score 1: Partial or indirect use
+- Score 0: Should have been used but wasn't, or was done poorly
 
 ---
 
@@ -543,6 +578,7 @@ After filling in \`skills_assessment\`, derive these two fields:
 - \`demonstrated_skills\`: copy every entry where \`is_relevant: true\` AND \`score >= 1\`. Include only \`skill_id\` and \`evidence\`.
 - \`missed_opportunities\`: copy every entry where \`is_relevant: true\` AND \`score = 0\`. Include only \`skill_id\` and \`what_could_be_better\` (renamed to \`what_could_have_been_done\`).
 - If no skills are relevant (no student error present), both arrays must be \`[]\`.
+- **Maximum combined total: 2 entries across both arrays** (reflecting the max 2 relevant skills per turn rule above).
 
 For \`addressed_misconception\`:
 - Set \`true\` only if the teacher's message explicitly addressed a misconception a student expressed earlier in this conversation.
@@ -580,11 +616,11 @@ For \`misconception_risk\`:
   
   "demonstrated_skills": [
     // Skills where is_relevant=true AND score >= 1. Empty array [] if none.
-    { "skill_id": "error-identification", "evidence": "Hebrew: what the teacher did that shows this skill" }
+    { "skill_id": "error-identification", "evidence": "Hebrew: what YOU did that shows this skill — address the teacher directly in second person (e.g. 'זיהית את...', 'שאלת...', 'הסברת...')" }
   ],
   "missed_opportunities": [
     // Skills where is_relevant=true AND score = 0. Empty array [] if none.
-    { "skill_id": "error-leveraging", "what_could_have_been_done": "Hebrew: what the teacher could have done" }
+    { "skill_id": "error-leveraging", "what_could_have_been_done": "Hebrew: what you could have done — address the teacher in second person (e.g. 'יכולת לשאול...', 'היית יכול להפנות...')" }
   ],
 
   "should_provide_feedback": true/false,
@@ -597,8 +633,8 @@ For \`misconception_risk\`:
       "skill_id": "error-identification",
       "is_relevant": true,
       "score": 1,
-      "evidence": "Teacher response in Hebrew showing what they did",
-      "what_could_be_better": "Hebrew: how to improve" // only if score < 2
+      "evidence": "Hebrew: what you did — address teacher in second person (e.g. 'זיהית את...', 'שאלת...', 'הסברת...')",
+      "what_could_be_better": "Hebrew: how to improve — address teacher in second person (e.g. 'יכולת לשאול...', 'היית יכול...')" // only if score < 2
     },
     {
       "skill_id": "error-characterization",
@@ -623,6 +659,12 @@ Your \`feedback_message_hebrew\` MUST be consistent with your \`pedagogical_qual
 NEVER write a critical message when pedagogical_quality = "positive".
 NEVER write a positive/encouraging message when pedagogical_quality = "problematic".
 
+**LANGUAGE RULE (MANDATORY): Always address the teacher directly in second person.**
+Never write "המורה עשה/אמר/אישר" — always write "עשית/אמרת/אישרת".
+Never write "המורה יכול היה" — always write "יכולת".
+Never write "המורה היה צריך" — always write "היית צריך/ה".
+Write as a personal advisor speaking directly to the teacher, not as an observer describing them.
+
 **The feedback message MUST explicitly name the relevant PCK skill** using its Hebrew name.
 The 5 skills and their Hebrew names are:
 - error-identification → "זיהוי השגיאה"
@@ -631,22 +673,19 @@ The 5 skills and their Hebrew names are:
 - adapted-pedagogical-response → "תגובה פדגוגית מותאמת"
 - error-leveraging → "מינוף השגיאה ללמידה"
 
-To find which skill(s) to name: use the skill(s) from \`demonstrated_skills\` (for positive feedback) or \`missed_opportunities\` (for problematic feedback). If multiple skills apply, name the most prominent one.
+To find which skill(s) to name: use the 1-2 most impactful skills from \`demonstrated_skills\` (for positive feedback) or \`missed_opportunities\` (for problematic feedback). **Never mention more than 2 skills in the feedback message** — choose the one(s) with the highest learning value for the teacher at this moment.
 
 **Structure when should_provide_feedback = true:**
 
 If pedagogical_quality = "positive":
-→ Write 1-2 validating sentences.
-→ Sentence 1: Name the skill demonstrated and what the teacher specifically did.
-→ Format: "[skill name Hebrew]: [what the teacher did, closely paraphrased]."
+→ Write 1-2 short sentences. Focus on the single most important skill demonstrated.
+→ Format: "[skill name Hebrew]: [what you did, closely paraphrased]."
 → Example: "זיהוי השגיאה: זיהית שהתלמיד מבלבל בין תנאי הכרחי למספיק ושאלת שאלה שמחזירה אותו להגדרה — מצוין."
 
 If pedagogical_quality = "problematic":
-→ Write 2-3 sentences structured as:
-   (1) Open with: "הוחמצה הזדמנות ל[skill name Hebrew]:" — this prefix makes the critical tone immediately clear.
-   (2) State what the student's error was and what the teacher did or failed to do.
-   (3) Give one concrete alternative move: "במקום זאת, אפשר היה לשאול/לומר: '...'"
-→ Example: "הוחמצה הזדמנות לתגובה פדגוגית מותאמת: התלמיד טען שריבוע אינו מלבן, אך המורה אישר את הטענה מבלי להפנות אותו להגדרה. במקום זאת, אפשר היה לשאול: 'מה ההגדרה של מלבן? האם ריבוע מקיים אותה?'"
+→ Write 2-3 sentences. Focus on the single most important missed skill.
+→ Structure: (1) "הוחמצה הזדמנות ל[skill name Hebrew]:" (2) what the student's error was and what you did or failed to do. (3) One concrete alternative: "יכולת לשאול/לומר: '...'"
+→ Example: "הוחמצה הזדמנות לתגובה פדגוגית מותאמת: התלמיד טען שריבוע אינו מלבן, אך אישרת את הטענה מבלי להפנות אותו להגדרה. יכולת לשאול: 'מה ההגדרה של מלבן? האם ריבוע מקיים אותה?'"
 
 ## Key Calibration Guidelines
 

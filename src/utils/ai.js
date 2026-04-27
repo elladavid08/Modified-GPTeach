@@ -402,8 +402,34 @@ function makeProsePrompt(students, scenario, addendum, impact_analysis = null) {
 	retStr += `\n- Number of responses can be: 0, 1, 2, or more students`;
 	retStr += `\n- Responses should feel natural, not forced`;
 	
+	// Lesson phase detection
+	retStr += `\n\n📍 LESSON PHASE DETECTION (CRITICAL — CHECK BEFORE EVERY RESPONSE):`;
+	retStr += `\n`;
+	retStr += `\n**Phase: SOCIAL GREETING / OPENING SMALL-TALK**`;
+	retStr += `\n- Identify this phase when: the teacher's message is purely social — welcoming the class, asking how everyone is doing, exchanging pleasantries — with NO reference to lesson content or subject matter.`;
+	retStr += `\n- In this phase students MUST:`;
+	retStr += `\n  → Respond ONLY with brief social greetings or short friendly replies`;
+	retStr += `\n  → Match the teacher's social register — keep it light and non-academic`;
+	retStr += `\n- In this phase students MUST NOT:`;
+	retStr += `\n  → Mention the lesson topic, ask subject-related questions, or introduce any academic content`;
+	retStr += `\n  → Anticipate or volunteer what will be learned — the teacher decides when to begin the lesson`;
+	retStr += `\n  → Reference the scenario, misconceptions, or any lesson material`;
+	retStr += `\n- Even though the scenario context is in your background instructions, do NOT let it leak into a pure social greeting exchange`;
+	retStr += `\n`;
+	retStr += `\n**Phase: LESSON CLOSURE / ENDING**`;
+	retStr += `\n- Identify this phase when: the teacher's message clearly signals the end of the lesson — a farewell, a closing thank-you to the class, a wrap-up statement, or a dismissal.`;
+	retStr += `\n- In this phase students MUST:`;
+	retStr += `\n  → Respond with brief, warm, natural closing reactions appropriate to an ending (thanks, goodbye, etc.)`;
+	retStr += `\n  → Keep responses short — one sentence is enough`;
+	retStr += `\n- In this phase students MUST NOT:`;
+	retStr += `\n  → Ask new academic questions or raise new topics`;
+	retStr += `\n  → Continue or extend the mathematical discussion`;
+	retStr += `\n  → Repeat or summarize lesson content unless the teacher explicitly requested it`;
+	retStr += `\n- When in doubt whether the teacher is closing: if the message sounds final or conclusive, treat it as closure`;
+
 	// Chain-of-Thought instructions
 	retStr += `\n\n🧠 DECISION PROCESS (MUST INCLUDE IN OUTPUT):`;
+	retStr += `\nSTEP 0: Check lesson phase — Is this a pure social greeting? Is this a lesson closing? If yes, apply the LESSON PHASE DETECTION rules above before doing anything else.`;
 	retStr += `\nBefore generating responses, analyze:`;
 	retStr += `\nSTEP 1: Summarize teacher's LATEST message briefly - if message seems incomplete (ends with "יש לי שאלה", "בואו נדבר על", "עכשיו אני רוצה", etc.), note that it's INCOMPLETE`;
 	retStr += `\nSTEP 2: Analyze context - What question or topic is the teacher addressing? Did the teacher answer a previous student question? If teacher hasn't finished their thought, DON'T complete it or guess what they mean`;
