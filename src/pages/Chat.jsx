@@ -220,11 +220,12 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 			// Display feedback only if backend says to provide it
 			if (impact_analysis.should_provide_feedback) {
 				setPckFeedback(formattedFeedback);
+				feedbackForLog = formattedFeedback;  // Only log feedback that was actually shown
 			} else {
 				// Clear feedback if not needed
 				setPckFeedback(null);
+				feedbackForLog = null;  // Don't log feedback the teacher never saw
 			}
-				feedbackForLog = formattedFeedback;
 				
 				// Update feedback history for persistence tracking (last 3 turns)
 				setFeedbackHistory(prev => {

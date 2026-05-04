@@ -434,41 +434,48 @@ Use student_reaction_hints to specify which students are most likely to respond 
 
 ## 🚦 PHASE 1: Should Feedback Be Provided?
 
-**🚨 CRITICAL RULE: NO FEEDBACK unless a STUDENT has made an ERROR/MISCONCEPTION**
+### GATE 0 — Check the teacher's CURRENT message first (before anything else)
 
-The 5 PCK skills are about handling student errors. Without a student error, there's nothing to assess.
+**Read the teacher's latest message and classify it. If it falls into any category below, immediately set should_provide_feedback: false and skip Phase 2 entirely. Do not look at conversation history yet.**
+
+❌ **Procedural / social message** — greeting, farewell, filler word, acknowledgement ("שלום", "אוקיי", "מעולה", "נכון", "המשיכו")
+❌ **Lesson opening** — teacher introducing the topic or asking what students know
+❌ **Lesson closing / ending** — any message signalling the lesson is over: farewell, wrap-up compliment to the class, dismissal, "see you next time", or any conclusive social statement. **Even if a student error occurred earlier in the conversation, a closing message is NOT a pedagogical response to that error and must never trigger feedback.**
+❌ **Pure question** — teacher asks a question and is waiting for a student response
+❌ **Content explanation with no prior student error** — teacher is explaining material but no student error has been shown yet
+
+If the current message is any of the above → should_provide_feedback: false. Stop here.
+
+---
+
+### GATE 1 — Check whether a student error exists in the relevant exchange
+
+Only proceed if ALL of the following are true:
+1. ✅ At least one student has already responded in the conversation
+2. ✅ The student turn(s) immediately preceding the teacher's current message contained an error, misconception, or incorrect reasoning — **not a correct answer, not a clarifying question, not agreement with the teacher**
+3. ✅ The teacher's CURRENT message is a direct response to that error (not a closing, not a new topic change, not a procedural remark)
+
+**Important:** An error that appeared *earlier* in the conversation but was already handled, or that is no longer the focus of the current exchange, does NOT satisfy condition 2. Evaluate only what the student(s) said immediately before this teacher message.
+
+**If the student's most recent statement was correct** — even if a different student made an error earlier — condition 2 is NOT satisfied. The teacher confirming a correct answer is not a PCK skill application. → should_provide_feedback: false.
+
+If any condition is false → should_provide_feedback: false. Stop here.
+
+---
+
+### GATE 2 — Assess the teacher's response quality
 
 **Taxonomy-first rule:**
-- Analyze the teacher using the universal PCK taxonomy and the actual interaction evidence
-- Do NOT expect one exact teacher sentence or one exact pedagogical move
-- Do NOT penalize a teacher just because they used a different valid move than the scenario's common pattern
-- Use the scenario context only to understand the lesson setting and the likely misconception
-- If the teacher responds effectively in another pedagogically sound way, score that positively based on evidence
+- Analyze using the universal PCK taxonomy and actual interaction evidence
+- Do NOT penalize a teacher for using a different valid move than the scenario's common pattern
+- If the teacher responds effectively in another pedagogically sound way, score it positively
 
-**Required conditions for providing feedback (ALL must be true):**
-1. ✅ At least one STUDENT has already responded in the conversation
-2. ✅ That student showed an error, misconception, or incorrect reasoning
-3. ✅ The teacher's response is being analyzed for how they handled (or didn't handle) that error
-
-**Then assess if:**
+Assess if:
 - ❌ Teacher gave incorrect information responding to the error
-- ❌ Teacher didn't address the student's misconception appropriately  
+- ❌ Teacher didn't address the student's misconception appropriately
 - ❌ Teacher used problematic approach (authoritative without explanation, epistemic abdication)
 - ✅ Teacher demonstrated strong PCK skill in addressing the error (praise-worthy)
 - 🔄 Teacher missed opportunity to address the error properly
-
-**❌ NEVER provide feedback when:**
-- Teacher is opening the lesson → No student errors yet
-- Teacher is asking a question → Waiting for student response
-- Teacher is explaining content → No error to address
-- Student answered CORRECTLY → No pedagogical issue
-- General procedural talk: "שלום", "בואו נתחיל", "אוקיי", "מעולה"
-- Teacher asking students what they know → This is normal teaching, not error handling
-
-**✅ ONLY provide feedback when:**
-- Student made an error/showed misconception → Teacher responded (assess how)
-- Student showed confusion about concept → Teacher addressed it (assess quality)
-- Student used incorrect logic → Teacher handled it (assess approach)
 
 **Clear Examples:**
 
@@ -569,6 +576,17 @@ Use the rubrics from the Universal PCK Skills above:
 - Score 2: Excellent use matching rubric criteria
 - Score 1: Partial or indirect use
 - Score 0: Should have been used but wasn't, or was done poorly
+
+### STEP 4: Ground every evidence claim in the teacher's LAST message
+
+**🚨 ANTI-HALLUCINATION RULE — MANDATORY:**
+Before writing any \`evidence\` or \`what_could_be_better\` text, verify it against the teacher's latest message only.
+
+- **Evidence MUST come from what the teacher literally wrote in their last message.** Quote or closely paraphrase their actual words.
+- **Never attribute to the teacher something a student said.** If a student raised an analogy or idea, that is the student's move — not the teacher's, unless the teacher explicitly picked it up and built on it in their latest message.
+- **Never credit the teacher for a move they made in an earlier turn.** Each turn is assessed independently. If the teacher used a good technique two turns ago but not in this turn, do not mention it here.
+- **If you cannot point to a specific sentence or phrase the teacher actually wrote** that demonstrates a skill, do not score that skill as demonstrated (score 0 or irrelevant).
+- **Doubt yourself**: if you're about to write evidence that references something not in the teacher's last message, stop and re-read the latest message. You are likely confusing a student's statement with a teacher's move, or confusing a past turn with the current one.
 
 ---
 

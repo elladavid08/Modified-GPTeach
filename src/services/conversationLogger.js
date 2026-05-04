@@ -5,6 +5,38 @@
 
 import { saveConversation, addMessageToConversation, saveOrGetStudentPersona } from './firestoreService';
 
+/**
+ * Compress a base64 PNG image by resizing it to a max width.
+ * Keeps PNG format so existing display code (`data:image/png;base64,…`) still works.
+ * Firestore documents have a 1 MB limit, so this prevents failures when teachers
+ * include drawings in multiple turns.
+ */
+async function compressImageBase64(base64, maxWidth = 600) {
+	if (!base64) return null;
+	return new Promise((resolve) => {
+		const img = new window.Image();
+		img.onload = () => {
+			let { width, height } = img;
+			if (width <= maxWidth) {
+				// Already small enough – return as-is
+				resolve(base64);
+				return;
+			}
+			height = Math.round(height * maxWidth / width);
+			width = maxWidth;
+			const canvas = document.createElement('canvas');
+			canvas.width = width;
+			canvas.height = height;
+			canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+			// Strip the data-URL prefix so storage format stays consistent
+			const dataUrl = canvas.toDataURL('image/png');
+			resolve(dataUrl.replace('data:image/png;base64,', ''));
+		};
+		img.onerror = () => resolve(base64); // Fallback: keep original on error
+		img.src = `data:image/png;base64,${base64}`;
+	});
+}
+
 export class ConversationLog {
 	constructor(scenario, students, userId, userProfile, systemVersion = "1.0") {
 		this.sessionId = this.generateSessionId();
@@ -114,13 +146,16 @@ export class ConversationLog {
 			await this.initializeFirestoreConversation();
 			this.firestoreInitialized = true;
 		}
+
+		// Compress drawing to keep Firestore document within the 1 MB limit
+		const storedImage = teacherImage ? await compressImageBase64(teacherImage) : null;
 		
 		const turn = {
 			turnNumber: this.turns.length + 1,
 			timestamp: new Date().toISOString(),
 			teacher: {
 				message: teacherMessage,
-				image: teacherImage || null,   // base64 PNG drawing if teacher sent one
+				image: storedImage,   // compressed base64 PNG drawing (null if no drawing)
 				timestamp: new Date().toISOString()
 			},
 			students: studentResponses.map(msg => ({
@@ -131,8 +166,9 @@ export class ConversationLog {
 			pckFeedback: pckFeedback ? {
 				feedback_message: pckFeedback.feedback_message,
 				feedback_type: pckFeedback.feedback_type,
-				detected_skills: pckFeedback.detected_skills || [],
-				missed_opportunities: pckFeedback.missed_opportunities || [],
+				skills_assessment: pckFeedback.skills_assessment || [],      // primary source — mirrors sidebar display
+				detected_skills: pckFeedback.detected_skills || [],          // fallback
+				missed_opportunities: pckFeedback.missed_opportunities || [], // fallback
 				timestamp: new Date().toISOString()
 			} : null
 		};

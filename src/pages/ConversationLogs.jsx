@@ -3,6 +3,119 @@ import { getAllConversationSessions, loadConversationLog, deleteConversationLog,
 import { getPCKSummary } from '../services/genai';
 import { PCKSummaryModal } from '../components/PCKSummaryModal';
 
+const SKILL_NAMES_HE = {
+  'error-identification':         'זיהוי השגיאה',
+  'error-characterization':       'אפיון סוג השגיאה',
+  'diagnostic-interpretation':    'פרשנות אבחונית של חשיבת התלמיד',
+  'adapted-pedagogical-response': 'תגובה פדגוגית מותאמת',
+  'error-leveraging':             'מינוף השגיאה ללמידה',
+};
+
+// Mirrors PCKFeedbackSidebar's SCORE_CONFIG exactly
+const SCORE_COLOR = {
+  2: '#28a745',  // קיים היטב
+  1: '#ffc107',  // קיים באופן חלקי
+  0: '#c9b8d8',  // חסר
+};
+
+function SkillBullet({ color }) {
+  return (
+    <span style={{
+      display: 'inline-block',
+      width: '12px',
+      height: '12px',
+      borderRadius: '50%',
+      backgroundColor: color,
+      flexShrink: 0,
+      marginLeft: '9px',
+      marginTop: '3px',
+    }} />
+  );
+}
+
+function PCKLegend() {
+  return (
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '4px',
+      marginBottom: '10px',
+      padding: '6px 10px',
+      backgroundColor: '#ebebeb',
+      borderRadius: '6px',
+      fontSize: '0.78rem',
+      color: '#555',
+      direction: 'rtl',
+    }}>
+      {[2, 1, 0].map(score => (
+        <div key={score} style={{ display: 'flex', alignItems: 'center' }}>
+          <SkillBullet color={SCORE_COLOR[score]} />
+          <span>{{ 2: 'קיים היטב', 1: 'קיים באופן חלקי', 0: 'חסר' }[score]}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Renders PCK feedback bullets identical to the real-time PCKFeedbackSidebar.
+ * Prefers `skills_assessment` (stored from sidebar data) and falls back to
+ * `detected_skills` / `missed_opportunities` for older logs.
+ */
+function PCKFeedbackBullets({ pckFeedback }) {
+  // Primary path: skills_assessment mirrors what the sidebar displayed
+  const assessedSkills = (pckFeedback.skills_assessment || []).filter(s => s.is_relevant);
+
+  let skillRows;
+  if (assessedSkills.length > 0) {
+    skillRows = assessedSkills.map(s => ({
+      skillId: s.skill_id,
+      score: s.score,
+      text: s.score > 0 ? (s.evidence || '') : (s.what_could_be_better || ''),
+    }));
+  } else {
+    // Fallback for logs saved before skills_assessment was stored
+    skillRows = [
+      ...(pckFeedback.detected_skills || []).map(s => ({
+        skillId: s.skill_id,
+        score: 2,
+        text: s.evidence || '',
+      })),
+      ...(pckFeedback.missed_opportunities || []).map(s => ({
+        skillId: s.skill_id,
+        score: 0,
+        text: s.what_could_have_been_done || '',
+      })),
+    ];
+  }
+
+  if (skillRows.length === 0) return null;
+
+  return (
+    <div style={{ backgroundColor: '#d4edda', padding: '12px', borderRadius: '8px', borderRight: '4px solid #28a745' }}>
+      <div style={{ fontWeight: 'bold', marginBottom: '8px', color: '#155724' }}>💡 משוב PCK:</div>
+      <PCKLegend />
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        {skillRows.map((row, i) => (
+          <div key={i} style={{
+            display: 'flex',
+            alignItems: 'flex-start',
+            padding: '8px 0',
+            borderBottom: '1px solid #c3e6cb',
+            direction: 'rtl',
+          }}>
+            <SkillBullet color={SCORE_COLOR[row.score] !== undefined ? SCORE_COLOR[row.score] : SCORE_COLOR[0]} />
+            <span style={{ fontSize: '0.88rem', color: '#333', lineHeight: '1.5' }}>
+              <strong>{SKILL_NAMES_HE[row.skillId] || row.skillId}</strong>
+              {row.text ? ': ' + row.text : ''}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export const ConversationLogs = () => {
   const [sessions, setSessions] = useState([]);
   const [selectedLog, setSelectedLog] = useState(null);
@@ -224,6 +337,21 @@ export const ConversationLogs = () => {
                       <div style={{ backgroundColor: '#f8f9fa', padding: '10px', borderRadius: '8px', marginBottom: '10px' }}>
                         <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>מורה:</div>
                         <div>{turn.teacher.message}</div>
+                        {turn.teacher.image && (
+                          <div style={{ marginTop: '10px' }}>
+                            <img
+                              src={`data:image/png;base64,${turn.teacher.image}`}
+                              alt="ציור של המורה"
+                              style={{
+                                maxWidth: '100%',
+                                maxHeight: '300px',
+                                borderRadius: '8px',
+                                border: '1px solid #dee2e6',
+                                display: 'block',
+                              }}
+                            />
+                          </div>
+                        )}
                       </div>
 
                       {/* Student Responses */}
@@ -236,10 +364,7 @@ export const ConversationLogs = () => {
 
                       {/* PCK Feedback */}
                       {turn.pckFeedback && (
-                        <div style={{ backgroundColor: '#d4edda', padding: '10px', borderRadius: '8px', borderRight: '4px solid #28a745' }}>
-                          <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>💡 משוב PCK:</div>
-                          <div>{turn.pckFeedback.feedback_message}</div>
-                        </div>
+                        <PCKFeedbackBullets pckFeedback={turn.pckFeedback} />
                       )}
                     </div>
                   ))}
