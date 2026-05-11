@@ -12,7 +12,11 @@ import SignUpPage from "./pages/SignUpPage";
 import ProfileSetupPage from "./pages/ProfileSetupPage";
 import UserInfoPage from "./pages/UserInfoPage";
 import ConversationLogs from "./pages/ConversationLogs";
+import TestPage from "./pages/TestPage";
+import AnnotationDashboard from "./pages/AnnotationDashboard";
+import AnnotationView from "./pages/AnnotationView";
 import { ProtectedRoute } from "./components/ProtectedRoute";
+import { AnnotatorRoute } from "./components/AnnotatorRoute";
 
 export const Router = () => {
 	return (
@@ -39,6 +43,14 @@ export const Router = () => {
 
 			{/* Landing page - protected */}
 			<Route path="/home" element={<ProtectedRoute><LandingPage /></ProtectedRoute>} />
+
+			{/* PCK pre/post tests - protected */}
+			<Route path="/pre-test" element={<ProtectedRoute><TestPage testType="pre" /></ProtectedRoute>} />
+			<Route path="/post-test" element={<ProtectedRoute><TestPage testType="post" /></ProtectedRoute>} />
+
+			{/* Annotation interface - annotators only */}
+			<Route path="/admin/annotate" element={<AnnotatorRoute><AnnotationDashboard /></AnnotatorRoute>} />
+			<Route path="/admin/annotate/:submissionId" element={<AnnotatorRoute><AnnotationView /></AnnotatorRoute>} />
 		</Routes>
 	);
 };

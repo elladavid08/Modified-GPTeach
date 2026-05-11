@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 
 export default function Navbar() {
 	const { isAuthenticated, currentUser, userProfile } = useAuth();
+	const isAnnotator = userProfile && userProfile.isAnnotator;
 	const navigate = useNavigate();
 
 	const handleLogout = async () => {
@@ -50,20 +51,41 @@ export default function Navbar() {
 									</a>
 								</li>
 								
-								<li className="nav-item">
-									<a 
-										className="nav-link text-light" 
-										href="/logs"
-									>
-										היסטוריית שיחות
-									</a>
-								</li>
+							<li className="nav-item">
+								<a
+									className="nav-link text-light"
+									href="/logs"
+								>
+									היסטוריית שיחות
+								</a>
+							</li>
 
+							<li className="nav-item">
+								<a className="nav-link text-light" href="/pre-test">
+									שאלון לפני
+								</a>
+							</li>
+
+							<li className="nav-item">
+								<a className="nav-link text-light" href="/post-test">
+									שאלון אחרי
+								</a>
+							</li>
+
+							{isAnnotator && (
 								<li className="nav-item">
-									<a className="nav-link text-light" href="/user-info">
-										{getUserDisplayName()}
+									<a className="nav-link text-light" href="/admin/annotate"
+										style={{ fontWeight: 600, opacity: 0.9 }}>
+										הערכת שאלונים
 									</a>
 								</li>
+							)}
+
+							<li className="nav-item">
+								<a className="nav-link text-light" href="/user-info">
+									{getUserDisplayName()}
+								</a>
+							</li>
 
 								<li className="nav-item">
 									<button

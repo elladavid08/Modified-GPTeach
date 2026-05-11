@@ -12,7 +12,7 @@ import { fileURLToPath } from 'url';
 import { VertexAI } from '@google-cloud/vertexai';
 import { GoogleAuth } from 'google-auth-library';
 import { formatSkillsForPrompt, formatConversationHistory, getPCKSkillById } from './universal_pck_skills.js';
-import { saveConversation, saveMessage, createUserProfile, getUserProfile } from './services/firebaseAdmin.js';
+import { saveConversation, saveMessage, createUserProfile, getUserProfile, saveTestSubmission, checkTestSubmission, verifyAnnotator, verifyAdmin, getTestSubmissions, getTestSubmission, saveTestAnnotation, getTestAnnotation, getAllAnnotationsForSubmission } from './services/firebaseAdmin.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1376,6 +1376,144 @@ app.get('/api/users/:id/profile', async (req, res) => {
       success: false,
       error: error.message
     });
+  }
+});
+
+// ── PCK Test Submissions ─────────────────────────────────────────────────────
+
+// GET /api/test-submissions/check?userId=...&testType=pre|post
+app.get('/api/test-submissions/check', async (req, res) => {
+  try {
+    const { userId, testType } = req.query;
+    if (!userId || !testType) {
+      return res.status(400).json({ success: false, error: 'userId and testType are required' });
+    }
+    const { submitted, error } = await checkTestSubmission(userId, testType);
+    if (error) {
+      return res.status(500).json({ success: false, error });
+    }
+    res.json({ success: true, submitted });
+  } catch (error) {
+    console.error('❌ Error checking test submission:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /api/test-submissions
+app.post('/api/test-submissions', async (req, res) => {
+  try {
+    const { userId, testType, answers } = req.body;
+    if (!userId || !testType || !answers) {
+      return res.status(400).json({ success: false, error: 'userId, testType, and answers are required' });
+    }
+    if (!['pre', 'post'].includes(testType)) {
+      return res.status(400).json({ success: false, error: 'testType must be "pre" or "post"' });
+    }
+
+    console.log(`📝 Saving ${testType}-test submission for user ${userId}`);
+    const { submissionId, error } = await saveTestSubmission({ userId, testType, answers });
+
+    if (error === 'already_submitted') {
+      return res.status(409).json({ success: false, error: 'already_submitted' });
+    }
+    if (error) {
+      return res.status(500).json({ success: false, error });
+    }
+    res.status(201).json({ success: true, submissionId });
+  } catch (error) {
+    console.error('❌ Error saving test submission:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ── Annotation endpoints (annotator-only) ────────────────────────────────────
+
+// Helper: verify the caller is an annotator; returns 403 and false if not.
+async function requireAnnotator(req, res) {
+  const annotatorId = req.query.annotatorId || (req.body && req.body.annotatorId);
+  if (!annotatorId) {
+    res.status(400).json({ success: false, error: 'annotatorId is required' });
+    return false;
+  }
+  const { isAnnotator, error } = await verifyAnnotator(annotatorId);
+  if (error || !isAnnotator) {
+    res.status(403).json({ success: false, error: 'access_denied' });
+    return false;
+  }
+  return true;
+}
+
+// GET /api/test-submissions?annotatorId=...&testType=pre|post&status=pending|completed
+app.get('/api/test-submissions', async (req, res) => {
+  try {
+    if (!await requireAnnotator(req, res)) return;
+    const { testType, status, annotatorId } = req.query;
+    const { submissions, error } = await getTestSubmissions({ testType, status, annotatorId });
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true, submissions });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/test-submissions/:id?annotatorId=...
+app.get('/api/test-submissions/:id', async (req, res) => {
+  try {
+    if (!await requireAnnotator(req, res)) return;
+    const { submission, error } = await getTestSubmission(req.params.id);
+    if (error === 'not_found') return res.status(404).json({ success: false, error });
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true, submission });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/test-annotations/:submissionId?annotatorId=...
+// Returns THIS annotator's own annotation only.
+app.get('/api/test-annotations/:submissionId', async (req, res) => {
+  try {
+    if (!await requireAnnotator(req, res)) return;
+    const annotatorId = req.query.annotatorId;
+    const { annotation, error } = await getTestAnnotation(req.params.submissionId, annotatorId);
+    if (error) return res.status(500).json({ success: false, error });
+    if (!annotation) return res.status(404).json({ success: false, error: 'not_found' });
+    res.json({ success: true, annotation });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/test-annotations/:submissionId/all?adminId=...
+// Returns ALL annotators' annotations for a submission (admin only).
+app.get('/api/test-annotations/:submissionId/all', async (req, res) => {
+  try {
+    const adminId = req.query.adminId;
+    if (!adminId) return res.status(400).json({ success: false, error: 'adminId is required' });
+    const { isAdmin, error: adminErr } = await verifyAdmin(adminId);
+    if (adminErr || !isAdmin) return res.status(403).json({ success: false, error: 'access_denied' });
+
+    const { annotations, error } = await getAllAnnotationsForSubmission(req.params.submissionId);
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true, annotations });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /api/test-annotations
+app.post('/api/test-annotations', async (req, res) => {
+  try {
+    if (!await requireAnnotator(req, res)) return;
+    const { submissionId, userId, testType, annotatorId, scores } = req.body;
+    if (!submissionId || !userId || !testType || !annotatorId || !scores) {
+      return res.status(400).json({ success: false, error: 'Missing required fields' });
+    }
+    const { annotationId, error } = await saveTestAnnotation({ submissionId, userId, testType, annotatorId, scores });
+    if (error) return res.status(500).json({ success: false, error });
+    res.status(201).json({ success: true, annotationId });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
