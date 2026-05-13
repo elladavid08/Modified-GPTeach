@@ -62,13 +62,13 @@ export default function Navbar() {
 
 							<li className="nav-item">
 								<a className="nav-link text-light" href="/pre-test">
-									שאלון לפני
+									Pre Test
 								</a>
 							</li>
 
 							<li className="nav-item">
 								<a className="nav-link text-light" href="/post-test">
-									שאלון אחרי
+									Post Test
 								</a>
 							</li>
 
