@@ -448,16 +448,23 @@ If the current message is any of the above → should_provide_feedback: false. S
 
 ---
 
-### GATE 1 — Check whether a student error exists in the relevant exchange
+### GATE 1 — Verify a student error exists and can be quoted
+
+**MANDATORY FIRST STEP: Before checking any condition below, read the most recent student message(s) that appeared before the teacher's current message. Write down the exact quote of any mathematically incorrect claim. If you cannot write a specific incorrect quote, you cannot proceed — set should_provide_feedback: false immediately.**
+
+A student error means: the student stated something that is **mathematically wrong**. This includes incorrect claims, false generalizations, misapplied rules, and stated misconceptions. It does NOT include:
+- A correct answer, even if phrased hesitantly or incompletely
+- A question (questions contain no claim)
+- Agreement with the teacher
+- A correct claim about a topic where misconceptions are common
+- A student saying "I'm not sure" without making a wrong claim
 
 Only proceed if ALL of the following are true:
 1. ✅ At least one student has already responded in the conversation
-2. ✅ The student turn(s) immediately preceding the teacher's current message contained an error, misconception, or incorrect reasoning — **not a correct answer, not a clarifying question, not agreement with the teacher**
-3. ✅ The teacher's CURRENT message is a direct response to that error (not a closing, not a new topic change, not a procedural remark)
+2. ✅ The **most recent student message** (the last thing a student said before this teacher message) contains a specific mathematically incorrect claim — you must be able to quote it word for word. If the last student message was correct, condition 2 fails regardless of what earlier students said.
+3. ✅ The teacher's CURRENT message is a direct response to that specific incorrect claim
 
-**Important:** An error that appeared *earlier* in the conversation but was already handled, or that is no longer the focus of the current exchange, does NOT satisfy condition 2. Evaluate only what the student(s) said immediately before this teacher message.
-
-**If the student's most recent statement was correct** — even if a different student made an error earlier — condition 2 is NOT satisfied. The teacher confirming a correct answer is not a PCK skill application. → should_provide_feedback: false.
+**Hard rule:** An error from an earlier part of the conversation that has already been addressed, or where the most recent student exchange shows correct understanding, does NOT satisfy condition 2. Only the most recent student statement counts.
 
 If any condition is false → should_provide_feedback: false. Stop here.
 
@@ -489,11 +496,17 @@ Assess if:
 → should_provide_feedback: false  
 → Reason: Teacher asking question. No student error present. Normal teaching.
 
-❌ NO FEEDBACK - Student correct:
+❌ NO FEEDBACK - Student correct, teacher confirms:
 Student: "ריבוע יש לו 4 צלעות שוות ו-4 זוויות ישרות"
 Teacher: "נכון מאוד! תשובה מעולה"
 → should_provide_feedback: false
-→ Reason: Student correct, no pedagogical issue to assess.
+→ Reason: Student's statement is mathematically correct. No error to identify. Confirming a correct answer is not a PCK skill application — not even error-identification.
+
+❌ NO FEEDBACK - Student correct about misconception topic, teacher confirms:
+Student: "אז לא כל מרובע עם אלכסונים מאונכים הוא מעוין, נכון?"
+Teacher: "בדיוק! צריך גם שהצלעות יהיו שוות."
+→ should_provide_feedback: false
+→ Reason: Even though this exchange touches on a common misconception area, the student's claim is mathematically correct. The teacher confirming a correct understanding is not a PCK move. No PCK feedback applies.
 
 ✅ YES FEEDBACK - Student error, teacher addresses well:
 Student: "אבל ריבוע זה לא מלבן"
