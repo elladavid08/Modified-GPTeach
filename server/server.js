@@ -400,16 +400,35 @@ ${conversationHistoryText}
 
 ${feedbackHistory && feedbackHistory.length > 0 ? `
 ## 📊 Previous Feedback History (last ${feedbackHistory.length} turns)
-${feedbackHistory.map((fb, idx) => `
+${feedbackHistory.map((fb, idx) => {
+  const skillsSummary = (fb.skills_assessment || [])
+    .filter(s => s.is_relevant)
+    .map(s => `    - ${s.skill_id}: score=${s.score}${s.score === 0 && s.what_could_be_better ? ` | suggestion: "${s.what_could_be_better}"` : ''}`)
+    .join('\n');
+  return `
 **Turn ${feedbackHistory.length - idx} ago:**
 - Pedagogical quality: ${fb.pedagogical_quality}
-- Feedback: "${fb.feedback_message_hebrew}"
+- Feedback given: "${fb.feedback_message_hebrew}"
 - Understanding level: ${fb.predicted_student_state && fb.predicted_student_state.understanding_level}
-`).join('\n')}
+${skillsSummary ? `- Skill scores that turn:\n${skillsSummary}` : '- No skill scores recorded'}`;
+}).join('\n')}
 
 ⚠️ **Persistence Rules:**
 If the same problem repeats without explicit correction, don't soften feedback from "problematic" to "neutral".
 If 2+ consecutive problematic turns, set response_tone to "frustrated" or "challenging".
+
+## 🔁 Feedback Continuity Rules (apply these BEFORE scoring in Phase 2)
+
+**Rule 1 — No duplicate positive feedback for the same skill on the same error:**
+Look at the skill scores from previous turns above. If a skill was already scored ≥ 1 (positive or partial) in a recent turn for the same active student error, do NOT give positive feedback for that skill again this turn. Instead, mark it \`is_relevant: false\` with reason "already positively assessed in a previous turn". Move on to the next skill in the chain that has not yet been demonstrated.
+Exception: if the skill previously scored 0 (negative feedback was given) and the teacher now demonstrates it, DO give positive feedback — this shows the teacher has improved in response to the feedback.
+
+**Rule 2 — Recognize when the teacher followed a suggestion:**
+Look at the feedback given in the most recent prior turn. If that turn included a negative score (score=0) for a skill and a suggestion (what_could_be_better), and the teacher's CURRENT message does what that suggestion recommended, then:
+- Score that skill as 2 (fully demonstrated) this turn
+- Give positive feedback acknowledging the improvement: make clear the teacher acted on the previous feedback
+- Do NOT continue giving a negative/different suggestion on the same skill
+The teacher following feedback advice is progress and must be recognized as such.
 ` : ''}
 
 ---
@@ -439,18 +458,21 @@ Use student_reaction_hints to specify which students are most likely to respond 
 **Read the teacher's latest message and classify it. If it falls into any category below, immediately set should_provide_feedback: false and skip Phase 2 entirely. Do not look at conversation history yet.**
 
 ❌ **Procedural / social message** — greeting, farewell, filler word, acknowledgement ("שלום", "אוקיי", "מעולה", "נכון", "המשיכו")
-❌ **Lesson opening** — teacher introducing the topic or asking what students know
+❌ **Lesson opening** — teacher introducing the topic or asking what students know with no prior student error
 ❌ **Lesson closing / ending** — any message signalling the lesson is over: farewell, wrap-up compliment to the class, dismissal, "see you next time", or any conclusive social statement. **Even if a student error occurred earlier in the conversation, a closing message is NOT a pedagogical response to that error and must never trigger feedback.**
-❌ **Pure question** — teacher asks a question and is waiting for a student response
+❌ **Unprompted question** — teacher opens a new question or topic to the class *without* a student error having just occurred (e.g. starting a new task, asking what students know, posing a new challenge unrelated to a prior student mistake)
 ❌ **Content explanation with no prior student error** — teacher is explaining material but no student error has been shown yet
 
-If the current message is any of the above → should_provide_feedback: false. Stop here.
+**⚠️ IMPORTANT — Questions as pedagogical moves:**
+A teacher message that contains a question is NOT automatically excluded. If the teacher is using a question as their pedagogical response to a student's incorrect claim (e.g. redirecting the student to examine a definition, posing a counter-example question, asking "is this always true?"), that question IS a PCK move and must be evaluated in Gate 1. Gate 0 only excludes questions that are topic-openers with no preceding student error.
+
+If the current message is any of the above ❌ categories → should_provide_feedback: false. Stop here.
 
 ---
 
 ### GATE 1 — Verify a student error exists and can be quoted
 
-**MANDATORY FIRST STEP: Before checking any condition below, read the most recent student message(s) that appeared before the teacher's current message. Write down the exact quote of any mathematically incorrect claim. If you cannot write a specific incorrect quote, you cannot proceed — set should_provide_feedback: false immediately.**
+**MANDATORY FIRST STEP: Read ALL student messages from the most recent student turn (the group of student responses that immediately precede the teacher's current message — there may be 1, 2, or 3 students responding in the same turn). Go through each one and write down the exact quote of any mathematically incorrect claim. If you cannot write a specific incorrect quote from any of them, set should_provide_feedback: false immediately and stop.**
 
 A student error means: the student stated something that is **mathematically wrong**. This includes incorrect claims, false generalizations, misapplied rules, and stated misconceptions. It does NOT include:
 - A correct answer, even if phrased hesitantly or incompletely
@@ -461,10 +483,14 @@ A student error means: the student stated something that is **mathematically wro
 
 Only proceed if ALL of the following are true:
 1. ✅ At least one student has already responded in the conversation
-2. ✅ The **most recent student message** (the last thing a student said before this teacher message) contains a specific mathematically incorrect claim — you must be able to quote it word for word. If the last student message was correct, condition 2 fails regardless of what earlier students said.
-3. ✅ The teacher's CURRENT message is a direct response to that specific incorrect claim
+2. ✅ At least one student in the **most recent student turn** made a specific mathematically incorrect claim — you must be able to quote it word for word. It does not matter whether other students in the same turn said something correct; what matters is that at least one incorrect claim exists and can be identified.
+3. ✅ The teacher's CURRENT message is a direct response to that specific incorrect claim (not to the correct claims from the same turn)
 
-**Hard rule:** An error from an earlier part of the conversation that has already been addressed, or where the most recent student exchange shows correct understanding, does NOT satisfy condition 2. Only the most recent student statement counts.
+**Hard rules:**
+- "Most recent student turn" means the student messages that appear **immediately before the teacher's current message in the conversation**, with no intervening teacher message between them and the current one. If the last thing before this teacher message was another teacher message (not students), condition 2 fails.
+- An error from an earlier part of the conversation — even one that was never addressed — does NOT satisfy condition 2 if there have been any teacher messages since that error was expressed. Feedback can only be given at the turn where the teacher is directly responding to fresh student output.
+- If ALL students in the most recent turn said something correct, condition 2 fails even if a misconception-adjacent topic was discussed.
+- When you proceed to Phase 2, the feedback must address **only the specific incorrect claim you quoted**. Do not comment on correct statements other students made in the same turn — those require no PCK response.
 
 If any condition is false → should_provide_feedback: false. Stop here.
 
@@ -507,6 +533,20 @@ Student: "אז לא כל מרובע עם אלכסונים מאונכים הוא 
 Teacher: "בדיוק! צריך גם שהצלעות יהיו שוות."
 → should_provide_feedback: false
 → Reason: Even though this exchange touches on a common misconception area, the student's claim is mathematically correct. The teacher confirming a correct understanding is not a PCK move. No PCK feedback applies.
+
+❌ NO FEEDBACK - Mixed turn, teacher addresses only the correct student:
+Student A: "אז אם האלכסונים מאונכים זה בטח מעוין" (WRONG)
+Student B: "אבל זה לא מספיק, לא?" (CORRECT — asking a clarifying question)
+Teacher: "נכון, שאלה טובה!"
+→ should_provide_feedback: false
+→ Reason: Teacher responded only to the correct student (B) and ignored the error made by student A. There is no feedback about the correct claim; however, there IS a missed opportunity on Student A's error — so this turn should produce: should_provide_feedback: true, feedback about the missed error-identification.
+
+✅ YES FEEDBACK - Mixed turn, teacher responds to the error:
+Student A: "אז אם האלכסונים מאונכים זה בטח מעוין" (WRONG)
+Student B: "אני לא בטוח" (neutral — no claim)
+Teacher: "בואו נבדוק — האם זה תמיד נכון? מה עם דלתון?"
+→ should_provide_feedback: true
+→ Reason: Student A made a specific incorrect claim. Teacher responded to it with a good PCK move. Feedback addresses student A's error only, not student B's neutral response.
 
 ✅ YES FEEDBACK - Student error, teacher addresses well:
 Student: "אבל ריבוע זה לא מלבן"

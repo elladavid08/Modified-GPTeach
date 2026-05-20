@@ -401,6 +401,10 @@ function makeProsePrompt(students, scenario, addendum, impact_analysis = null) {
 	retStr += `\n  • They're still thinking/processing`;
 	retStr += `\n- Number of responses can be: 0, 1, 2, or more students`;
 	retStr += `\n- Responses should feel natural, not forced`;
+	retStr += `\n\n🔁 NO-DUPLICATE RULE (MANDATORY):`;
+	retStr += `\n- Before finalising responses, compare each student's draft response to what that same student said in the immediately preceding student turn.`;
+	retStr += `\n- If a draft response is identical or near-identical (same meaning, same phrasing) to the student's previous message, DO NOT output it. Instead, either have the student react briefly to the teacher's new message in a different way, or keep them silent this turn.`;
+	retStr += `\n- IMPORTANT: At least ONE student must respond every turn. If the no-duplicate rule would silence all students, pick the student whose persona makes a short reaction most natural and have them give a brief, genuinely different acknowledgement of the teacher's latest message.`;
 	
 	// Lesson phase detection
 	retStr += `\n\n📍 LESSON PHASE DETECTION (CRITICAL — CHECK BEFORE EVERY RESPONSE):`;

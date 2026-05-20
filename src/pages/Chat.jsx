@@ -232,7 +232,8 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 					const newHistory = [...prev, {
 						pedagogical_quality: impact_analysis.pedagogical_quality,
 						feedback_message_hebrew: impact_analysis.feedback_message_hebrew,
-						predicted_student_state: impact_analysis.predicted_student_state
+						predicted_student_state: impact_analysis.predicted_student_state,
+						skills_assessment: impact_analysis.skills_assessment || [],
 					}];
 					// Keep only last 5 items for performance
 					return newHistory.slice(-5);
