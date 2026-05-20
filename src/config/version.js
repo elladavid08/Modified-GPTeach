@@ -13,10 +13,30 @@
  * - Z: Patch version (bug fixes, minor improvements)
  */
 
-export const SYSTEM_VERSION = "1.2.0";
+export const SYSTEM_VERSION = "1.3.0";
 
 /**
  * Version History:
+ * 
+ * 1.3.0 (2026-05-20):
+ * - PCK feedback accuracy: restructured Phase 1 into three sequential gates so
+ *   closing/procedural messages are rejected before history is checked
+ * - PCK Gate 0: pedagogical questions (e.g. "האם זה בהכרח נכון?") now correctly
+ *   pass through as PCK moves instead of being blocked as "pure questions"
+ * - PCK Gate 1: mandatory quoting step — model must cite the exact incorrect
+ *   student claim before feedback can be given; correct student answers never
+ *   trigger error-identification even on misconception-adjacent topics
+ * - PCK Gate 1: feedback restricted to the most recent student turn only;
+ *   past unaddressed errors cannot trigger retroactive feedback on later turns
+ * - PCK Gate 1: multi-student turns handled correctly — an error by one student
+ *   triggers feedback even if another student in the same turn was correct
+ * - PCK continuity: skills_assessment now stored in feedback history; no duplicate
+ *   positive praise for a skill already demonstrated on the same error; teacher
+ *   following a prior suggestion is recognized and scored positively
+ * - PCK anti-hallucination: evidence must come from the teacher's last message only;
+ *   student ideas may not be attributed to the teacher
+ * - Student deduplication: students may not repeat the same response as the previous
+ *   turn; at least one student must respond per teacher message
  * 
  * 1.2.0 (2026-04-27):
  * - Student greeting behavior: students now respond only with social greetings when
