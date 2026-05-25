@@ -51,7 +51,8 @@ feature/<short-description>
 | Branch | Purpose |
 |--------|---------|
 | `feature/rag` | Retrieval-augmented generation for student/PCK context |
-| `feature/dst-pck-feedback` | Dynamic Student Teacher (DST) approach to PCK feedback |
+| `feature/pck-oriented-dst` | PCK-oriented Dynamic Student Teacher (DST) approach |
+| `feature/dst-pck-feedback` | *(example)* Dynamic Student Teacher (DST) approach to PCK feedback |
 
 **Workflow:**
 
@@ -69,7 +70,7 @@ feature/<short-description>
 
 | Branch | Status | Description |
 |--------|--------|-------------|
-| *(none yet)* | — | — |
+| `feature/pck-oriented-dst` | Active development | PCK-oriented Dynamic Student Teacher (DST) — branched from `main` at `b337436` (2026-05-25). Current local working branch. |
 
 ---
 
@@ -116,6 +117,7 @@ Read-only snapshots of older or experimental work. Do not deploy from these.
 - Deleted obsolete branches: `code-cleanup`, `server-deployment`, `codex/find-repository-structure-and-project-details`.
 - Closed PR #1 (Codex experiment).
 - Created `baseline/prompt-only` from `main`.
+- Created `feature/pck-oriented-dst` from `main` for PCK-oriented DST development.
 
 ---
 
