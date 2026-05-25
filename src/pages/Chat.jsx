@@ -2,7 +2,7 @@ import React, { useState, useContext, useEffect, useRef } from "react";
 import { Constants } from "../config/constants";
 import { SYSTEM_VERSION } from "../config/version";
 import callAI from "../utils/ai.js";
-import { getPCKFeedback, getPCKSummary } from "../services/genai.js";
+import { getPCKFeedback, getPCKSummary, updateDialogueState } from "../services/genai.js";
 import { Messages } from "../components/Messages";
 import { LessonTargetsSidebar } from "../components/LessonTargetsSidebar";
 import { PCKFeedbackSidebar } from "../components/PCKFeedbackSidebar";
@@ -31,6 +31,10 @@ export const Chat = () => {
 	
 	// Use ref to maintain conversation logger across renders
 	const conversationLoggerRef = useRef(null);
+
+	// Dialogue state ref — persists across renders, updated after each turn when DST is enabled.
+	// null = not yet initialized (first turn will initialize it via the DST agent).
+	const dialogueStateRef = useRef(null);
 	
 	// Drawing board
 	const drawingBoardRef = useRef(null);
@@ -189,13 +193,18 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 				if (lastTeacherMessage) {
 					console.log("🎯 STEP 1: Analyzing teacher's pedagogical move...");
 					console.log("💡 Requesting PCK feedback for teacher message...");
-					console.log(`📊 Feedback history: ${feedbackHistory.length} previous turns`);
-					
+					if (Constants.ENABLE_DST) {
+						console.log(`🔄 DST mode: dialogue state turn=${dialogueStateRef.current ? dialogueStateRef.current.turn_number : 'init'}`);
+					} else {
+						console.log(`📊 Legacy mode: feedback history ${feedbackHistory.length} turns`);
+					}
+
 					impact_analysis = await getPCKFeedback(
 						lastTeacherMessage.text,
 						history.getMessages(),
 						scenario,
-						feedbackHistory.slice(-3) // Pass last 3 feedback items for context
+						feedbackHistory.slice(-3),
+						Constants.ENABLE_DST ? dialogueStateRef.current : null
 					);
 					
 				console.log("✅ PCK analysis received:");
@@ -255,7 +264,7 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 				students, 
 				scenario, 
 				addendum,
-				impact_analysis,  // NEW: Pass impact_analysis to student agent
+				impact_analysis,  // Pass impact_analysis to student agent
 				async (aiMessages) => {
 					// Handle case where no students respond (silence is valid with selective responses)
 					if (!aiMessages || aiMessages.length === 0) {
@@ -267,25 +276,71 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 					
 					// Add messages, with delay only if in production
 					await history.addMessages(aiMessages, Constants.IS_PRODUCTION);
+
+					// Capture teacher message for logging and DST update
+					const teacherMessages = history.getMessages().filter(msg => msg.role === "user");
+					const lastTeacherMessage = teacherMessages[teacherMessages.length - 1];
+
+					// Step 3 (DST): Update dialogue state after students respond.
+					// Runs non-blockingly — display is already done, state updates for the NEXT turn.
+					if (Constants.ENABLE_DST && lastTeacherMessage && impact_analysis) {
+						console.log("🔄 STEP 3: Updating DST dialogue state...");
+						updateDialogueState(
+							lastTeacherMessage.text,
+							aiMessages,
+							impact_analysis,
+							dialogueStateRef.current,
+							scenario
+						).then(updatedState => {
+						if (updatedState) {
+							dialogueStateRef.current = updatedState;
+							// --- DST State Summary ---
+							console.group(`🗂️ DST State — turn ${updatedState.turn_number}`);
+							if (updatedState.pending_challenge) {
+								const pc = updatedState.pending_challenge;
+								console.log(`📌 Pending challenge (turn ${pc.raised_at_turn}, urgency: ${pc.urgency}):`);
+								console.log(`   Error: "${pc.student_error_quote}"`);
+								console.log(`   Type: ${pc.misconception_type}`);
+								console.log(`   Suggested move: ${pc.suggested_move}`);
+							} else {
+								console.log("📌 Pending challenge: none");
+							}
+							const activeMCs = (updatedState.active_misconceptions || []).filter(m => m.status !== "resolved");
+							console.log(`🧠 Active misconceptions: ${activeMCs.length}`);
+							activeMCs.forEach(m => console.log(`   • ${m.student}: "${m.statement}" — ${m.status}`));
+							console.log("📊 Skill trajectory (latest score per skill):");
+							Object.entries(updatedState.skill_trajectory || {}).forEach(([skill, scores]) => {
+								const latest = scores.length > 0 ? scores[scores.length - 1] : "—";
+								const label = latest === null ? "null (gate blocked)" : latest === "—" ? "no data yet" : `score=${latest}`;
+								console.log(`   • ${skill}: ${label}  [${scores.join(", ")}]`);
+							});
+							console.groupEnd();
+						} else {
+							console.warn("⚠️ DST update returned null — keeping previous state");
+						}
+						}).catch(err => {
+							console.error("❌ DST update failed (non-fatal):", err.message);
+						});
+					}
 					
 					// Log this conversation turn
 					if (conversationLoggerRef.current) {
-						const teacherMessages = history.getMessages().filter(msg => msg.role === "user");
-						const lastTeacherMessage = teacherMessages[teacherMessages.length - 1];
-						
 					if (lastTeacherMessage) {
 						console.log("📊 Logging conversation turn...");
 						conversationLoggerRef.current.addTurn(
 							lastTeacherMessage.text,
 							aiMessages.map(msg => ({ name: msg.name, text: msg.text })),
 							feedbackForLog,
-							lastTeacherMessage.image || null  // include drawing image if teacher sent one
+							lastTeacherMessage.image || null,
+							// Snapshot the current dialogue state into the log (may be the pre-update
+							// state for this turn — the DST update above runs asynchronously)
+							Constants.ENABLE_DST ? dialogueStateRef.current : null
 						);
 							console.log("✅ Turn logged. Total turns:", conversationLoggerRef.current.turns.length);
 						}
 					}
 					
-					console.log("🎉 Turn complete: PCK analysis → Student responses → Display");
+					console.log("🎉 Turn complete: PCK analysis → Student responses → DST update (async)");
 				}
 			);
 		})();

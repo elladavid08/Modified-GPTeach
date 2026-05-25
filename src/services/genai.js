@@ -142,17 +142,35 @@ export async function generateWithGenAICompletion(prompt, options = {}) {
 }
 
 /**
- * Get PCK feedback for a teacher's message
+ * Get PCK feedback for a teacher's message.
+ *
+ * When DST is active (dialogueState is provided), sends recentHistory (last N messages)
+ * and the structured dialogue state instead of the full history + feedbackHistory.
+ * Falls back to the legacy full-history path when dialogueState is null/undefined.
+ *
  * @param {string} teacherMessage - The teacher's message to analyze
- * @param {Array} conversationHistory - Previous conversation messages
+ * @param {Array}  conversationHistory - All conversation messages (used in legacy mode)
  * @param {Object} scenario - Current scenario context
+ * @param {Array}  feedbackHistory - Last N PCK snapshots (used in legacy mode only)
+ * @param {Object|null} dialogueState - Current DST state (null = use legacy path)
  * @returns {Promise<Object>} - Structured PCK analysis object
  */
-export async function getPCKFeedback(teacherMessage, conversationHistory = [], scenario = {}, feedbackHistory = []) {
+export async function getPCKFeedback(teacherMessage, conversationHistory = [], scenario = {}, feedbackHistory = [], dialogueState = null) {
   try {
     console.log('💡 Requesting structured PCK feedback analysis...');
     console.log('📝 Teacher message:', teacherMessage.substring(0, 100) + '...');
-    console.log('📊 Feedback history items:', feedbackHistory.length);
+
+    // When DST is active, send only the last 8 messages as recent context.
+    // The dialogue state carries the analytical cross-turn context instead.
+    const recentHistory = dialogueState
+      ? conversationHistory.slice(-8)
+      : null;
+
+    if (dialogueState) {
+      console.log(`🔄 DST mode: PCK gets last ${recentHistory.length} messages (of ${conversationHistory.length} total) + dialogue state (turn ${dialogueState.turn_number})`);
+    } else {
+      console.log(`📊 Legacy mode: PCK gets full history (${conversationHistory.length} messages) + feedbackHistory (${feedbackHistory.length} items)`);
+    }
     
     const response = await fetchWithRetry(() => fetch(`${API_BASE_URL}/api/pck-feedback`, {
       method: 'POST',
@@ -163,7 +181,9 @@ export async function getPCKFeedback(teacherMessage, conversationHistory = [], s
         teacherMessage,
         conversationHistory,
         scenario,
-        feedbackHistory
+        feedbackHistory,
+        dialogue_state: dialogueState,
+        recentHistory,
       })
     }));
 
@@ -259,6 +279,63 @@ export async function testAI() {
 }
 
 /**
+ * Update the dialogue state after a full conversation turn completes.
+ * Called after student responses are generated (when ENABLE_DST is true).
+ * The DST agent is a lightweight bookkeeper — it receives the PCK analysis
+ * and student responses and returns an updated structured state.
+ *
+ * @param {string} teacherMessage - Teacher's message this turn
+ * @param {Array}  studentResponses - Student messages [{name, text}]
+ * @param {Object} pckAnalysis - Full PCK analysis output for this turn
+ * @param {Object|null} dialogueState - Current state before this turn (null = first turn)
+ * @param {Object} scenario - Current scenario context
+ * @returns {Promise<Object|null>} - Updated dialogue state, or null on failure
+ */
+export async function updateDialogueState(teacherMessage, studentResponses, pckAnalysis, dialogueState, scenario) {
+  try {
+    console.log('🔄 Requesting DST state update...');
+
+    // Convert ChatMessage objects to plain {student, message} for the DST agent
+    const plainResponses = (studentResponses || []).map(msg => ({
+      student: msg.agent || msg.name || 'Student',
+      message: msg.text || msg.message || '',
+    }));
+
+    const response = await fetchWithRetry(() => fetch(`${API_BASE_URL}/api/dst-update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        teacherMessage,
+        studentResponses: plainResponses,
+        pckAnalysis,
+        dialogue_state: dialogueState,
+        scenario,
+      })
+    }));
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+      console.error('❌ DST update error:', errorData);
+      return null;
+    }
+
+    const result = await response.json();
+
+    if (result.success) {
+      console.log('✅ DST state updated — turn:', result.updated_dialogue_state.turn_number);
+      return result.updated_dialogue_state;
+    } else {
+      console.error('❌ DST update returned error:', result.error);
+      return null;
+    }
+  } catch (error) {
+    // DST failures are non-fatal — the conversation continues without updated state
+    console.error('❌ Error calling DST update API (non-fatal):', error.message);
+    return null;
+  }
+}
+
+/**
  * Get comprehensive PCK summary feedback for entire conversation
  * @param {Object} conversationLog - Complete conversation log
  * @returns {Promise<Object>} - Summary feedback with analysis
@@ -319,7 +396,8 @@ console.log('');
 console.log('Available functions:');
 console.log('  - generateWithGenAI(messages, options)');
 console.log('  - generateWithGenAICompletion(prompt, options)');
-console.log('  - getPCKFeedback(teacherMessage, conversationHistory, scenario)');
+console.log('  - getPCKFeedback(teacherMessage, conversationHistory, scenario, feedbackHistory, dialogueState?)');
+console.log('  - updateDialogueState(teacherMessage, studentResponses, pckAnalysis, dialogueState, scenario)');
 console.log('  - getPCKSummary(conversationLog)');
 console.log('  - testBackendConnection()');
 console.log('  - testAI()');

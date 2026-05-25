@@ -138,8 +138,13 @@ export class ConversationLog {
   
 	/**
 	 * Add a conversation turn (teacher message, student responses, PCK feedback)
+	 * @param {string} teacherMessage
+	 * @param {Array}  studentResponses
+	 * @param {Object|null} pckFeedback
+	 * @param {string|null} teacherImage - base64 PNG drawing
+	 * @param {Object|null} dialogueState - DST state snapshot after this turn (optional)
 	 */
-	async addTurn(teacherMessage, studentResponses, pckFeedback, teacherImage = null) {
+	async addTurn(teacherMessage, studentResponses, pckFeedback, teacherImage = null, dialogueState = null) {
 		// Initialize Firestore on first turn (lazy initialization)
 		if (!this.firestoreInitialized) {
 			console.log('📊 First message - initializing conversation in Firestore...');
@@ -170,7 +175,9 @@ export class ConversationLog {
 				detected_skills: pckFeedback.detected_skills || [],          // fallback
 				missed_opportunities: pckFeedback.missed_opportunities || [], // fallback
 				timestamp: new Date().toISOString()
-			} : null
+			} : null,
+		// DST state snapshot at the end of this turn (null when DST is disabled)
+		dialogueState: dialogueState || null,
 		};
 		
 		this.turns.push(turn);

@@ -12,6 +12,7 @@ import { fileURLToPath } from 'url';
 import { VertexAI } from '@google-cloud/vertexai';
 import { GoogleAuth } from 'google-auth-library';
 import { formatSkillsForPrompt, formatConversationHistory, getPCKSkillById } from './universal_pck_skills.js';
+import { buildPCKStateSection, buildDSTAgentPrompt, validateDialogueState, initDialogueState } from './dst_manager.js';
 import { saveConversation, saveMessage, createUserProfile, getUserProfile, saveTestSubmission, checkTestSubmission, verifyAnnotator, verifyAdmin, getTestSubmissions, getTestSubmission, saveTestAnnotation, getTestAnnotation, getAllAnnotationsForSubmission } from './services/firebaseAdmin.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -368,7 +369,7 @@ app.post('/api/pck-feedback', async (req, res) => {
   try {
     console.log('💡 Received comprehensive PCK feedback analysis request');
     
-    const { teacherMessage, conversationHistory, scenario, feedbackHistory } = req.body;
+    const { teacherMessage, conversationHistory, scenario, feedbackHistory, dialogue_state, recentHistory } = req.body;
     
     if (!teacherMessage) {
       return res.status(400).json({ 
@@ -377,8 +378,12 @@ app.post('/api/pck-feedback', async (req, res) => {
       });
     }
 
+    // When DST is active the client sends recentHistory (last 2-3 turns) instead of full history.
+    // Fall back to full conversationHistory when DST is not in use (backward compat).
+    const historyForPrompt = (dialogue_state && recentHistory) ? recentHistory : (conversationHistory || []);
+
     // Build comprehensive PCK analysis prompt
-    const conversationHistoryText = formatConversationHistory(conversationHistory || []);
+    const conversationHistoryText = formatConversationHistory(historyForPrompt);
     
     // Format universal PCK skills for prompt
     const universalSkillsText = formatSkillsForPrompt();
@@ -398,7 +403,7 @@ ${conversationHistoryText}
 ## Teacher's Latest Message to Analyze
 "${teacherMessage}"
 
-${feedbackHistory && feedbackHistory.length > 0 ? `
+${dialogue_state ? buildPCKStateSection(dialogue_state) : (feedbackHistory && feedbackHistory.length > 0 ? `
 ## 📊 Previous Feedback History (last ${feedbackHistory.length} turns)
 ${feedbackHistory.map((fb, idx) => {
   const skillsSummary = (fb.skills_assessment || [])
@@ -429,7 +434,7 @@ Look at the feedback given in the most recent prior turn. If that turn included 
 - Give positive feedback acknowledging the improvement: make clear the teacher acted on the previous feedback
 - Do NOT continue giving a negative/different suggestion on the same skill
 The teacher following feedback advice is progress and must be recognized as such.
-` : ''}
+` : '')}
 
 ---
 
@@ -476,7 +481,7 @@ If the current message is any of the above ❌ categories → should_provide_fee
 
 A student error means: the student stated something that is **mathematically wrong**. This includes incorrect claims, false generalizations, misapplied rules, and stated misconceptions. It does NOT include:
 - A correct answer, even if phrased hesitantly or incompletely
-- A question (questions contain no claim)
+- A question (questions contain no claim) — **EXCEPTION: a student question that contains an implicit factual claim counts as an error if the teacher's current message explicitly confirms that implicit claim as correct.** For example: student asks "כל הצלעות שלו שוות?" (implying all sides of a rectangle are equal), and the teacher responds "נכון!" or incorporates the wrong idea into their explanation as a stated fact — treat the student's question as a stated error in this case, and quote the teacher's confirmation as evidence.
 - Agreement with the teacher
 - A correct claim about a topic where misconceptions are common
 - A student saying "I'm not sure" without making a wrong claim
@@ -904,6 +909,103 @@ Return JSON only, no additional text:`;
     res.status(500).json({ 
       success: false,
       error: error.message 
+    });
+  }
+});
+
+// DST Update endpoint — updates the dialogue state after a full turn completes
+// Called by the client after student responses are generated each turn (when ENABLE_DST is true)
+app.post('/api/dst-update', async (req, res) => {
+  try {
+    console.log('🔄 Received DST update request');
+
+    const { teacherMessage, studentResponses, pckAnalysis, dialogue_state, scenario } = req.body;
+
+    if (!teacherMessage || !pckAnalysis) {
+      return res.status(400).json({
+        success: false,
+        error: 'teacherMessage and pckAnalysis are required'
+      });
+    }
+
+    const prompt = buildDSTAgentPrompt(
+      teacherMessage,
+      studentResponses || [],
+      pckAnalysis,
+      dialogue_state || null,
+      scenario || {}
+    );
+
+    const contents = [{
+      role: 'user',
+      parts: [{ text: prompt }]
+    }];
+
+    const generationConfig = {
+      maxOutputTokens: 1024,
+      temperature: 0.2,   // low temperature — this is a mechanical bookkeeping task
+      topP: 1,
+      responseMimeType: 'application/json',
+    };
+
+    console.log('📤 Calling Vertex AI for DST state update...');
+
+    const result = await withRetry(() => model.generateContent({
+      contents,
+      generationConfig
+    }));
+
+    if (!result || !result.response) {
+      throw new Error('No response received from Vertex AI');
+    }
+
+    const candidate = result.response.candidates && result.response.candidates[0];
+    if (!candidate || !candidate.content || !candidate.content.parts || !candidate.content.parts.length) {
+      throw new Error('Invalid response structure from model');
+    }
+
+    let responseText = candidate.content.parts[0].text.trim();
+
+    // Strip markdown fences if present
+    if (responseText.includes('```json')) {
+      const match = responseText.match(/```json\s*([\s\S]*?)\s*```/);
+      if (match && match[1]) responseText = match[1].trim();
+    } else if (responseText.includes('```')) {
+      const match = responseText.match(/```\s*([\s\S]*?)\s*```/);
+      if (match && match[1]) responseText = match[1].trim();
+    }
+
+    let updatedState;
+    try {
+      updatedState = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error('❌ Failed to parse DST update JSON:', parseError);
+      console.error('Raw response:', responseText.substring(0, 500));
+      throw new Error('Failed to parse DST agent response as JSON');
+    }
+
+    // Validate the returned state — fall back to previous state if invalid
+    if (!validateDialogueState(updatedState)) {
+      console.warn('⚠️ DST returned invalid state, falling back to previous state');
+      const fallbackTurn = (dialogue_state ? dialogue_state.turn_number : 0) + 1;
+      updatedState = dialogue_state
+        ? { ...dialogue_state, turn_number: fallbackTurn }
+        : { ...initDialogueState(scenario), turn_number: fallbackTurn };
+    }
+
+    console.log('✅ DST update complete — turn:', updatedState.turn_number);
+    console.log('   Pending challenge:', updatedState.pending_challenge ? updatedState.pending_challenge.student_error_quote.substring(0, 60) : 'none');
+    console.log('   Active misconceptions:', updatedState.active_misconceptions.length);
+
+    res.json({
+      success: true,
+      updated_dialogue_state: updatedState
+    });
+  } catch (error) {
+    console.error('❌ Error in DST update:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });

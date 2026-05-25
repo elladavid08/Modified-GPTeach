@@ -31,6 +31,10 @@ export const Constants = {
 	
 	// AI Provider: "openai" or "google"
 	PROVIDER: "google",
+
+	// Dialogue State Tracking (DST) — set to true to enable the three-agent DST flow
+	// When false the system behaves exactly as before (two-agent, feedbackHistory-based)
+	ENABLE_DST: true,
 };
 
 // TODO: some of these should be env vars, and some should be user-changeable

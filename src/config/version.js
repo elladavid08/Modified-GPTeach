@@ -13,10 +13,31 @@
  * - Z: Patch version (bug fixes, minor improvements)
  */
 
-export const SYSTEM_VERSION = "1.3.0";
+export const SYSTEM_VERSION = "2.0.0";
 
 /**
  * Version History:
+ * 
+ * 2.0.0 (2026-05-25):
+ * - Dialogue State Tracking (DST) architecture: new three-agent pipeline
+ *   (PCK agent → Student agent → DST agent) replacing the two-agent pipeline
+ * - New POST /api/dst-update endpoint: lightweight bookkeeping agent that runs
+ *   after student responses and updates a structured dialogue state each turn
+ * - Dialogue state persists across turns and tracks:
+ *   - pending_challenge: the specific student error the teacher should address next
+ *   - active_misconceptions: lifecycle of each misconception (active/partially_addressed/resolved)
+ *   - skill_trajectory: per-skill score array across all turns (0/1/2/null per turn)
+ *   - feedback_given: explicit log of all feedback shown, replaces raw feedbackHistory
+ *   - student_understanding: per-student level and trend across turns
+ * - PCK agent now receives structured dialogue state + last 8 messages instead of
+ *   full conversation history + raw feedbackHistory snapshots; backward-compatible
+ *   fallback when DST is disabled (ENABLE_DST flag in constants.js)
+ * - DST state snapshot persisted in every Firestore turn document (dialogueState field)
+ * - PCK Gate 1: student questions with implicit wrong assumptions now count as errors
+ *   when the teacher explicitly validates them (e.g. teacher says "נכון!" to a wrong question)
+ * - DST tracking: student questions with implicit incorrect assumptions are now captured
+ *   as pending_challenge and active_misconceptions, not only clearly stated wrong claims
+ * - Feature flag: ENABLE_DST=false preserves v1.3.0 behavior exactly
  * 
  * 1.3.0 (2026-05-20):
  * - PCK feedback accuracy: restructured Phase 1 into three sequential gates so
