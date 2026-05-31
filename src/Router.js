@@ -15,8 +15,10 @@ import ConversationLogs from "./pages/ConversationLogs";
 import TestPage from "./pages/TestPage";
 import AnnotationDashboard from "./pages/AnnotationDashboard";
 import AnnotationView from "./pages/AnnotationView";
+import AdminConversationLogs from "./pages/AdminConversationLogs";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AnnotatorRoute } from "./components/AnnotatorRoute";
+import { AdminRoute } from "./components/AdminRoute";
 
 export const Router = () => {
 	return (
@@ -48,9 +50,12 @@ export const Router = () => {
 			<Route path="/pre-test" element={<ProtectedRoute><TestPage testType="pre" /></ProtectedRoute>} />
 			<Route path="/post-test" element={<ProtectedRoute><TestPage testType="post" /></ProtectedRoute>} />
 
-			{/* Annotation interface - annotators only */}
-			<Route path="/admin/annotate" element={<AnnotatorRoute><AnnotationDashboard /></AnnotatorRoute>} />
-			<Route path="/admin/annotate/:submissionId" element={<AnnotatorRoute><AnnotationView /></AnnotatorRoute>} />
+		{/* Annotation interface - annotators only */}
+		<Route path="/admin/annotate" element={<AnnotatorRoute><AnnotationDashboard /></AnnotatorRoute>} />
+		<Route path="/admin/annotate/:submissionId" element={<AnnotatorRoute><AnnotationView /></AnnotatorRoute>} />
+
+		{/* Admin conversation browser - admin only */}
+		<Route path="/admin/logs" element={<AdminRoute><AdminConversationLogs /></AdminRoute>} />
 		</Routes>
 	);
 };

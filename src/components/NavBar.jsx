@@ -6,6 +6,7 @@ import { useNavigate } from "react-router-dom";
 export default function Navbar() {
 	const { isAuthenticated, currentUser, userProfile } = useAuth();
 	const isAnnotator = userProfile && userProfile.isAnnotator;
+	const isAdmin = userProfile && userProfile.isAdmin;
 	const navigate = useNavigate();
 
 	const handleLogout = async () => {
@@ -72,14 +73,23 @@ export default function Navbar() {
 								</a>
 							</li>
 
-							{isAnnotator && (
-								<li className="nav-item">
-									<a className="nav-link text-light" href="/admin/annotate"
-										style={{ fontWeight: 600, opacity: 0.9 }}>
-										הערכת שאלונים
-									</a>
-								</li>
-							)}
+						{isAnnotator && (
+							<li className="nav-item">
+								<a className="nav-link text-light" href="/admin/annotate"
+									style={{ fontWeight: 600, opacity: 0.9 }}>
+									הערכת שאלונים
+								</a>
+							</li>
+						)}
+
+						{isAdmin && (
+							<li className="nav-item">
+								<a className="nav-link text-light" href="/admin/logs"
+									style={{ fontWeight: 600, opacity: 0.9 }}>
+									🔬 שיחות כל המשתמשים
+								</a>
+							</li>
+						)}
 
 							<li className="nav-item">
 								<a className="nav-link text-light" href="/user-info">
