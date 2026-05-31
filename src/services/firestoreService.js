@@ -7,6 +7,7 @@ import {
   getDocs,
   addDoc,
   updateDoc,
+  deleteDoc,
   query,
   where,
   orderBy,
@@ -260,5 +261,69 @@ export const getStudentPersonas = async (personaIds) => {
   } catch (error) {
     console.error('Error getting student personas:', error);
     return { personas: [], error: error.message };
+  }
+};
+
+/**
+ * Get all conversations for a specific user, sorted newest first.
+ * Uses only a single-field where clause to avoid requiring a composite index.
+ */
+export const getConversationsByUser = async (userId, limitCount = 100) => {
+  try {
+    const q = query(
+      collection(db, 'conversations'),
+      where('userId', '==', userId),
+      limit(limitCount)
+    );
+    const querySnapshot = await getDocs(q);
+    const conversations = [];
+    querySnapshot.forEach((docSnap) => {
+      conversations.push({ id: docSnap.id, ...docSnap.data() });
+    });
+    conversations.sort((a, b) => {
+      const ta = a.startTime || a.startedAt || '';
+      const tb = b.startTime || b.startedAt || '';
+      return tb.localeCompare(ta);
+    });
+    return { conversations, error: null };
+  } catch (error) {
+    console.error('Error getting user conversations:', error);
+    return { conversations: [], error: error.message };
+  }
+};
+
+/**
+ * Get all conversations across all users, sorted newest first (admin only).
+ * Requires the admin's Firestore security rule to allow the read.
+ */
+export const getAllConversations = async (limitCount = 200) => {
+  try {
+    const q = query(
+      collection(db, 'conversations'),
+      orderBy('lastUpdated', 'desc'),
+      limit(limitCount)
+    );
+    const querySnapshot = await getDocs(q);
+    const conversations = [];
+    querySnapshot.forEach((docSnap) => {
+      conversations.push({ id: docSnap.id, ...docSnap.data() });
+    });
+    return { conversations, error: null };
+  } catch (error) {
+    console.error('Error getting all conversations:', error);
+    return { conversations: [], error: error.message };
+  }
+};
+
+/**
+ * Delete a conversation document from Firestore.
+ */
+export const deleteConversation = async (sessionId) => {
+  try {
+    await deleteDoc(doc(db, 'conversations', sessionId));
+    return { error: null };
+  } catch (error) {
+    console.error('Error deleting conversation:', error);
+    return { error: error.message };
   }
 };
