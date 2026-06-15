@@ -383,6 +383,130 @@ const universalPCKSkills = [
   }
 ];
 
+const pckBoundaryRules = [
+  {
+    boundary_id: "error-identification-vs-error-characterization",
+    skills: ["error-identification", "error-characterization"],
+    title: "Error Identification vs. Error Characterization",
+    guiding_questions: [
+      "Does the teacher only hint that there is a problem/error, or also explain what type of problem/error it is?"
+    ],
+    distinctions: {
+      "error-identification": {
+        definition: "The teacher expresses disagreement, reservation, doubt, or suggests rechecking the claim. The teacher identifies that there is a problem/error, but does not explain its nature.",
+        examples: [
+          "האם זה תמיד נכון?",
+          "אתה בטוח שזה נכון?",
+          "אני לא בטוח שזה מדוייק",
+          "בוא נבדוק את זה שוב"
+        ]
+      },
+      "error-characterization": {
+        definition: "The teacher identifies the type of error.",
+        indicators: [
+          "שגיאה הנוגעת ליחס הכלה בין צורות",
+          "דימוי מושג שגוי או תפיסה חזותית שגויה",
+          "בלבול בין תנאי הכרחי / מספיק",
+          "שגיאה הנוגעת להגדרה או בלבול בהגדרה",
+          "הכללה שגויה"
+        ]
+      }
+    }
+  },
+  {
+    boundary_id: "error-characterization-vs-diagnostic-interpretation",
+    skills: ["error-characterization", "diagnostic-interpretation"],
+    title: "Error Characterization vs. Diagnostic Interpretation",
+    guiding_questions: [
+      "Does the teacher only identify what type of error the student made, or also explain what in the student's thinking led to this error?",
+      "Does the teacher focus on the error itself, or on the assumptions and reasoning patterns that caused the student to make it?",
+      "Does the teacher answer the question \"What is the error?\", or also the question \"Why did the student reach this error?\""
+    ],
+    distinctions: {
+      "error-characterization": {
+        definition: "The teacher describes or classifies the type of error, but does not refer to the reason the student reached it. The focus is on the error itself. The question the teacher answers is: \"What error did the student make?\"",
+        examples: [
+          "זו הכללה ממקרה פרטי",
+          "יש כאן תפיסה חזותית שגויה",
+          "יש כאן בלבול בין תנאי מספיק לתנאי הכרחי",
+          "יש כאן בלבול ביחסי הכלה בין המושגים"
+        ]
+      },
+      "diagnostic-interpretation": {
+        definition: "The teacher offers an explanation of the thinking, assumption, image, prior knowledge, or strategy that led the student to the error. The focus shifts from the error itself to the student's thinking. The question the teacher answers is: \"What in the student's thinking led to this error?\" Diagnostic Interpretation includes Error Characterization, possibly implicit, together with an explanation of why the error happened.",
+        examples: [
+          "נראה שאתם מכלילים משום שבדקתם רק מספר דוגמאות בלבד",
+          "נראה שאתם מזהים את הצורה לפי המראה שלה ולא לפי ההגדרה",
+          "נראה שאתם תופסים ריבוע ומלבן כקטגוריות נפרדות, כי אתם לא תופסים את יחסי ההיררכיה בין המרובעים",
+          "נראה שאתם מניחים כי תכונה אחת מספיקה לקבוע את סוג המרובע"
+        ]
+      }
+    }
+  },
+  {
+    boundary_id: "diagnostic-interpretation-vs-adapted-pedagogical-response",
+    skills: ["diagnostic-interpretation", "adapted-pedagogical-response"],
+    title: "Diagnostic Interpretation vs. Adapted Pedagogical Response",
+    guiding_questions: [
+      "Does the teacher's response only indicate understanding of the source of the student's thinking, or does it also indicate an action/treatment path related to the error that moves the student forward?"
+    ],
+    distinctions: {
+      "diagnostic-interpretation": {
+        definition: "The teacher explains the source of the student's thinking, but does not offer a way to move forward.",
+        examples: [
+          "נראה שאתה חושב שסיבוב משנה את סוג הצורה",
+          "כנראה שאתה מסתמך על דוגמאות שראית בעבר"
+        ]
+      },
+      "adapted-pedagogical-response": {
+        definition: "The teacher performs a pedagogical move that is adapted to the identified difficulty.",
+        move_examples: [
+          "asks a guiding question",
+          "gives an example or counterexample",
+          "returns to the definition",
+          "uses an appropriate representation",
+          "compares cases",
+          "performs systematic checking"
+        ],
+        examples: [
+          "תנסה לסובב דף / מלבן ולבדוק מה השתנה / מה נשמר",
+          "בואו נחזור להגדרה של המושג / צורה (מקבילית / מעויין וכו')"
+        ]
+      }
+    }
+  },
+  {
+    boundary_id: "adapted-pedagogical-response-vs-error-leveraging",
+    skills: ["adapted-pedagogical-response", "error-leveraging"],
+    title: "Adapted Pedagogical Response vs. Leveraging Error for Learning",
+    guiding_questions: [
+      "Does the teacher address only the specific current error, or use it to promote broader learning, such as reaching a generalization, extending to other shapes, or deepening knowledge in the context of the error/concept?"
+    ],
+    distinctions: {
+      "adapted-pedagogical-response": {
+        definition: "The teacher focuses on solving the current difficulty or correcting the specific error. The learning remains at the level of the given case.",
+        examples: [
+          "תנסו לבדוק אם כל הזוויות ישרות בצורה הנתונה",
+          "הנה דוגמה נגדית"
+        ]
+      },
+      "error-leveraging": {
+        definition: "The teacher uses the error or difficulty that emerged during the dialogue as a starting point for building broader insight that goes beyond the specific case being discussed.",
+        broader_learning_moves: [
+          "infer a general principle",
+          "distinguish a reasoning pattern",
+          "develop a strategy for solving similar problems",
+          "reflect on the ways of thinking that led to the error"
+        ],
+        examples: [
+          "מה המקרה הזה מלמד אותנו על היחסים בין מושגים בגיאומטריה?",
+          "הראינו כי ריבוע הוא בהכרח מלבן. מה אפשר להסיק לגבי יחסי הכלה בין ריבוע ומקבילית?"
+        ]
+      }
+    }
+  }
+];
+
 /**
  * Get a PCK skill by its ID
  * @param {string} skillId - The skill ID to look up
@@ -427,6 +551,46 @@ Hebrew patterns: ${skill.scoring_rubric.score_2.hebrew_patterns.slice(0, 3).join
 }
 
 /**
+ * Format adjacent-skill boundary rules for prompt injection.
+ * @returns {string} Concise boundary-rule guidance for an AI prompt
+ */
+function formatBoundaryRulesForPrompt() {
+  return pckBoundaryRules.map((rule) => {
+    const distinctionText = rule.skills.map((skillId) => {
+      const distinction = rule.distinctions[skillId];
+      const parts = [
+        `- ${skillId}: ${distinction.definition}`
+      ];
+
+      if (distinction.indicators && distinction.indicators.length > 0) {
+        parts.push(`  Indicators: ${distinction.indicators.join('; ')}`);
+      }
+
+      if (distinction.move_examples && distinction.move_examples.length > 0) {
+        parts.push(`  Adapted move examples: ${distinction.move_examples.join('; ')}`);
+      }
+
+      if (distinction.broader_learning_moves && distinction.broader_learning_moves.length > 0) {
+        parts.push(`  Broader learning moves: ${distinction.broader_learning_moves.join('; ')}`);
+      }
+
+      if (distinction.examples && distinction.examples.length > 0) {
+        parts.push(`  Examples: ${distinction.examples.join('; ')}`);
+      }
+
+      return parts.join('\n');
+    }).join('\n');
+
+    return `## ${rule.title}
+Guiding question(s):
+${rule.guiding_questions.map((question) => `- ${question}`).join('\n')}
+
+Distinction:
+${distinctionText}`;
+  }).join('\n\n---\n\n');
+}
+
+/**
  * Format conversation history for AI prompt
  * @param {Array} history - Array of message objects with role and text
  * @returns {string} Formatted conversation string in Hebrew
@@ -451,8 +615,10 @@ function formatConversationHistory(history) {
 
 export {
   universalPCKSkills,
+  pckBoundaryRules,
   getPCKSkillById,
   getAllPCKSkills,
   formatSkillsForPrompt,
+  formatBoundaryRulesForPrompt,
   formatConversationHistory
 };

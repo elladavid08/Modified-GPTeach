@@ -11,7 +11,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { VertexAI } from '@google-cloud/vertexai';
 import { GoogleAuth } from 'google-auth-library';
-import { formatSkillsForPrompt, formatConversationHistory, getPCKSkillById } from './universal_pck_skills.js';
+import { formatSkillsForPrompt, formatBoundaryRulesForPrompt, formatConversationHistory, getPCKSkillById } from './universal_pck_skills.js';
 import { saveConversation, saveMessage, createUserProfile, getUserProfile, saveTestSubmission, checkTestSubmission, verifyAnnotator, verifyAdmin, getTestSubmissions, getTestSubmission, saveTestAnnotation, getTestAnnotation, getAllAnnotationsForSubmission } from './services/firebaseAdmin.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -153,6 +153,278 @@ function formatScenarioContextForPrompt(scenario) {
   lines.push("⚠️ The pedagogical focus areas are not a script, and strong teaching may look different from the scenario's typical move.");
 
   return lines.join('\n');
+}
+
+function getConversationHistoryBeforeCurrentTeacherMessage(conversationHistory, teacherMessage) {
+  if (!Array.isArray(conversationHistory) || conversationHistory.length === 0) {
+    return [];
+  }
+
+  const lastMessage = conversationHistory[conversationHistory.length - 1];
+  if (lastMessage && lastMessage.role === 'user' && lastMessage.text === teacherMessage) {
+    return conversationHistory.slice(0, -1);
+  }
+
+  return conversationHistory;
+}
+
+function getMostRecentStudentTurn(history) {
+  if (!Array.isArray(history) || history.length === 0) {
+    return [];
+  }
+
+  const recentStudentTurn = [];
+
+  for (let i = history.length - 1; i >= 0; i--) {
+    const message = history[i];
+    const isTeacherMessage = message && message.role === 'user';
+    const isStudentMessage = message && (message.role === 'assistant' || message.name);
+
+    if (isTeacherMessage) {
+      break;
+    }
+
+    if (isStudentMessage) {
+      recentStudentTurn.unshift(message);
+    }
+  }
+
+  return recentStudentTurn;
+}
+
+function isLikelyQuestionOrUncertainty(text) {
+  const normalized = String(text || '').trim();
+
+  if (!normalized) {
+    return true;
+  }
+
+  const lower = normalized.toLowerCase();
+  const questionStarters = [
+    'האם',
+    'מה ',
+    'מי ',
+    'מתי',
+    'למה',
+    'איך',
+    'כמה',
+    'איפה',
+    'מדוע'
+  ];
+  const uncertaintyPatterns = [
+    'אני לא בטוח',
+    'אני לא בטוחה',
+    'לא בטוח',
+    'לא בטוחה',
+    'אני לא יודע',
+    'אני לא יודעת',
+    'לא יודע',
+    'לא יודעת',
+    'אני לא מבין',
+    'אני לא מבינה',
+    'אני מתלבט',
+    'אני מתלבטת',
+    'אולי',
+    'יכול להיות ש',
+    'יכול להיות',
+    'ייתכן ש'
+  ];
+
+  return (
+    normalized.includes('?') ||
+    questionStarters.some((starter) => lower.startsWith(starter)) ||
+    uncertaintyPatterns.some((pattern) => lower.includes(pattern)) ||
+    (lower.startsWith('אם ') && lower.includes('זה אומר'))
+  );
+}
+
+function mostRecentStudentTurnHasNoAssertiveClaim(history) {
+  const recentStudentTurn = getMostRecentStudentTurn(history);
+
+  if (recentStudentTurn.length === 0) {
+    return true;
+  }
+
+  return recentStudentTurn.every((message) => isLikelyQuestionOrUncertainty(message.text));
+}
+
+function buildNoFeedbackAnalysis() {
+  return {
+    pedagogical_quality: 'neutral',
+    predicted_student_state: {
+      understanding_level: 'same',
+      response_tone: 'thoughtful',
+      student_reaction_hints: []
+    },
+    addressed_misconception: false,
+    how_addressed: '',
+    misconception_risk: 'medium',
+    demonstrated_skills: [],
+    missed_opportunities: [],
+    should_provide_feedback: false,
+    feedback_trigger: null,
+    skills_assessment: [],
+    feedback_message_hebrew: ''
+  };
+}
+
+function getSkillFocusOrder(analysis) {
+  const focusOrder = [];
+
+  const addSkillId = (skillId) => {
+    if (skillId && !focusOrder.includes(skillId)) {
+      focusOrder.push(skillId);
+    }
+  };
+
+  (analysis.demonstrated_skills || []).forEach((skill) => addSkillId(skill.skill_id));
+  (analysis.missed_opportunities || []).forEach((skill) => addSkillId(skill.skill_id));
+
+  return focusOrder;
+}
+
+function limitRelevantSkillsAssessment(analysis) {
+  if (!Array.isArray(analysis.skills_assessment)) {
+    analysis.skills_assessment = [];
+    return;
+  }
+
+  const relevantSkills = analysis.skills_assessment.filter((skill) => skill && skill.is_relevant);
+
+  if (relevantSkills.length <= 2) {
+    return;
+  }
+
+  const focusOrder = getSkillFocusOrder(analysis);
+  const selectedSkillIds = [];
+
+  focusOrder.forEach((skillId) => {
+    if (
+      selectedSkillIds.length < 2 &&
+      relevantSkills.some((skill) => skill.skill_id === skillId)
+    ) {
+      selectedSkillIds.push(skillId);
+    }
+  });
+
+  relevantSkills.forEach((skill) => {
+    if (selectedSkillIds.length < 2 && !selectedSkillIds.includes(skill.skill_id)) {
+      selectedSkillIds.push(skill.skill_id);
+    }
+  });
+
+  analysis.skills_assessment = analysis.skills_assessment.map((skill) => {
+    if (!skill || !skill.is_relevant || selectedSkillIds.includes(skill.skill_id)) {
+      return skill;
+    }
+
+    return {
+      skill_id: skill.skill_id,
+      is_relevant: false,
+      reason_not_relevant: 'More than 2 skills were marked relevant; this skill was not among the 1-2 clearest current-turn evidence focus areas.'
+    };
+  });
+}
+
+function suppressPositiveSkillsForIncorrectContent(analysis) {
+  if (analysis.feedback_trigger !== 'incorrect_content' || !Array.isArray(analysis.skills_assessment)) {
+    return;
+  }
+
+  analysis.pedagogical_quality = 'problematic';
+  analysis.skills_assessment = analysis.skills_assessment.map((skill) => {
+    if (!skill || !skill.is_relevant || skill.score === 0) {
+      return skill;
+    }
+
+    return {
+      skill_id: skill.skill_id,
+      is_relevant: false,
+      reason_not_relevant: 'Incorrect mathematical content prevents assigning positive PCK credit for this skill.'
+    };
+  });
+}
+
+function normalizeNoFeedbackAnalysis(analysis) {
+  if (analysis.should_provide_feedback) {
+    return;
+  }
+
+  analysis.feedback_trigger = null;
+  analysis.skills_assessment = [];
+  analysis.demonstrated_skills = [];
+  analysis.missed_opportunities = [];
+  analysis.feedback_message_hebrew = '';
+}
+
+function collectAnalysisTextForGating(analysis) {
+  const chunks = [
+    analysis.feedback_message_hebrew,
+    analysis.how_addressed
+  ];
+
+  (analysis.demonstrated_skills || []).forEach((skill) => {
+    chunks.push(skill.evidence);
+  });
+
+  (analysis.missed_opportunities || []).forEach((skill) => {
+    chunks.push(skill.what_could_have_been_done);
+  });
+
+  (analysis.skills_assessment || []).forEach((skill) => {
+    chunks.push(skill.evidence, skill.what_could_be_better, skill.reason_not_relevant);
+  });
+
+  return chunks.filter(Boolean).join(' ').toLowerCase();
+}
+
+function suppressQuestionBasedFeedback(analysis) {
+  if (!analysis.should_provide_feedback) {
+    return;
+  }
+
+  const analysisText = collectAnalysisTextForGating(analysis);
+  const questionSignals = [
+    'student question',
+    'student asked',
+    'clarification question',
+    'asked a clarification',
+    'uncertainty',
+    'hesitation',
+    'שאלת הבהרה',
+    'התלמיד שאל',
+    'התלמידה שאלה',
+    'תלמיד שאל',
+    'תלמידה שאלה',
+    'שאלה מצוינת',
+    'אי-ודאות',
+    'חשש',
+    'היסוס',
+    'התלבט',
+    'התלבטה',
+    'לא בטוח',
+    'לא בטוחה'
+  ];
+  const assertionSignals = [
+    'claim',
+    'assert',
+    'stated',
+    'טען',
+    'טענה',
+    'אמר',
+    'אמרה',
+    'קבע',
+    'קבעה',
+    'הצהיר',
+    'הצהירה'
+  ];
+
+  const hasQuestionSignal = questionSignals.some((signal) => analysisText.includes(signal));
+  const hasAssertionSignal = assertionSignals.some((signal) => analysisText.includes(signal));
+
+  if (hasQuestionSignal && !hasAssertionSignal) {
+    analysis.should_provide_feedback = false;
+  }
 }
 
 (async () => {
@@ -362,11 +634,10 @@ app.post('/api/generate', async (req, res) => {
   }
 });
 
-// API endpoint for completions (GPT-3 style)
-// NEW: Comprehensive PCK Feedback Analysis Endpoint
-app.post('/api/pck-feedback', async (req, res) => {
+// Shared handler for real PCK feedback and development-only prompt dry-runs.
+async function handlePCKFeedbackRequest(req, res, { dryRun = false } = {}) {
   try {
-    console.log('💡 Received comprehensive PCK feedback analysis request');
+    console.log(dryRun ? '🧪 Received PCK prompt dry-run request' : '💡 Received comprehensive PCK feedback analysis request');
     
     const { teacherMessage, conversationHistory, scenario, feedbackHistory } = req.body;
     
@@ -378,10 +649,24 @@ app.post('/api/pck-feedback', async (req, res) => {
     }
 
     // Build comprehensive PCK analysis prompt
-    const conversationHistoryText = formatConversationHistory(conversationHistory || []);
+    const priorConversationHistory = getConversationHistoryBeforeCurrentTeacherMessage(
+      conversationHistory || [],
+      teacherMessage
+    );
+
+    if (!dryRun && mostRecentStudentTurnHasNoAssertiveClaim(priorConversationHistory)) {
+      console.log('🚫 PCK feedback skipped: most recent student turn has no assertive student claim');
+      return res.json({
+        success: true,
+        analysis: buildNoFeedbackAnalysis()
+      });
+    }
+
+    const conversationHistoryText = formatConversationHistory(priorConversationHistory);
     
-    // Format universal PCK skills for prompt
+    // Format universal PCK skills and adjacent-skill boundary rules for prompt
     const universalSkillsText = formatSkillsForPrompt();
+    const boundaryRulesText = formatBoundaryRulesForPrompt();
 
     const pckPrompt = `You are a PCK (Pedagogical Content Knowledge) expert analyzing a Hebrew geometry teacher's pedagogical moves in real-time.
 
@@ -391,6 +676,37 @@ ${formatScenarioContextForPrompt(scenario)}
 ## Universal PCK Skills to Assess
 
 ${universalSkillsText}
+
+## Adjacent PCK Skill Boundary Rules
+
+Use these rules to avoid over-detecting PCK skills. A strong teacher response in one skill should not automatically increase the scores of adjacent skills.
+
+${boundaryRulesText}
+
+### Boundary Check Procedure
+
+For each skill you consider, apply this order:
+1. **Relevance**: Is this skill relevant to the current teacher move and dialogue context?
+2. **Evidence**: Is there clear evidence in the teacher's latest message that the teacher demonstrated this skill?
+3. **Boundary check**: Does the evidence truly belong to this skill, or only to an adjacent skill?
+4. **Score**:
+   - Use \`is_relevant: false\` when the skill should not reasonably be expected at this point.
+   - Use score \`0\` when the skill is relevant/expected but not demonstrated.
+   - Use score \`1\` when the skill is partially demonstrated.
+   - Use score \`2\` when the skill is clearly and fully demonstrated.
+
+Important boundary reminders:
+- Error Identification is not Error Characterization. Identification means the teacher signals that something may be wrong, inaccurate, doubtful, or worth checking. Characterization requires describing what type of error it is.
+- Error Characterization is not Diagnostic Interpretation. Characterization answers: "What is the error?" Diagnostic Interpretation answers: "Why did the student reach this error?"
+- Diagnostic Interpretation is not Adapted Pedagogical Response. Interpretation explains the source of the student's thinking. Adapted response requires an instructional action that moves the student forward.
+- Adapted Pedagogical Response is not Leveraging Error for Learning. Adapted response addresses the current error. Leveraging requires using the error to build broader insight, generalization, conceptual distinction, transferable strategy, or reflection.
+- A later-stage move does not automatically imply earlier-stage skills.
+- If the teacher's latest message uses an error for broader learning or conceptual generalization, do NOT automatically credit error-identification, error-characterization, or diagnostic-interpretation.
+- Only mark a skill as \`is_relevant: true\` if the latest teacher message contains direct evidence for that specific skill.
+- Do not give credit for a skill merely because it was demonstrated in a previous teacher turn or because it is logically implied by a later move.
+- Do not give credit based only on keywords or surface similarity.
+- Prefer fewer, better-supported relevant skills over marking many weakly supported skills as relevant.
+- Do not use "N" as a score. Use \`is_relevant: false\` with \`reason_not_relevant\` for skills that are not relevant.
 
 ## Conversation History (Hebrew)
 ${conversationHistoryText}
@@ -472,14 +788,45 @@ If the current message is any of the above ❌ categories → should_provide_fee
 
 ### GATE 1 — Verify a student error exists and can be quoted
 
-**MANDATORY FIRST STEP: Read ALL student messages from the most recent student turn (the group of student responses that immediately precede the teacher's current message — there may be 1, 2, or 3 students responding in the same turn). Go through each one and write down the exact quote of any mathematically incorrect claim. If you cannot write a specific incorrect quote from any of them, set should_provide_feedback: false immediately and stop.**
+**MANDATORY FIRST STEP: Read ALL student messages from the most recent student turn (the group of student responses that immediately precede the teacher's current message — there may be 1, 2, or 3 students responding in the same turn). Go through each one and write down the exact quote of any explicit mathematically incorrect claim. If you cannot quote a specific incorrect student claim word-for-word from the most recent student turn, set should_provide_feedback: false immediately and stop.**
 
-A student error means: the student stated something that is **mathematically wrong**. This includes incorrect claims, false generalizations, misapplied rules, and stated misconceptions. It does NOT include:
+**Gate 1 quote check:**
+Write down the exact incorrect student quote from the most recent student turn.
+- If the quote is a question, uncertainty, or a correct/partial-correct statement, it does not count.
+- If there is no valid incorrect quote, stop and return no teacher feedback.
+- If no valid quote exists, set \`should_provide_feedback: false\`, \`feedback_trigger: null\`, \`skills_assessment: []\`, and \`feedback_message_hebrew: ""\`.
+
+The quoted student error must be a declarative assertion, not a question.
+Before proceeding, classify the quote:
+- \`"assertion"\`: proceed only if mathematically false.
+- \`"question"\`: stop, no feedback.
+- \`"uncertainty"\`: stop, no feedback.
+- \`"correct/partial-correct assertion"\`: stop, no feedback.
+
+If the quote ends with a question mark or is phrased as "האם...", "אז...?", "אני לא בטוחה", "יכול להיות ש...", it usually does not count as an error.
+
+**Strict claim-vs-question rule:**
+A student question is not an error, even if it suggests possible confusion.
+Do not convert a question into an unstated claim.
+Do not infer that the student "assumes" something unless the student explicitly states it as a claim.
+
+Examples:
+- "אז כל מלבן הוא ריבוע?" is NOT an error.
+- "זה אומר שכל התכונות של דלתון תקפות גם למעוין?" is NOT an error.
+- "אני לא בטוחה אם האלכסונים שווים" is NOT an error.
+- "כל מלבן הוא ריבוע" IS an error.
+- "כל התכונות של דלתון תקפות למעוין" may be evaluated only if stated as a claim, not as a question.
+
+A feedback-worthy student error must be an explicit mathematically incorrect claim from the most recent student turn. A student error means: the student stated something that is **mathematically wrong**. This includes incorrect claims, false generalizations, misapplied rules, and stated misconceptions. It does NOT include:
 - A correct answer, even if phrased hesitantly or incompletely
-- A question (questions contain no claim)
+- A student asking a clarification question, even if the question reveals uncertainty or possible confusion
 - Agreement with the teacher
 - A correct claim about a topic where misconceptions are common
+- A student making a partial but correct statement
 - A student saying "I'm not sure" without making a wrong claim
+- A teacher asking a useful follow-up question
+- A teacher advancing the lesson goal
+- A likely misconception from the scenario context that was not actually stated by a student in the most recent turn
 
 Only proceed if ALL of the following are true:
 1. ✅ At least one student has already responded in the conversation
@@ -491,8 +838,22 @@ Only proceed if ALL of the following are true:
 - An error from an earlier part of the conversation — even one that was never addressed — does NOT satisfy condition 2 if there have been any teacher messages since that error was expressed. Feedback can only be given at the turn where the teacher is directly responding to fresh student output.
 - If ALL students in the most recent turn said something correct, condition 2 fails even if a misconception-adjacent topic was discussed.
 - When you proceed to Phase 2, the feedback must address **only the specific incorrect claim you quoted**. Do not comment on correct statements other students made in the same turn — those require no PCK response.
+- Do not infer a student error from the lesson goal, likely misconception, scenario context, or pedagogical focus areas.
+- A teacher may ask an excellent question that advances the lesson, compares definitions, or supports conceptual understanding. This is good teaching, but it is not feedback-worthy PCK skill use unless it directly responds to an explicit incorrect student claim from the immediately preceding student turn.
+- Student questions are not errors. If a student asks "אז כל מלבן הוא ריבוע?" or "זה אומר ש...?", treat this as a clarification question, not as an incorrect claim.
+- Only treat a statement as an error if the student asserts the false statement as a claim, for example: "כל מלבן הוא ריבוע."
 
 If any condition is false → should_provide_feedback: false. Stop here.
+
+**Hard stop before Gate 2:**
+If the most recent student turn contains no explicit false mathematical assertion, stop immediately.
+In that case, do not evaluate whether the teacher's response was pedagogically useful.
+Do not reward good explanation, good questioning, use of definitions, or conceptual clarification.
+Return:
+- \`should_provide_feedback: false\`
+- \`feedback_trigger: null\`
+- \`skills_assessment: []\`
+- \`feedback_message_hebrew: ""\`
 
 ---
 
@@ -502,6 +863,26 @@ If any condition is false → should_provide_feedback: false. Stop here.
 - Analyze using the universal PCK taxonomy and actual interaction evidence
 - Do NOT penalize a teacher for using a different valid move than the scenario's common pattern
 - If the teacher responds effectively in another pedagogically sound way, score it positively
+
+**Teacher content correctness check — apply BEFORE assigning any positive PCK skill credit:**
+Before assigning any positive PCK skill credit, verify that the teacher's latest message is mathematically correct and does not reinforce a misconception.
+
+If the teacher's latest message contains incorrect mathematical content, validates an incorrect student statement, gives an incorrect definition, or uses an explanation that is likely to create a misconception:
+- Set \`pedagogical_quality\` to \`"problematic"\`.
+- Set \`feedback_trigger\` to \`"incorrect_content"\`.
+- Do NOT mark any PCK skill as successfully demonstrated just because the teacher responded to the student.
+- Focus \`missed_opportunities\` on the skill that would have helped the teacher respond correctly, usually \`adapted-pedagogical-response\` or \`error-characterization\`.
+
+When evaluating geometry teaching, formal definitions matter. Do not treat an explanation as correct if it replaces a formal definition with an inaccurate prototype or informal description.
+
+Geometry definition cautions:
+- A rectangle is defined by four right angles; it does not require two different side lengths.
+- A square is a special rectangle.
+- A kite is defined by two pairs of adjacent equal sides; it does not require all four sides to be equal.
+- A rhombus is a special kite under this definition, because it satisfies the adjacent-equal-side condition.
+- A square is also a rhombus, so saying "a rhombus is a square without right angles" is misleading.
+
+Do not describe a student's misconception as a correct distinction. If the teacher validates an incorrect student claim, this is incorrect content, not an adapted pedagogical response.
 
 Assess if:
 - ❌ Teacher gave incorrect information responding to the error
@@ -517,10 +898,10 @@ Assess if:
 → should_provide_feedback: false
 → Reason: No student has responded yet. No error to address. Normal lesson opening.
 
-❌ NO FEEDBACK - Teacher asking question:
+❌ NO FEEDBACK - Teacher opens a new topic with no prior student error:
 "בואו נבדוק: מה ההגדרה של מלבן?"
 → should_provide_feedback: false  
-→ Reason: Teacher asking question. No student error present. Normal teaching.
+→ Reason: No student error immediately preceded this question. This is a normal lesson move, not a feedback-worthy PCK response.
 
 ❌ NO FEEDBACK - Student correct, teacher confirms:
 Student: "ריבוע יש לו 4 צלעות שוות ו-4 זוויות ישרות"
@@ -534,12 +915,13 @@ Teacher: "בדיוק! צריך גם שהצלעות יהיו שוות."
 → should_provide_feedback: false
 → Reason: Even though this exchange touches on a common misconception area, the student's claim is mathematically correct. The teacher confirming a correct understanding is not a PCK move. No PCK feedback applies.
 
-❌ NO FEEDBACK - Mixed turn, teacher addresses only the correct student:
+✅ YES FEEDBACK - Mixed turn, teacher ignores the incorrect student claim:
 Student A: "אז אם האלכסונים מאונכים זה בטח מעוין" (WRONG)
-Student B: "אבל זה לא מספיק, לא?" (CORRECT — asking a clarifying question)
+Student B: "אבל זה לא מספיק, לא?" (CORRECT)
 Teacher: "נכון, שאלה טובה!"
-→ should_provide_feedback: false
-→ Reason: Teacher responded only to the correct student (B) and ignored the error made by student A. There is no feedback about the correct claim; however, there IS a missed opportunity on Student A's error — so this turn should produce: should_provide_feedback: true, feedback about the missed error-identification.
+→ should_provide_feedback: true
+→ feedback_trigger: "student_misconception_not_addressed"
+→ Reason: Student A made a specific incorrect claim, but the teacher responded only to Student B and did not address Student A's misconception.
 
 ✅ YES FEEDBACK - Mixed turn, teacher responds to the error:
 Student A: "אז אם האלכסונים מאונכים זה בטח מעוין" (WRONG)
@@ -571,14 +953,20 @@ Teacher: "נכון, הם שתי צורות שונות לגמרי"
 
 If should_provide_feedback = false → Set feedback_trigger = null, skills_assessment = [], feedback_message_hebrew = ""
 
+If a student error was present and the teacher missed a meaningful opportunity to address it, pedagogical_quality should be "problematic", not "neutral".
+
 ## 🎯 PHASE 2: Score Relevant PCK Skills (ONLY if Phase 1 = true)
 
-The 5 PCK skills form a **sequential pedagogical chain**. A teacher cannot meaningfully apply a later skill before the earlier ones have been addressed. Assess only the skills that are currently due — **maximum 1-3 skills per turn**.
+The 5 PCK skills often form a **pedagogical progression**, but they are not strict prerequisites within a single teacher turn. Use the skill order as a guide for deciding what is most relevant, not as a hard rule that blocks later skills.
+
+A teacher may demonstrate an adapted pedagogical response even without explicitly characterizing the error, if the response is clearly targeted to the student's misconception. Do not infer earlier skills from later ones unless they are explicitly demonstrated. Do not automatically mark later skills irrelevant only because an earlier skill was not demonstrated.
+
+Internally, you may return assessment rows for all five skills as required by the schema, but mark a skill as relevant only when it is clearly useful to evaluate at this point in the current turn. User-facing feedback should usually focus on the 1-2 most pedagogically useful skills for this turn.
 
 ### The Skill Chain (in order)
 1. **error-identification** — Did the teacher notice there was an error at all?
-2. **error-characterization** — Did the teacher identify *what kind* of error it is and *why* the student thinks that way?
-3. **diagnostic-interpretation** — Did the teacher show understanding of the *root cause* of the student's thinking?
+2. **error-characterization** — Did the teacher identify *what kind* of error it is?
+3. **diagnostic-interpretation** — Did the teacher show understanding of *why* the student may think that way?
 4. **adapted-pedagogical-response** — Did the teacher choose a response strategy *matched to this specific error type*?
 5. **error-leveraging** — Did the teacher turn the error into a *learning opportunity* that deepens conceptual understanding?
 
@@ -596,31 +984,40 @@ Read the conversation history and answer:
 
 ### STEP 2: Select which skills are relevant for this stage
 
-**The skills form a strict prerequisite chain: each skill depends on the one before it.**
-A teacher cannot characterize an error they didn't identify. A teacher cannot respond pedagogically to an error they didn't characterize. Evaluate each skill in order, and stop as soon as the teacher fails one — all subsequent skills become irrelevant for this turn.
+**The skills often build on each other, but they are not strict prerequisites within a single teacher turn.**
+Evaluate each potentially relevant skill on its own evidence, using the skill order to decide what is most useful to assess now.
 
 **Assessment algorithm — follow in order:**
 
-1. Start with the skill that is due for the current lifecycle stage (Stage A → skill 1, Stage B → skill 2, etc.)
-2. Score that skill (0, 1, or 2).
-3. **If score = 0**: mark ALL remaining higher-numbered skills as \`is_relevant: false\` with reason "prerequisite skill [X] was not demonstrated this turn". **Stop here.**
-4. **If score ≥ 1**: optionally assess the next skill in the chain (at most one step forward).
-5. Never assess more than 2 skills as \`is_relevant: true\` in a single turn.
+1. Start by identifying the current lifecycle stage (Stage A → skill 1 is usually most relevant, Stage B → skill 2, etc.).
+2. For each potentially relevant skill, apply the Boundary Check Procedure: relevance → evidence → boundary check → score.
+3. Mark \`is_relevant: false\` for skills that are not reasonably expected or useful to evaluate at this point.
+4. Do not infer an earlier skill from a later skill unless the teacher explicitly demonstrated the earlier skill.
+5. Do not automatically mark later skills irrelevant only because an earlier skill was not demonstrated.
+6. Never assess more than 2 skills as \`is_relevant: true\` in a single turn.
 
-**Starting skill by stage:**
+**Likely skill focus by stage:**
 
-| Stage | Start with | May also assess |
-|-------|-----------|-----------------|
-| A — Error just appeared this turn | skill 1 (error-identification) | skill 2 only if skill 1 score ≥ 1 |
-| B — Error already identified in prior turn | skill 2 (error-characterization) | skill 3 only if skill 2 score ≥ 1 |
-| C — Error already characterized in prior turn | skill 3 (diagnostic-interpretation) | skill 4 only if skill 3 score ≥ 1 |
-| D — Error being addressed / deepening | skill 4 (adapted-pedagogical-response) | skill 5 only if skill 4 score ≥ 1 |
+| Stage | Usually start with | Other skills to consider when clearly evidenced |
+|-------|--------------------|-----------------------------------------------|
+| A — Error just appeared this turn | skill 1 (error-identification) | skill 2 or skill 4 if the teacher clearly characterizes the error or gives a targeted pedagogical response |
+| B — Error already identified in prior turn | skill 2 (error-characterization) | skill 3 or skill 4 if the teacher explains student thinking or gives a targeted pedagogical response |
+| C — Error already characterized in prior turn | skill 3 (diagnostic-interpretation) | skill 4 if the teacher also uses an instructional action that moves students forward |
+| D — Error being addressed / deepening | skill 4 (adapted-pedagogical-response) | skill 5 if the teacher uses the error to build broader insight |
 
 **Hard rules:**
-- Mark \`is_relevant: false\` for any skill outside the current window, with \`reason_not_relevant\` explaining why it's not yet due (or already passed).
+- Mark \`is_relevant: false\` for skills that are not useful to evaluate in the current teacher move, based on the actual evidence. In \`reason_not_relevant\`, briefly explain why the skill is not expected or useful at this point.
 - Never mark all 5 as \`is_relevant: true\` in a single turn. If you find yourself doing that, you have misread the stage.
+- Prefer fewer, better-supported relevant skills over many weakly supported relevant skills.
 - Skill 5 (error-leveraging) is only relevant when the error has been substantially addressed and the teacher has an opportunity to deepen the learning — not on the first or second response to an error.
-- **If the teacher did not identify the error at all (skill 1 score = 0), give feedback on skill 1 only. Do not comment on skills 2-5.**
+- If the teacher ignores or misses the student error entirely, feedback will usually focus on skill 1 (error-identification). If the teacher did not identify the error explicitly but still made a clearly targeted pedagogical move, assess that later skill on its own evidence without inferring skill 1.
+
+**Stage D / deepening-generalization rule:**
+When the current teacher move is mainly a summary, generalization, or broader conceptual insight after the misconception has already been addressed, the most relevant skill is usually \`error-leveraging\`.
+In such cases:
+- Usually mark only \`error-leveraging\` as relevant.
+- Optionally also mark \`adapted-pedagogical-response\` as relevant if the latest message contains a concrete instructional action, not just a summary.
+- Do not mark \`error-identification\`, \`error-characterization\`, or \`diagnostic-interpretation\` as relevant unless the teacher explicitly performs those moves again in the latest message.
 
 ---
 
@@ -649,7 +1046,7 @@ After filling in \`skills_assessment\`, derive these two fields:
 - \`demonstrated_skills\`: copy every entry where \`is_relevant: true\` AND \`score >= 1\`. Include only \`skill_id\` and \`evidence\`.
 - \`missed_opportunities\`: copy every entry where \`is_relevant: true\` AND \`score = 0\`. Include only \`skill_id\` and \`what_could_be_better\` (renamed to \`what_could_have_been_done\`).
 - If no skills are relevant (no student error present), both arrays must be \`[]\`.
-- **Maximum combined total: 2 entries across both arrays** (reflecting the max 2 relevant skills per turn rule above).
+- User-facing feedback should usually draw from the 1-2 most pedagogically useful entries across these arrays.
 
 For \`addressed_misconception\`:
 - Set \`true\` only if the teacher's message explicitly addressed a misconception a student expressed earlier in this conversation.
@@ -663,7 +1060,25 @@ For \`misconception_risk\`:
 
 ---
 
+## Final relevance self-check before returning JSON
+
+1. Count how many \`skills_assessment\` entries have \`is_relevant: true\`.
+2. If more than 2 skills are marked relevant, revise the assessment and keep only the 1-2 skills with the clearest evidence and highest pedagogical usefulness for this turn.
+3. Do not mention more than 2 PCK skills in \`feedback_message_hebrew\`.
+4. If the current message is a later-stage generalization, prefer \`error-leveraging\` over earlier skills unless those earlier skills are explicitly present in the latest teacher message.
+
+---
+
 ## Expected JSON Response
+
+Field notes:
+- \`addressed_misconception\`: true if the teacher explicitly addressed an active student misconception this turn.
+- \`misconception_risk\`: how likely this move is to create or reinforce a misconception.
+- \`demonstrated_skills\`: skills where \`is_relevant: true\` AND \`score >= 1\`; use an empty array \`[]\` if none.
+- \`missed_opportunities\`: skills where \`is_relevant: true\` AND \`score = 0\`; use an empty array \`[]\` if none.
+- \`skills_assessment\`: if \`should_provide_feedback = false\`, return an empty array \`[]\`; if true, assess relevant skills.
+- \`what_could_be_better\`: include when score < 2.
+- \`feedback_message_hebrew\`: only include text when \`should_provide_feedback = true\`; otherwise use an empty string \`""\`.
 
 \`\`\`json
 {
@@ -681,16 +1096,14 @@ For \`misconception_risk\`:
     ]
   },
   
-  "addressed_misconception": true/false, // true if teacher explicitly addressed an active student misconception this turn
+  "addressed_misconception": true/false,
   "how_addressed": "Hebrew: brief description of how teacher addressed it, or empty string if false",
-  "misconception_risk": "high" | "medium" | "low", // how likely this move is to create/reinforce a misconception
+  "misconception_risk": "high" | "medium" | "low",
   
   "demonstrated_skills": [
-    // Skills where is_relevant=true AND score >= 1. Empty array [] if none.
     { "skill_id": "error-identification", "evidence": "Hebrew: what YOU did that shows this skill — address the teacher directly in second person (e.g. 'זיהית את...', 'שאלת...', 'הסברת...')" }
   ],
   "missed_opportunities": [
-    // Skills where is_relevant=true AND score = 0. Empty array [] if none.
     { "skill_id": "error-leveraging", "what_could_have_been_done": "Hebrew: what you could have done — address the teacher in second person (e.g. 'יכולת לשאול...', 'היית יכול להפנות...')" }
   ],
 
@@ -698,14 +1111,12 @@ For \`misconception_risk\`:
   "feedback_trigger": "student_misconception_not_addressed" | "incorrect_content" | "epistemic_abdication" | "excellent_pck_use" | "missed_opportunity" | null,
   
   "skills_assessment": [
-    // If should_provide_feedback = false, return empty array []
-    // If should_provide_feedback = true, assess relevant skills:
     {
       "skill_id": "error-identification",
       "is_relevant": true,
       "score": 1,
       "evidence": "Hebrew: what you did — address teacher in second person (e.g. 'זיהית את...', 'שאלת...', 'הסברת...')",
-      "what_could_be_better": "Hebrew: how to improve — address teacher in second person (e.g. 'יכולת לשאול...', 'היית יכול...')" // only if score < 2
+      "what_could_be_better": "Hebrew: how to improve — address teacher in second person (e.g. 'יכולת לשאול...', 'היית יכול...')"
     },
     {
       "skill_id": "error-characterization",
@@ -714,7 +1125,7 @@ For \`misconception_risk\`:
     }
   ],
   
-  "feedback_message_hebrew": "..." // See rules below. ONLY if should_provide_feedback = true, otherwise empty string ""
+  "feedback_message_hebrew": "..."
 }
 \`\`\`
 
@@ -774,6 +1185,13 @@ Use "positive" only for explicit moves: "מה ההגדרה של מלבן?"
 - Never assume future correction when evaluating current turn
 
 Return JSON only, no additional text:`;
+
+    if (dryRun) {
+      return res.json({
+        prompt: pckPrompt,
+        promptLength: pckPrompt.length
+      });
+    }
 
     const contents = [{
       role: 'user',
@@ -858,7 +1276,7 @@ Return JSON only, no additional text:`;
       analysis.should_provide_feedback = false;
     }
     
-    if (!analysis.skills_assessment) {
+    if (!Array.isArray(analysis.skills_assessment)) {
       analysis.skills_assessment = [];
     }
 
@@ -873,17 +1291,25 @@ Return JSON only, no additional text:`;
       analysis.misconception_risk = 'medium';
     }
     if (!Array.isArray(analysis.demonstrated_skills)) {
-      // Derive from skills_assessment as fallback
-      analysis.demonstrated_skills = analysis.skills_assessment
-        .filter(s => s.is_relevant && s.score >= 1)
-        .map(s => ({ skill_id: s.skill_id, evidence: s.evidence || '' }));
+      analysis.demonstrated_skills = [];
     }
     if (!Array.isArray(analysis.missed_opportunities)) {
-      // Derive from skills_assessment as fallback
-      analysis.missed_opportunities = analysis.skills_assessment
-        .filter(s => s.is_relevant && s.score === 0)
-        .map(s => ({ skill_id: s.skill_id, what_could_have_been_done: s.what_could_be_better || '' }));
+      analysis.missed_opportunities = [];
     }
+
+    limitRelevantSkillsAssessment(analysis);
+    suppressPositiveSkillsForIncorrectContent(analysis);
+    suppressQuestionBasedFeedback(analysis);
+    normalizeNoFeedbackAnalysis(analysis);
+
+    // Keep summary arrays consistent with the normalized skills_assessment.
+    analysis.demonstrated_skills = analysis.skills_assessment
+      .filter(s => s.is_relevant && s.score >= 1)
+      .map(s => ({ skill_id: s.skill_id, evidence: s.evidence || '' }));
+
+    analysis.missed_opportunities = analysis.skills_assessment
+      .filter(s => s.is_relevant && s.score === 0)
+      .map(s => ({ skill_id: s.skill_id, what_could_have_been_done: s.what_could_be_better || '' }));
     
     // Set feedback message based on should_provide_feedback
     if (analysis.should_provide_feedback) {
@@ -906,7 +1332,19 @@ Return JSON only, no additional text:`;
       error: error.message 
     });
   }
+}
+
+// API endpoint for completions (GPT-3 style)
+// NEW: Comprehensive PCK Feedback Analysis Endpoint
+app.post('/api/pck-feedback', async (req, res) => {
+  return handlePCKFeedbackRequest(req, res);
 });
+
+if (NODE_ENV !== 'production') {
+  app.post('/api/debug/pck-prompt', async (req, res) => {
+    return handlePCKFeedbackRequest(req, res, { dryRun: true });
+  });
+}
 
 // New endpoint for comprehensive PCK summary feedback
 app.post('/api/pck-summary', async (req, res) => {
@@ -1612,6 +2050,9 @@ app.listen(PORT, () => {
   console.log('  POST /api/generate - Chat completions');
   console.log('  POST /api/completion - Text completions');
   console.log('  POST /api/pck-feedback - PCK feedback analysis');
+  if (NODE_ENV !== 'production') {
+    console.log('  POST /api/debug/pck-prompt - Build PCK prompt without LLM');
+  }
   console.log('  POST /api/pck-summary - PCK comprehensive summary');
   console.log('');
   console.log('Firebase/Firestore endpoints:');
