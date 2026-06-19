@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { getResearchParticipantsApi, getConversationsByUserApi } from '../services/researchService';
+import { checkTestSubmitted } from '../services/testService';
 import { ConversationDetail } from './ConversationLogs';
 import { PCKSummaryModal } from '../components/PCKSummaryModal';
 
@@ -62,7 +63,18 @@ function getLastActivity(conversations) {
 
 // ─── Participants table ──────────────────────────────────────────────────────
 
-function ParticipantsTable({ participants, convMap, onSelectParticipant }) {
+function TestStatusCell({ tests, testKey }) {
+  if (!tests) return <td style={{ textAlign: 'center' }}><span className="text-muted" style={{ fontSize: '0.8rem' }}>—</span></td>;
+  return (
+    <td style={{ textAlign: 'center' }}>
+      {tests[testKey]
+        ? <span className="badge bg-success">הושלם</span>
+        : <span className="text-muted" style={{ fontSize: '0.85rem' }}>חסר</span>}
+    </td>
+  );
+}
+
+function ParticipantsTable({ participants, convMap, testStatuses, onSelectParticipant }) {
   if (participants.length === 0) {
     return (
       <div className="alert alert-info">
@@ -78,6 +90,8 @@ function ParticipantsTable({ participants, convMap, onSelectParticipant }) {
           <tr>
             <th>מזהה מחקר</th>
             <th style={{ textAlign: 'center' }}>שיחות</th>
+            <th style={{ textAlign: 'center' }}>שאלון פתיחה</th>
+            <th style={{ textAlign: 'center' }}>שאלון סיום</th>
             <th>פעילות אחרונה</th>
             <th></th>
           </tr>
@@ -86,6 +100,7 @@ function ParticipantsTable({ participants, convMap, onSelectParticipant }) {
           {participants.map((p) => {
             const convs = convMap[p.id] || [];
             const lastActivity = getLastActivity(convs);
+            const tests = testStatuses[p.id];
             return (
               <tr key={p.id}>
                 <td>
@@ -96,6 +111,8 @@ function ParticipantsTable({ participants, convMap, onSelectParticipant }) {
                 <td style={{ textAlign: 'center' }}>
                   <span className="badge bg-secondary">{convs.length}</span>
                 </td>
+                <TestStatusCell tests={tests} testKey="pre" />
+                <TestStatusCell tests={tests} testKey="post" />
                 <td style={{ fontSize: '0.9rem', color: '#555' }}>
                   {formatDateOnly(lastActivity)}
                 </td>
@@ -171,35 +188,26 @@ function ConversationsList({ participant, conversations, onSelectConversation })
   );
 }
 
-// ─── Breadcrumb ──────────────────────────────────────────────────────────────
+// ─── Breadcrumb (shown only in detail view) ──────────────────────────────────
 
 function Breadcrumb({ view, participant, onGoToParticipants, onGoToConversations }) {
+  if (view !== 'detail') return null;
   return (
-    <nav aria-label="breadcrumb" style={{ marginBottom: '20px' }}>
-      <ol className="breadcrumb mb-0">
-        <li className={`breadcrumb-item ${view === 'participants' ? 'active' : ''}`}>
-          {view !== 'participants' ? (
-            <button className="btn btn-link p-0 text-decoration-none" onClick={onGoToParticipants}>
-              שיחות מחקר
-            </button>
-          ) : (
-            'שיחות מחקר'
-          )}
+    <nav aria-label="breadcrumb" style={{ marginBottom: '16px' }}>
+      <ol className="breadcrumb mb-0" style={{ fontSize: '0.9rem' }}>
+        <li className="breadcrumb-item">
+          <button className="btn btn-link p-0 text-decoration-none" style={{ fontSize: '0.9rem' }} onClick={onGoToParticipants}>
+            שיחות מחקר
+          </button>
         </li>
         {participant && (
-          <li className={`breadcrumb-item ${view === 'conversations' ? 'active' : ''}`}>
-            {view === 'detail' ? (
-              <button className="btn btn-link p-0 text-decoration-none" onClick={onGoToConversations}>
-                {participant.researchParticipantLabel}
-              </button>
-            ) : (
-              participant.researchParticipantLabel
-            )}
+          <li className="breadcrumb-item">
+            <button className="btn btn-link p-0 text-decoration-none" style={{ fontSize: '0.9rem' }} onClick={onGoToConversations}>
+              {participant.researchParticipantLabel}
+            </button>
           </li>
         )}
-        {view === 'detail' && (
-          <li className="breadcrumb-item active">פרטי שיחה</li>
-        )}
+        <li className="breadcrumb-item active">פרטי שיחה</li>
       </ol>
     </nav>
   );
@@ -216,6 +224,7 @@ export default function ResearchConversations() {
   const [participants, setParticipants] = useState([]);
   // All conversations pre-loaded per participant: { [userId]: conversation[] }
   const [convMap, setConvMap] = useState({});
+  const [testStatuses, setTestStatuses] = useState({}); // { [userId]: { pre: bool, post: bool } }
 
   const [selectedParticipant, setSelectedParticipant] = useState(null);
   const [selectedConversation, setSelectedConversation] = useState(null);
@@ -238,16 +247,30 @@ export default function ResearchConversations() {
       const users = await getResearchParticipantsApi(currentUser.uid);
       setParticipants(users);
 
-      // Pre-load conversations for all participants in parallel
+      // Pre-load conversations and test statuses for all participants in parallel
       if (users.length > 0) {
-        const results = await Promise.all(
-          users.map((u) => getConversationsByUserApi(u.id, currentUser.uid))
-        );
-        const map = {};
+        const [convResults, testResults] = await Promise.all([
+          Promise.all(users.map((u) => getConversationsByUserApi(u.id, currentUser.uid))),
+          Promise.all(
+            users.map(async (u) => {
+              const [pre, post] = await Promise.all([
+                checkTestSubmitted(u.id, 'pre'),
+                checkTestSubmitted(u.id, 'post'),
+              ]);
+              return { id: u.id, pre: !!pre.submitted, post: !!post.submitted };
+            })
+          ),
+        ]);
+
+        const convMap = {};
         users.forEach((u, i) => {
-          map[u.id] = Array.isArray(results[i]) ? results[i] : [];
+          convMap[u.id] = Array.isArray(convResults[i]) ? convResults[i] : [];
         });
-        setConvMap(map);
+        setConvMap(convMap);
+
+        const tMap = {};
+        testResults.forEach((r) => { tMap[r.id] = { pre: r.pre, post: r.post }; });
+        setTestStatuses(tMap);
       }
     } catch (err) {
       setError(err.message);
@@ -299,13 +322,13 @@ export default function ResearchConversations() {
     <div style={{ minHeight: '100vh', background: '#f8f7fc', paddingTop: '80px', paddingBottom: '60px' }}>
       <div className="container" style={{ maxWidth: '1000px', direction: 'rtl' }}>
 
-        {/* Page title */}
-        <div style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-          <h2 style={{ color: '#6c5ce7', fontWeight: 700, marginBottom: 0 }}>שיחות מחקר</h2>
-          {view === 'participants' && (
+        {/* Page title — only on participants view */}
+        {view === 'participants' && (
+          <div style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+            <h2 style={{ color: '#6c5ce7', fontWeight: 700, marginBottom: 0 }}>שיחות מחקר</h2>
             <span className="badge bg-secondary fs-6">{participants.length} משתתפים</span>
-          )}
-        </div>
+          </div>
+        )}
 
         <Breadcrumb
           view={view}
@@ -321,6 +344,7 @@ export default function ResearchConversations() {
           <ParticipantsTable
             participants={participants}
             convMap={convMap}
+            testStatuses={testStatuses}
             onSelectParticipant={handleSelectParticipant}
           />
         )}
@@ -328,14 +352,18 @@ export default function ResearchConversations() {
         {/* Conversations for selected participant */}
         {view === 'conversations' && selectedParticipant && (
           <>
-            <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <span className="badge fs-6" style={{ background: '#6c5ce7' }}>
-                {selectedParticipant.researchParticipantLabel}
+            <button
+              className="btn btn-outline-secondary btn-sm mb-3"
+              onClick={handleGoToParticipants}
+            >
+              → חזרה לרשימת המשתתפים
+            </button>
+            <h4 style={{ color: '#6c5ce7', fontWeight: 700, marginBottom: '16px' }}>
+              שיחות של {selectedParticipant.researchParticipantLabel}
+              <span className="text-muted fw-normal ms-2" style={{ fontSize: '0.95rem' }}>
+                ({(convMap[selectedParticipant.id] || []).length} שיחות)
               </span>
-              <span className="text-muted" style={{ fontSize: '0.9rem' }}>
-                {(convMap[selectedParticipant.id] || []).length} שיחות
-              </span>
-            </div>
+            </h4>
             <ConversationsList
               participant={selectedParticipant}
               conversations={convMap[selectedParticipant.id] || []}
