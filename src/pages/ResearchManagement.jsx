@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { getAllUsersApi, updateUserResearchStatusApi } from '../services/researchService';
 import { getAllConversations } from '../services/firestoreService';
+import { checkTestSubmitted } from '../services/testService';
 
 function formatDate(val) {
   if (!val) return '—';
@@ -17,6 +18,7 @@ export default function ResearchManagement() {
   const { currentUser } = useAuth();
   const [users, setUsers] = useState([]);
   const [convStats, setConvStats] = useState({}); // { [userId]: { count, lastActivity } }
+  const [testStatuses, setTestStatuses] = useState({}); // { [userId]: { pre: bool, post: bool } }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState({}); // { [userId]: true }
@@ -34,6 +36,23 @@ export default function ResearchManagement() {
         getAllConversations(500),
       ]);
       setUsers(fetchedUsers);
+
+      // Load pre/post completion status for all users in parallel
+      if (fetchedUsers.length > 0) {
+        const testResults = await Promise.all(
+          fetchedUsers.map(async (u) => {
+            const [pre, post] = await Promise.all([
+              checkTestSubmitted(u.id, 'pre'),
+              checkTestSubmitted(u.id, 'post'),
+            ]);
+            return { id: u.id, pre: !!pre.submitted, post: !!post.submitted };
+          })
+        );
+        const tMap = {};
+        testResults.forEach((r) => { tMap[r.id] = { pre: r.pre, post: r.post }; });
+        setTestStatuses(tMap);
+      }
+
       if (!convsResult.error) {
         const stats = {};
         (convsResult.conversations || []).forEach((c) => {
@@ -168,6 +187,8 @@ export default function ResearchManagement() {
                 <th>אימייל</th>
                 <th>תווית מחקר</th>
                 <th style={{ textAlign: 'center' }}>שיחות</th>
+                <th style={{ textAlign: 'center' }}>שאלון פתיחה</th>
+                <th style={{ textAlign: 'center' }}>שאלון סיום</th>
                 <th>פעילות אחרונה</th>
                 <th style={{ textAlign: 'center' }}>הצג לצוות</th>
               </tr>
@@ -175,6 +196,7 @@ export default function ResearchManagement() {
             <tbody>
               {sortedUsers.map((user) => {
                 const stats = convStats[user.id] || {};
+                const tests = testStatuses[user.id];
                 const isEnabled = !!user.showInResearchConversations;
                 return (
                   <tr key={user.id} style={{ background: isEnabled ? '#f0eeff' : undefined }}>
@@ -193,6 +215,24 @@ export default function ResearchManagement() {
                     </td>
                     <td style={{ textAlign: 'center' }}>
                       <span className="badge bg-secondary">{stats.count || 0}</span>
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      {!tests ? (
+                        <span className="text-muted" style={{ fontSize: '0.8rem' }}>—</span>
+                      ) : tests.pre ? (
+                        <span className="badge bg-success">הושלם</span>
+                      ) : (
+                        <span className="text-muted" style={{ fontSize: '0.85rem' }}>חסר</span>
+                      )}
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      {!tests ? (
+                        <span className="text-muted" style={{ fontSize: '0.8rem' }}>—</span>
+                      ) : tests.post ? (
+                        <span className="badge bg-success">הושלם</span>
+                      ) : (
+                        <span className="text-muted" style={{ fontSize: '0.85rem' }}>חסר</span>
+                      )}
                     </td>
                     <td style={{ fontSize: '0.9rem', color: '#555' }}>
                       {stats.lastActivity ? formatDate(stats.lastActivity) : '—'}
