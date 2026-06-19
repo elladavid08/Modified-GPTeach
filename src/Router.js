@@ -16,6 +16,9 @@ import TestPage from "./pages/TestPage";
 import AnnotationDashboard from "./pages/AnnotationDashboard";
 import AnnotationView from "./pages/AnnotationView";
 import AdminConversationLogs from "./pages/AdminConversationLogs";
+import ResearchConversations from "./pages/ResearchConversations";
+import AdminUsers from "./pages/AdminUsers";
+import ResearchManagement from "./pages/ResearchManagement";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AnnotatorRoute } from "./components/AnnotatorRoute";
 import { AdminRoute } from "./components/AdminRoute";
@@ -50,12 +53,24 @@ export const Router = () => {
 			<Route path="/pre-test" element={<ProtectedRoute><TestPage testType="pre" /></ProtectedRoute>} />
 			<Route path="/post-test" element={<ProtectedRoute><TestPage testType="post" /></ProtectedRoute>} />
 
-		{/* Annotation interface - annotators only */}
-		<Route path="/admin/annotate" element={<AnnotatorRoute><AnnotationDashboard /></AnnotatorRoute>} />
-		<Route path="/admin/annotate/:submissionId" element={<AnnotatorRoute><AnnotationView /></AnnotatorRoute>} />
+	{/* Annotation interface - annotators only (always shows annotator view, even for admins) */}
+	<Route path="/admin/annotate" element={<AnnotatorRoute><AnnotationDashboard isAdminView={false} /></AnnotatorRoute>} />
+	<Route path="/admin/annotate/:submissionId" element={<AnnotatorRoute><AnnotationView /></AnnotatorRoute>} />
 
-		{/* Admin conversation browser - admin only */}
-		<Route path="/admin/logs" element={<AdminRoute><AdminConversationLogs /></AdminRoute>} />
-		</Routes>
+	{/* Admin conversation browser - admin only */}
+	<Route path="/admin/logs" element={<AdminRoute><AdminConversationLogs /></AdminRoute>} />
+
+	{/* Annotation dashboard accessible to admins (always shows admin view) */}
+	<Route path="/admin/questionnaires" element={<AdminRoute><AnnotationDashboard isAdminView={true} /></AdminRoute>} />
+
+	{/* Admin user management - placeholder */}
+	<Route path="/admin/users" element={<AdminRoute><AdminUsers /></AdminRoute>} />
+
+	{/* Research conversations for annotators */}
+	<Route path="/research-conversations" element={<AnnotatorRoute><ResearchConversations /></AnnotatorRoute>} />
+
+	{/* Research participant management - admin only */}
+	<Route path="/admin/research" element={<AdminRoute><ResearchManagement /></AdminRoute>} />
+	</Routes>
 	);
 };

@@ -21,10 +21,12 @@ function formatDate(isoString) {
   });
 }
 
-export default function AnnotationDashboard() {
+export default function AnnotationDashboard({ isAdminView }) {
   const { currentUser, userProfile } = useAuth();
   const navigate = useNavigate();
-  const isAdmin = userProfile && userProfile.isAdmin;
+  // isAdminView prop lets the route explicitly control which view to render,
+  // so an admin accessing /admin/annotate sees the annotator view instead of the admin view.
+  const isAdmin = isAdminView !== undefined ? isAdminView : !!(userProfile && userProfile.isAdmin);
 
   const [submissions, setSubmissions] = useState([]);
   const [loading, setLoading]         = useState(true);
