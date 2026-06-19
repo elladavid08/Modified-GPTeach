@@ -13,7 +13,7 @@ import { VertexAI } from '@google-cloud/vertexai';
 import { GoogleAuth } from 'google-auth-library';
 import { formatSkillsForPrompt, formatConversationHistory, getPCKSkillById } from './universal_pck_skills.js';
 import { buildPCKStateSection, buildDSTAgentPrompt, validateDialogueState, initDialogueState } from './dst_manager.js';
-import { saveConversation, saveMessage, createUserProfile, getUserProfile, saveTestSubmission, checkTestSubmission, verifyAnnotator, verifyAdmin, getTestSubmissions, getTestSubmission, saveTestAnnotation, getTestAnnotation, getAllAnnotationsForSubmission } from './services/firebaseAdmin.js';
+import { saveConversation, saveMessage, createUserProfile, getUserProfile, saveTestSubmission, checkTestSubmission, verifyAnnotator, verifyAdmin, getTestSubmissions, getTestSubmission, saveTestAnnotation, getTestAnnotation, getAllAnnotationsForSubmission, getAllUsersAdmin, getResearchParticipantsAdmin, updateUserResearchStatusAdmin, getConversationsByUserAdmin } from './services/firebaseAdmin.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1667,6 +1667,74 @@ app.post('/api/test-annotations', async (req, res) => {
     const { annotationId, error } = await saveTestAnnotation({ submissionId, userId, testType, annotatorId, scores });
     if (error) return res.status(500).json({ success: false, error });
     res.status(201).json({ success: true, annotationId });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ─── Research management endpoints ──────────────────────────────────────────
+
+// GET /api/users?adminId=xxx — all user profiles (admin only)
+app.get('/api/users', async (req, res) => {
+  try {
+    const adminId = req.query.adminId;
+    if (!adminId) return res.status(400).json({ success: false, error: 'adminId is required' });
+    const { isAdmin, error: adminErr } = await verifyAdmin(adminId);
+    if (adminErr || !isAdmin) return res.status(403).json({ success: false, error: 'access_denied' });
+    const { users, error } = await getAllUsersAdmin();
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true, users });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/research-participants?requesterId=xxx — users marked for research (annotator or admin)
+app.get('/api/research-participants', async (req, res) => {
+  try {
+    const requesterId = req.query.requesterId;
+    if (!requesterId) return res.status(400).json({ success: false, error: 'requesterId is required' });
+    const [{ isAnnotator }, { isAdmin }] = await Promise.all([
+      verifyAnnotator(requesterId),
+      verifyAdmin(requesterId),
+    ]);
+    if (!isAnnotator && !isAdmin) return res.status(403).json({ success: false, error: 'access_denied' });
+    const { users, error } = await getResearchParticipantsAdmin();
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true, users });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// PATCH /api/users/:userId/research-status — update research fields (admin only)
+app.patch('/api/users/:userId/research-status', async (req, res) => {
+  try {
+    const { adminId, ...updates } = req.body;
+    if (!adminId) return res.status(400).json({ success: false, error: 'adminId is required' });
+    const { isAdmin, error: adminErr } = await verifyAdmin(adminId);
+    if (adminErr || !isAdmin) return res.status(403).json({ success: false, error: 'access_denied' });
+    const { error } = await updateUserResearchStatusAdmin(req.params.userId, updates);
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/users/:userId/conversations?requesterId=xxx — a user's conversations (annotator or admin)
+app.get('/api/users/:userId/conversations', async (req, res) => {
+  try {
+    const requesterId = req.query.requesterId;
+    if (!requesterId) return res.status(400).json({ success: false, error: 'requesterId is required' });
+    const [{ isAnnotator }, { isAdmin }] = await Promise.all([
+      verifyAnnotator(requesterId),
+      verifyAdmin(requesterId),
+    ]);
+    if (!isAnnotator && !isAdmin) return res.status(403).json({ success: false, error: 'access_denied' });
+    const { conversations, error } = await getConversationsByUserAdmin(req.params.userId);
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true, conversations });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

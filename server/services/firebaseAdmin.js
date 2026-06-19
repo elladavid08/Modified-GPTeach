@@ -397,6 +397,85 @@ async function verifyAdmin(userId) {
   }
 }
 
+// ─── Research management (admin-SDK, bypasses Firestore rules) ───────────────
+
+const tsToStr = (v) => (v && typeof v.toDate === 'function' ? v.toDate().toISOString() : v);
+
+function serializeUser(doc) {
+  const d = doc.data ? doc.data() : doc;
+  return {
+    id: doc.id || d.id,
+    ...d,
+    createdAt: tsToStr(d.createdAt),
+    updatedAt: tsToStr(d.updatedAt),
+  };
+}
+
+function serializeConversation(doc) {
+  const d = doc.data ? doc.data() : doc;
+  return {
+    id: doc.id || d.id,
+    ...d,
+    startedAt:   tsToStr(d.startedAt),
+    lastUpdated: tsToStr(d.lastUpdated),
+    savedAt:     tsToStr(d.savedAt),
+  };
+}
+
+async function getAllUsersAdmin() {
+  try {
+    const snapshot = await db.collection('users').get();
+    const users = snapshot.docs.map(serializeUser);
+    return { users, error: null };
+  } catch (error) {
+    console.error('❌ Error getting all users:', error);
+    return { users: [], error: error.message };
+  }
+}
+
+async function getResearchParticipantsAdmin() {
+  try {
+    const snapshot = await db.collection('users')
+      .where('showInResearchConversations', '==', true)
+      .get();
+    const users = snapshot.docs
+      .map(serializeUser)
+      .sort((a, b) => (a.researchParticipantOrder || 0) - (b.researchParticipantOrder || 0));
+    return { users, error: null };
+  } catch (error) {
+    console.error('❌ Error getting research participants:', error);
+    return { users: [], error: error.message };
+  }
+}
+
+async function updateUserResearchStatusAdmin(userId, updates) {
+  try {
+    await db.collection('users').doc(userId).set(updates, { merge: true });
+    return { error: null };
+  } catch (error) {
+    console.error('❌ Error updating user research status:', error);
+    return { error: error.message };
+  }
+}
+
+async function getConversationsByUserAdmin(userId) {
+  try {
+    const snapshot = await db.collection('conversations')
+      .where('userId', '==', userId)
+      .get();
+    const conversations = snapshot.docs.map(serializeConversation);
+    conversations.sort((a, b) => {
+      const ta = a.startTime || a.startedAt || '';
+      const tb = b.startTime || b.startedAt || '';
+      return String(tb).localeCompare(String(ta));
+    });
+    return { conversations, error: null };
+  } catch (error) {
+    console.error('❌ Error getting user conversations:', error);
+    return { conversations: [], error: error.message };
+  }
+}
+
 export {
   admin,
   db,
@@ -415,6 +494,10 @@ export {
   saveTestAnnotation,
   getTestAnnotation,
   getAllAnnotationsForSubmission,
+  getAllUsersAdmin,
+  getResearchParticipantsAdmin,
+  updateUserResearchStatusAdmin,
+  getConversationsByUserAdmin,
 };
 
 export default admin;
