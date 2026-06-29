@@ -12,7 +12,7 @@ import { fileURLToPath } from 'url';
 import { VertexAI } from '@google-cloud/vertexai';
 import { GoogleAuth } from 'google-auth-library';
 import { formatSkillsForPrompt, formatConversationHistory, getPCKSkillById } from './universal_pck_skills.js';
-import { saveConversation, saveMessage, createUserProfile, getUserProfile, saveTestSubmission, checkTestSubmission, verifyAnnotator, verifyAdmin, getTestSubmissions, getTestSubmission, saveTestAnnotation, getTestAnnotation, getAllAnnotationsForSubmission, getAllUsersAdmin, getResearchParticipantsAdmin, updateUserResearchStatusAdmin, getConversationsByUserAdmin } from './services/firebaseAdmin.js';
+import { saveConversation, saveMessage, createUserProfile, getUserProfile, saveTestSubmission, checkTestSubmission, verifyAnnotator, verifyAdmin, getTestSubmissions, getTestSubmission, saveTestAnnotation, getTestAnnotation, getAllAnnotationsForSubmission, getAllUsersAdmin, getResearchParticipantsAdmin, updateUserResearchStatusAdmin, getConversationsByUserAdmin, getConversationsMeta, getFullConversationForAnnotation, createAnnotationAssignments, getAnnotationAssignments, getAnnotatorAssignments, getConvAnnotation, saveConvAnnotation, submitConvAnnotation, exportConvAnnotations, cancelAnnotationAssignment } from './services/firebaseAdmin.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1307,6 +1307,24 @@ if (ENABLE_CREDENTIAL_DEBUG) {
 }
 
 // ==========================================
+// TEMPORARY DEBUG ENDPOINT — remove after auth is confirmed working
+// GET /api/debug-user?uid=<firebase-uid>
+// ==========================================
+app.get('/api/debug-user', async (req, res) => {
+  const { uid } = req.query;
+  if (!uid) return res.status(400).json({ error: 'uid query param required' });
+  try {
+    const [adminRes, annotRes] = await Promise.all([
+      verifyAdmin(uid),
+      verifyAnnotator(uid),
+    ]);
+    res.json({ uid, adminCheck: adminRes, annotatorCheck: annotRes });
+  } catch (err) {
+    res.status(500).json({ error: err.message, stack: err.stack });
+  }
+});
+
+// ==========================================
 // FIREBASE / FIRESTORE ENDPOINTS
 // ==========================================
 
@@ -1633,6 +1651,216 @@ app.get('/api/users/:userId/conversations', async (req, res) => {
     const { conversations, error } = await getConversationsByUserAdmin(req.params.userId);
     if (error) return res.status(500).json({ success: false, error });
     res.json({ success: true, conversations });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ─── Conversation Annotation Module ─────────────────────────────────────────
+
+// GET /api/conv-meta?adminId=xxx[&userId=yyy&systemVersion=zzz]
+// Returns conversation list with metadata only (no turns). Admin only.
+app.get('/api/conv-meta', async (req, res) => {
+  try {
+    const { adminId, userId, systemVersion } = req.query;
+    if (!adminId) return res.status(400).json({ success: false, error: 'adminId is required' });
+    const { isAdmin } = await verifyAdmin(adminId);
+    if (!isAdmin) return res.status(403).json({ success: false, error: 'access_denied' });
+
+    const filters = {};
+    if (userId)        filters.userId        = userId;
+    if (systemVersion) filters.systemVersion = systemVersion;
+
+    const { conversations, error } = await getConversationsMeta(filters);
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true, conversations });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/conv-meta/:convId?requesterId=xxx
+// Returns full conversation. Admin always allowed; annotator only if they have an assignment.
+app.get('/api/conv-meta/:convId', async (req, res) => {
+  try {
+    const { requesterId } = req.query;
+    if (!requesterId) return res.status(400).json({ success: false, error: 'requesterId is required' });
+
+    const [{ isAdmin }, { isAnnotator }] = await Promise.all([
+      verifyAdmin(requesterId),
+      verifyAnnotator(requesterId),
+    ]);
+    if (!isAdmin && !isAnnotator) return res.status(403).json({ success: false, error: 'access_denied' });
+
+    const { conversation, error, forbidden } = await getFullConversationForAnnotation(
+      req.params.convId, requesterId, isAdmin
+    );
+    if (forbidden) return res.status(403).json({ success: false, error: 'access_denied' });
+    if (error === 'not_found') return res.status(404).json({ success: false, error: 'not_found' });
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true, conversation });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /api/annotation-assignments
+// Body: { adminId, items: [{ conversationId, annotatorId, assignmentType }] }
+// Admin only. Bulk-creates assignments, skips duplicates.
+app.post('/api/annotation-assignments', async (req, res) => {
+  try {
+    const { adminId, items } = req.body;
+    if (!adminId) return res.status(400).json({ success: false, error: 'adminId is required' });
+    if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ success: false, error: 'items must be a non-empty array' });
+
+    const { isAdmin } = await verifyAdmin(adminId);
+    if (!isAdmin) return res.status(403).json({ success: false, error: 'access_denied' });
+
+    const { created, skipped, error } = await createAnnotationAssignments(items, adminId);
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true, created, skipped });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/annotation-assignments?adminId=xxx[&status=yyy&assignmentType=zzz]
+// Admin only. Returns all assignments enriched with annotator name + conv metadata.
+app.get('/api/annotation-assignments', async (req, res) => {
+  try {
+    const { adminId, status, assignmentType } = req.query;
+    if (!adminId) return res.status(400).json({ success: false, error: 'adminId is required' });
+    const { isAdmin } = await verifyAdmin(adminId);
+    if (!isAdmin) return res.status(403).json({ success: false, error: 'access_denied' });
+
+    const filters = {};
+    if (status)         filters.status         = status;
+    if (assignmentType) filters.assignmentType = assignmentType;
+
+    const { assignments, error } = await getAnnotationAssignments(filters);
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true, assignments });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// DELETE /api/annotation-assignments/:assignmentId?adminId=xxx
+// Admin only. Cancels (deletes) a not_started assignment.
+app.delete('/api/annotation-assignments/:assignmentId', async (req, res) => {
+  try {
+    const { adminId } = req.query;
+    if (!adminId) return res.status(400).json({ success: false, error: 'adminId is required' });
+    const { isAdmin } = await verifyAdmin(adminId);
+    if (!isAdmin) return res.status(403).json({ success: false, error: 'access_denied' });
+
+    const { error } = await cancelAnnotationAssignment(req.params.assignmentId);
+    if (error === 'assignment_not_found') return res.status(404).json({ success: false, error });
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/annotation-assignments/mine?annotatorId=xxx
+// Annotator only. Returns only the requester's assignments.
+app.get('/api/annotation-assignments/mine', async (req, res) => {
+  try {
+    const { annotatorId } = req.query;
+    if (!annotatorId) return res.status(400).json({ success: false, error: 'annotatorId is required' });
+    const { isAnnotator } = await verifyAnnotator(annotatorId);
+    if (!isAnnotator) return res.status(403).json({ success: false, error: 'access_denied' });
+
+    const { assignments, error } = await getAnnotatorAssignments(annotatorId);
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true, assignments });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/conv-annotations/export?adminId=xxx
+// Admin only. Returns full annotation export structured for agreement analysis.
+// IMPORTANT: must be declared BEFORE /:assignmentId to avoid Express matching "export" as a param.
+app.get('/api/conv-annotations/export', async (req, res) => {
+  try {
+    const { adminId } = req.query;
+    if (!adminId) return res.status(400).json({ success: false, error: 'adminId is required' });
+    const { isAdmin } = await verifyAdmin(adminId);
+    if (!isAdmin) return res.status(403).json({ success: false, error: 'access_denied' });
+
+    const { export: exportData, error } = await exportConvAnnotations();
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true, export: exportData });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/conv-annotations/:assignmentId?requesterId=xxx
+// Returns annotation (null if not started). Annotator (owner) or admin.
+app.get('/api/conv-annotations/:assignmentId', async (req, res) => {
+  try {
+    const { requesterId } = req.query;
+    if (!requesterId) return res.status(400).json({ success: false, error: 'requesterId is required' });
+
+    const [{ isAdmin }, { isAnnotator }] = await Promise.all([
+      verifyAdmin(requesterId),
+      verifyAnnotator(requesterId),
+    ]);
+    if (!isAdmin && !isAnnotator) return res.status(403).json({ success: false, error: 'access_denied' });
+
+    const { annotation, error, forbidden } = await getConvAnnotation(req.params.assignmentId, requesterId, isAdmin);
+    if (forbidden) return res.status(403).json({ success: false, error: 'access_denied' });
+    if (error && error !== 'assignment_not_found') return res.status(500).json({ success: false, error });
+    res.json({ success: true, annotation });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /api/conv-annotations
+// Body: { annotatorId, assignmentId, feedbackPoints, generalComment }
+// Annotator (owner) only. Saves draft and marks assignment status="draft".
+app.post('/api/conv-annotations', async (req, res) => {
+  try {
+    const { annotatorId, assignmentId, feedbackPoints, generalComment } = req.body;
+    if (!annotatorId)  return res.status(400).json({ success: false, error: 'annotatorId is required' });
+    if (!assignmentId) return res.status(400).json({ success: false, error: 'assignmentId is required' });
+
+    const { isAnnotator } = await verifyAnnotator(annotatorId);
+    if (!isAnnotator) return res.status(403).json({ success: false, error: 'access_denied' });
+
+    const { annotationId, error, forbidden } = await saveConvAnnotation(
+      assignmentId,
+      { feedbackPoints: feedbackPoints || [], generalComment: generalComment || '' },
+      annotatorId
+    );
+    if (forbidden) return res.status(403).json({ success: false, error: 'access_denied' });
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true, annotationId });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /api/conv-annotations/:assignmentId/submit
+// Body: { annotatorId }
+// Annotator (owner) only. Marks annotation and assignment as completed.
+app.post('/api/conv-annotations/:assignmentId/submit', async (req, res) => {
+  try {
+    const { annotatorId } = req.body;
+    if (!annotatorId) return res.status(400).json({ success: false, error: 'annotatorId is required' });
+
+    const { isAnnotator } = await verifyAnnotator(annotatorId);
+    if (!isAnnotator) return res.status(403).json({ success: false, error: 'access_denied' });
+
+    const { error, forbidden } = await submitConvAnnotation(req.params.assignmentId, annotatorId);
+    if (forbidden) return res.status(403).json({ success: false, error: 'access_denied' });
+    if (error === 'already_completed') return res.status(409).json({ success: false, error: 'already_completed' });
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

@@ -19,6 +19,9 @@ import AdminConversationLogs from "./pages/AdminConversationLogs";
 import ResearchConversations from "./pages/ResearchConversations";
 import AdminUsers from "./pages/AdminUsers";
 import ResearchManagement from "./pages/ResearchManagement";
+import ConvAnnotationAdmin from "./pages/ConvAnnotationAdmin";
+import ConvAnnotationTasks from "./pages/ConvAnnotationTasks";
+import ConvAnnotationEditor from "./pages/ConvAnnotationEditor";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AnnotatorRoute } from "./components/AnnotatorRoute";
 import { AdminRoute } from "./components/AdminRoute";
@@ -71,6 +74,13 @@ export const Router = () => {
 
 	{/* Research participant management - admin only */}
 	<Route path="/admin/research" element={<AdminRoute><ResearchManagement /></AdminRoute>} />
+
+	{/* Conversation annotation — admin management */}
+	<Route path="/admin/conv-annotation" element={<AdminRoute><ConvAnnotationAdmin /></AdminRoute>} />
+
+	{/* Conversation annotation — annotator task list and editor */}
+	<Route path="/annotation/conv-tasks" element={<AnnotatorRoute><ConvAnnotationTasks /></AnnotatorRoute>} />
+	<Route path="/annotation/conv-tasks/:assignmentId" element={<AnnotatorRoute><ConvAnnotationEditor /></AnnotatorRoute>} />
 	</Routes>
 	);
 };

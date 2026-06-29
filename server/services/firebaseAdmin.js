@@ -1,13 +1,10 @@
 // Firebase Admin SDK initialization for backend
 import admin from 'firebase-admin';
 
-// Initialize Firebase Admin with existing service account
-// The service account key is already configured for Vertex AI
-// and works for Firebase as well
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.applicationDefault(),
-    projectId: 'ella-gpteach-research'
+    projectId: 'ella-gpteach-research',
   });
 }
 
@@ -178,9 +175,15 @@ async function checkTestSubmission(userId, testType) {
 async function verifyAnnotator(userId) {
   try {
     const doc = await db.collection('users').doc(userId).get();
-    if (!doc.exists) return { isAnnotator: false, error: 'user_not_found' };
-    return { isAnnotator: doc.data().isAnnotator === true, error: null };
+    if (!doc.exists) {
+      console.warn(`[verifyAnnotator] user not found: ${userId}`);
+      return { isAnnotator: false, error: 'user_not_found' };
+    }
+    const result = doc.data().isAnnotator === true;
+    console.log(`[verifyAnnotator] uid=${userId} isAnnotator=${result} data=`, JSON.stringify(doc.data()));
+    return { isAnnotator: result, error: null };
   } catch (error) {
+    console.error(`[verifyAnnotator] Firestore error for uid=${userId}:`, error.message);
     return { isAnnotator: false, error: error.message };
   }
 }
@@ -390,9 +393,15 @@ async function getAllAnnotationsForSubmission(submissionId) {
 async function verifyAdmin(userId) {
   try {
     const doc = await db.collection('users').doc(userId).get();
-    if (!doc.exists) return { isAdmin: false, error: 'user_not_found' };
-    return { isAdmin: doc.data().isAdmin === true, error: null };
+    if (!doc.exists) {
+      console.warn(`[verifyAdmin] user not found: ${userId}`);
+      return { isAdmin: false, error: 'user_not_found' };
+    }
+    const result = doc.data().isAdmin === true;
+    console.log(`[verifyAdmin] uid=${userId} isAdmin=${result} data=`, JSON.stringify(doc.data()));
+    return { isAdmin: result, error: null };
   } catch (error) {
+    console.error(`[verifyAdmin] Firestore error for uid=${userId}:`, error.message);
     return { isAdmin: false, error: error.message };
   }
 }
@@ -476,6 +485,563 @@ async function getConversationsByUserAdmin(userId) {
   }
 }
 
+// ─── Conversation Annotation Module ─────────────────────────────────────────
+
+/**
+ * Pick only metadata fields from a conversation document (no turns / messages).
+ */
+function serializeConversationMeta(doc) {
+  const d = doc.data ? doc.data() : doc;
+  const id = doc.id || d.id;
+  return {
+    id,
+    userId:        d.userId        || null,
+    userSnapshot:  d.userSnapshot  || null,
+    scenario: d.scenario
+      ? { text: d.scenario.text || null, misconception_focus: d.scenario.misconception_focus || null }
+      : null,
+    systemVersion: d.systemVersion || null,
+    startTime:     d.startTime     || null,
+    startedAt:     tsToStr(d.startedAt),
+    lastUpdated:   tsToStr(d.lastUpdated),
+    stats:         d.stats         || null,
+  };
+}
+
+/**
+ * List conversations — metadata only (no turns / messages).
+ * Supports optional filters: userId, systemVersion.
+ * Each conversation is enriched with assignmentInfo: count, annotators, types, derivedStatus.
+ * derivedStatus values: 'none' | 'assigned' | 'in_progress' | 'partial' | 'done'
+ */
+async function getConversationsMeta(filters = {}, limitCount = 300) {
+  try {
+    let query = db.collection('conversations');
+    if (filters.userId)        query = query.where('userId',        '==', filters.userId);
+    if (filters.systemVersion) query = query.where('systemVersion', '==', filters.systemVersion);
+
+    const snapshot = await query.limit(limitCount).get();
+    const conversations = snapshot.docs.map(serializeConversationMeta);
+
+    // Sort newest-first in JS to avoid requiring a composite index
+    conversations.sort((a, b) => {
+      const ta = a.startTime || a.startedAt || '';
+      const tb = b.startTime || b.startedAt || '';
+      return String(tb).localeCompare(String(ta));
+    });
+
+    if (conversations.length === 0) return { conversations, error: null };
+
+    // Fetch ALL assignments in one go and group by conversationId in memory.
+    // This is simpler than chunked 'in' queries and fine for v1 volumes.
+    const allAssignSnap = await db.collection('conversationAnnotationAssignments').get();
+    const assignmentsByConvId = {};
+    allAssignSnap.docs.forEach(d => {
+      const data = d.data();
+      const cid  = data.conversationId;
+      if (!assignmentsByConvId[cid]) assignmentsByConvId[cid] = [];
+      assignmentsByConvId[cid].push({ id: d.id, ...data });
+    });
+
+    // Collect unique annotator IDs and fetch display names
+    const allAnnotatorIds = [
+      ...new Set(
+        Object.values(assignmentsByConvId).flat().map(a => a.annotatorId).filter(Boolean)
+      ),
+    ];
+    const nameMap = {};
+    if (allAnnotatorIds.length > 0) {
+      const userDocs = await Promise.all(
+        allAnnotatorIds.map(uid => db.collection('users').doc(uid).get())
+      );
+      userDocs.forEach(d => {
+        if (d.exists) nameMap[d.id] = d.data().fullName || d.data().email || d.id;
+      });
+    }
+
+    // Enrich each conversation
+    const enriched = conversations.map(conv => {
+      const assignments = assignmentsByConvId[conv.id] || [];
+      if (assignments.length === 0) {
+        return { ...conv, assignmentInfo: { count: 0, annotators: [], types: [], derivedStatus: 'none' } };
+      }
+
+      const statuses  = assignments.map(a => a.status);
+      const types     = [...new Set(assignments.map(a => a.assignmentType).filter(Boolean))];
+      const annotators = [...new Set(
+        assignments.map(a => nameMap[a.annotatorId] || a.annotatorId).filter(Boolean)
+      )];
+
+      const allDone      = statuses.every(s => s === 'completed');
+      const someDone     = statuses.some(s => s === 'completed');
+      const someDraft    = statuses.some(s => s === 'draft');
+      const derivedStatus = allDone  ? 'done'
+                          : someDone ? 'partial'
+                          : someDraft ? 'in_progress'
+                          : 'assigned';
+
+      return { ...conv, assignmentInfo: { count: assignments.length, annotators, types, derivedStatus } };
+    });
+
+    return { conversations: enriched, error: null };
+  } catch (error) {
+    console.error('❌ Error getting conversations meta:', error);
+    return { conversations: [], error: error.message };
+  }
+}
+
+/**
+ * Return the full conversation document, but only if the requester is an admin
+ * OR has at least one assignment for that conversationId.
+ * Returns { conversation, error, forbidden }.
+ */
+async function getFullConversationForAnnotation(convId, requesterId, isAdminUser) {
+  try {
+    if (!isAdminUser) {
+      const assignmentSnap = await db.collection('conversationAnnotationAssignments')
+        .where('conversationId', '==', convId)
+        .where('annotatorId',   '==', requesterId)
+        .limit(1)
+        .get();
+      if (assignmentSnap.empty) {
+        return { conversation: null, error: 'access_denied', forbidden: true };
+      }
+    }
+
+    const docSnap = await db.collection('conversations').doc(convId).get();
+    if (!docSnap.exists) return { conversation: null, error: 'not_found', forbidden: false };
+
+    const d = docSnap.data();
+    return {
+      conversation: {
+        id: docSnap.id,
+        ...d,
+        startedAt:   tsToStr(d.startedAt),
+        lastUpdated: tsToStr(d.lastUpdated),
+        savedAt:     tsToStr(d.savedAt),
+      },
+      error: null,
+      forbidden: false,
+    };
+  } catch (error) {
+    console.error('❌ Error getting full conversation for annotation:', error);
+    return { conversation: null, error: error.message, forbidden: false };
+  }
+}
+
+/**
+ * Bulk-create annotation assignments.
+ * items: [{ conversationId, annotatorId, assignmentType }]
+ * Duplicate rule: one assignment per conversationId + annotatorId (regardless of assignmentType).
+ * Skipped items include { existingType, existingAssignmentId } so the caller can surface a
+ * clear message to the admin.
+ * Returns { created: [], skipped: [], error }.
+ */
+async function createAnnotationAssignments(items, createdBy) {
+  try {
+    const created = [];
+    const skipped = [];
+
+    for (const item of items) {
+      const { conversationId, annotatorId, assignmentType } = item;
+
+      // Strict duplicate check: same conversationId + annotatorId, any assignmentType
+      const existingSnap = await db.collection('conversationAnnotationAssignments')
+        .where('conversationId', '==', conversationId)
+        .where('annotatorId',   '==', annotatorId)
+        .limit(1)
+        .get();
+
+      if (!existingSnap.empty) {
+        const existingData = existingSnap.docs[0].data();
+        skipped.push({
+          conversationId,
+          annotatorId,
+          assignmentType,
+          reason:               'duplicate',
+          existingType:         existingData.assignmentType,
+          existingAssignmentId: existingSnap.docs[0].id,
+        });
+        continue;
+      }
+
+      const ref = await db.collection('conversationAnnotationAssignments').add({
+        conversationId,
+        annotatorId,
+        assignmentType,
+        status:      'not_started',
+        createdBy,
+        createdAt:   admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt:   admin.firestore.FieldValue.serverTimestamp(),
+        completedAt: null,
+      });
+
+      created.push({ assignmentId: ref.id, conversationId, annotatorId, assignmentType });
+    }
+
+    return { created, skipped, error: null };
+  } catch (error) {
+    console.error('❌ Error creating annotation assignments:', error);
+    return { created: [], skipped: [], error: error.message };
+  }
+}
+
+/**
+ * Admin: list all assignments enriched with annotator name and conversation metadata.
+ * Supports optional filter: status, assignmentType.
+ */
+async function getAnnotationAssignments(filters = {}) {
+  try {
+    let query = db.collection('conversationAnnotationAssignments');
+    if (filters.status)         query = query.where('status',         '==', filters.status);
+    if (filters.assignmentType) query = query.where('assignmentType', '==', filters.assignmentType);
+
+    const snapshot = await query.get();
+    const assignments = snapshot.docs.map(doc => {
+      const d = doc.data();
+      return {
+        id:             doc.id,
+        ...d,
+        createdAt:   tsToStr(d.createdAt),
+        updatedAt:   tsToStr(d.updatedAt),
+        completedAt: tsToStr(d.completedAt),
+      };
+    });
+
+    if (assignments.length === 0) return { assignments: [], error: null };
+
+    // Enrich with annotator names
+    const annotatorIds = [...new Set(assignments.map(a => a.annotatorId))];
+    const convIds      = [...new Set(assignments.map(a => a.conversationId))];
+
+    const [annotatorDocs, convDocs] = await Promise.all([
+      Promise.all(annotatorIds.map(uid => db.collection('users').doc(uid).get())),
+      Promise.all(convIds.map(cid => db.collection('conversations').doc(cid).get())),
+    ]);
+
+    const nameMap = {};
+    annotatorDocs.forEach(d => {
+      if (d.exists) nameMap[d.id] = d.data().fullName || d.data().email || d.id;
+    });
+
+    const convMetaMap = {};
+    convDocs.forEach(d => {
+      if (d.exists) convMetaMap[d.id] = serializeConversationMeta(d);
+    });
+
+    const enriched = assignments.map(a => ({
+      ...a,
+      annotatorName: nameMap[a.annotatorId] || a.annotatorId,
+      convMeta:      convMetaMap[a.conversationId] || null,
+    }));
+
+    enriched.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    return { assignments: enriched, error: null };
+  } catch (error) {
+    console.error('❌ Error getting annotation assignments:', error);
+    return { assignments: [], error: error.message };
+  }
+}
+
+/**
+ * Annotator: list only my assignments, enriched with conversation metadata.
+ */
+async function getAnnotatorAssignments(annotatorId) {
+  try {
+    const snapshot = await db.collection('conversationAnnotationAssignments')
+      .where('annotatorId', '==', annotatorId)
+      .get();
+
+    const assignments = snapshot.docs.map(doc => {
+      const d = doc.data();
+      return {
+        id:          doc.id,
+        ...d,
+        createdAt:   tsToStr(d.createdAt),
+        updatedAt:   tsToStr(d.updatedAt),
+        completedAt: tsToStr(d.completedAt),
+      };
+    });
+
+    if (assignments.length === 0) return { assignments: [], error: null };
+
+    const convIds = [...new Set(assignments.map(a => a.conversationId))];
+    const convDocs = await Promise.all(convIds.map(cid => db.collection('conversations').doc(cid).get()));
+
+    const convMetaMap = {};
+    convDocs.forEach(d => {
+      if (d.exists) convMetaMap[d.id] = serializeConversationMeta(d);
+    });
+
+    const enriched = assignments.map(a => ({
+      ...a,
+      convMeta: convMetaMap[a.conversationId] || null,
+    }));
+
+    enriched.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    return { assignments: enriched, error: null };
+  } catch (error) {
+    console.error('❌ Error getting annotator assignments:', error);
+    return { assignments: [], error: error.message };
+  }
+}
+
+/**
+ * Fetch annotation doc by assignmentId.
+ * Returns null if not yet started. Checks ownership (or admin).
+ * Returns { annotation, error, forbidden }.
+ */
+async function getConvAnnotation(assignmentId, requesterId, isAdminUser) {
+  try {
+    // Verify ownership via the assignment doc
+    if (!isAdminUser) {
+      const assignSnap = await db.collection('conversationAnnotationAssignments').doc(assignmentId).get();
+      if (!assignSnap.exists) return { annotation: null, error: 'assignment_not_found', forbidden: false };
+      if (assignSnap.data().annotatorId !== requesterId) {
+        return { annotation: null, error: 'access_denied', forbidden: true };
+      }
+    }
+
+    const docSnap = await db.collection('conversationAnnotations').doc(assignmentId).get();
+    if (!docSnap.exists) return { annotation: null, error: null, forbidden: false };
+
+    const d = docSnap.data();
+    return {
+      annotation: {
+        id: docSnap.id,
+        ...d,
+        createdAt:   tsToStr(d.createdAt),
+        updatedAt:   tsToStr(d.updatedAt),
+        submittedAt: tsToStr(d.submittedAt),
+      },
+      error: null,
+      forbidden: false,
+    };
+  } catch (error) {
+    console.error('❌ Error getting conv annotation:', error);
+    return { annotation: null, error: error.message, forbidden: false };
+  }
+}
+
+/**
+ * Save (upsert) a conversation annotation draft.
+ * Verifies annotator ownership. Updates assignment status to "draft".
+ * Returns { annotationId, error, forbidden }.
+ */
+async function saveConvAnnotation(assignmentId, data, requesterId) {
+  try {
+    // Verify ownership
+    const assignSnap = await db.collection('conversationAnnotationAssignments').doc(assignmentId).get();
+    if (!assignSnap.exists) return { annotationId: null, error: 'assignment_not_found', forbidden: false };
+    const assignData = assignSnap.data();
+    if (assignData.annotatorId !== requesterId) {
+      return { annotationId: null, error: 'access_denied', forbidden: true };
+    }
+    if (assignData.status === 'completed') {
+      return { annotationId: null, error: 'assignment_already_completed', forbidden: false };
+    }
+
+    const annotationRef = db.collection('conversationAnnotations').doc(assignmentId);
+    const existing = await annotationRef.get();
+
+    const now = admin.firestore.FieldValue.serverTimestamp();
+
+    if (existing.exists) {
+      await annotationRef.update({
+        ...data,
+        updatedAt: now,
+        status: 'draft',
+      });
+    } else {
+      await annotationRef.set({
+        assignmentId,
+        conversationId: assignData.conversationId,
+        annotatorId:    requesterId,
+        assignmentType: assignData.assignmentType,
+        ...data,
+        status:      'draft',
+        createdAt:   now,
+        updatedAt:   now,
+        submittedAt: null,
+      });
+    }
+
+    // Mark assignment as draft
+    await db.collection('conversationAnnotationAssignments').doc(assignmentId).update({
+      status:    'draft',
+      updatedAt: now,
+    });
+
+    return { annotationId: assignmentId, error: null, forbidden: false };
+  } catch (error) {
+    console.error('❌ Error saving conv annotation:', error);
+    return { annotationId: null, error: error.message, forbidden: false };
+  }
+}
+
+/**
+ * Submit a conversation annotation (mark completed).
+ * Verifies ownership. Sets status="completed" on both annotation and assignment.
+ * Returns { error, forbidden }.
+ */
+async function submitConvAnnotation(assignmentId, requesterId) {
+  try {
+    const assignSnap = await db.collection('conversationAnnotationAssignments').doc(assignmentId).get();
+    if (!assignSnap.exists) return { error: 'assignment_not_found', forbidden: false };
+    const assignData = assignSnap.data();
+    if (assignData.annotatorId !== requesterId) return { error: 'access_denied', forbidden: true };
+    if (assignData.status === 'completed') return { error: 'already_completed', forbidden: false };
+
+    const now = admin.firestore.FieldValue.serverTimestamp();
+
+    // Upsert annotation doc if it doesn't exist yet (annotator may submit with 0 feedback points)
+    const annotationRef = db.collection('conversationAnnotations').doc(assignmentId);
+    const existing = await annotationRef.get();
+
+    if (existing.exists) {
+      await annotationRef.update({ status: 'completed', submittedAt: now, updatedAt: now });
+    } else {
+      await annotationRef.set({
+        assignmentId,
+        conversationId: assignData.conversationId,
+        annotatorId:    requesterId,
+        assignmentType: assignData.assignmentType,
+        feedbackPoints:  [],
+        generalComment:  '',
+        status:          'completed',
+        createdAt:       now,
+        updatedAt:       now,
+        submittedAt:     now,
+      });
+    }
+
+    await db.collection('conversationAnnotationAssignments').doc(assignmentId).update({
+      status:      'completed',
+      completedAt: now,
+      updatedAt:   now,
+    });
+
+    return { error: null, forbidden: false };
+  } catch (error) {
+    console.error('❌ Error submitting conv annotation:', error);
+    return { error: error.message, forbidden: false };
+  }
+}
+
+/**
+ * Export all conversation annotations structured for agreement analysis.
+ * Grouped by: conversationId → assignmentType → per annotator entry.
+ */
+async function exportConvAnnotations() {
+  try {
+    // Load all assignments and annotations in parallel
+    const [assignSnap, annotSnap] = await Promise.all([
+      db.collection('conversationAnnotationAssignments').get(),
+      db.collection('conversationAnnotations').get(),
+    ]);
+
+    const assignments = assignSnap.docs.map(d => ({ id: d.id, ...d.data(), createdAt: tsToStr(d.data().createdAt), updatedAt: tsToStr(d.data().updatedAt), completedAt: tsToStr(d.data().completedAt) }));
+    const annotMap   = {};
+    annotSnap.docs.forEach(d => {
+      const data = d.data();
+      annotMap[d.id] = {
+        ...data,
+        createdAt:   tsToStr(data.createdAt),
+        updatedAt:   tsToStr(data.updatedAt),
+        submittedAt: tsToStr(data.submittedAt),
+      };
+    });
+
+    if (assignments.length === 0) return { export: { exportedAt: new Date().toISOString(), conversations: {} }, error: null };
+
+    // Collect unique annotator IDs and conversation IDs
+    const annotatorIds = [...new Set(assignments.map(a => a.annotatorId))];
+    const convIds      = [...new Set(assignments.map(a => a.conversationId))];
+
+    const [annotatorDocs, convDocs] = await Promise.all([
+      Promise.all(annotatorIds.map(uid => db.collection('users').doc(uid).get())),
+      Promise.all(convIds.map(cid => db.collection('conversations').doc(cid).get())),
+    ]);
+
+    const nameMap = {};
+    annotatorDocs.forEach(d => {
+      if (d.exists) nameMap[d.id] = d.data().fullName || d.data().email || d.id;
+    });
+    const convMetaMap = {};
+    convDocs.forEach(d => {
+      if (d.exists) convMetaMap[d.id] = serializeConversationMeta(d);
+    });
+
+    // Build nested structure
+    const conversations = {};
+    for (const assignment of assignments) {
+      const { conversationId, assignmentType, annotatorId } = assignment;
+      if (!conversations[conversationId]) {
+        const meta = convMetaMap[conversationId] || {};
+        conversations[conversationId] = {
+          meta: {
+            scenarioTitle: (meta.scenario && meta.scenario.text) || null,
+            userName: (meta.userSnapshot && meta.userSnapshot.fullName) || null,
+            startedAt: meta.startedAt || meta.startTime || null,
+            systemVersion: meta.systemVersion || null,
+            totalTurns: (meta.stats && meta.stats.totalTeacherMessages) || null,
+          },
+          byType: {},
+        };
+      }
+      if (!conversations[conversationId].byType[assignmentType]) {
+        conversations[conversationId].byType[assignmentType] = [];
+      }
+
+      const annotation = annotMap[assignment.id] || null;
+      conversations[conversationId].byType[assignmentType].push({
+        assignmentId:  assignment.id,
+        annotatorId,
+        annotatorName: nameMap[annotatorId] || annotatorId,
+        status:        assignment.status,
+        submittedAt:   annotation ? annotation.submittedAt : null,
+        generalComment: annotation ? (annotation.generalComment || '') : '',
+        feedbackPoints: annotation ? (annotation.feedbackPoints || []) : [],
+      });
+    }
+
+    return {
+      export: { exportedAt: new Date().toISOString(), conversations },
+      error: null,
+    };
+  } catch (error) {
+    console.error('❌ Error exporting conv annotations:', error);
+    return { export: null, error: error.message };
+  }
+}
+
+/**
+ * Delete an assignment (admin only).
+ * Also deletes the linked annotation document if one exists.
+ * Returns { error } — error is null on success.
+ */
+async function cancelAnnotationAssignment(assignmentId) {
+  try {
+    const assignRef  = db.collection('conversationAnnotationAssignments').doc(assignmentId);
+    const assignSnap = await assignRef.get();
+    if (!assignSnap.exists) return { error: 'assignment_not_found' };
+
+    // Delete the annotation document if it exists (assignmentId is the annotation doc ID)
+    const annotRef  = db.collection('conversationAnnotations').doc(assignmentId);
+    const annotSnap = await annotRef.get();
+
+    const batch = db.batch();
+    batch.delete(assignRef);
+    if (annotSnap.exists) batch.delete(annotRef);
+    await batch.commit();
+
+    return { error: null };
+  } catch (error) {
+    console.error('❌ Error deleting assignment:', error);
+    return { error: error.message };
+  }
+}
+
 export {
   admin,
   db,
@@ -498,6 +1064,17 @@ export {
   getResearchParticipantsAdmin,
   updateUserResearchStatusAdmin,
   getConversationsByUserAdmin,
+  // Conversation annotation module
+  getConversationsMeta,
+  getFullConversationForAnnotation,
+  createAnnotationAssignments,
+  getAnnotationAssignments,
+  getAnnotatorAssignments,
+  getConvAnnotation,
+  saveConvAnnotation,
+  submitConvAnnotation,
+  exportConvAnnotations,
+  cancelAnnotationAssignment,
 };
 
 export default admin;

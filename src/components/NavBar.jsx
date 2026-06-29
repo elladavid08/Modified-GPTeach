@@ -143,26 +143,28 @@ export default function Navbar() {
 									]}
 								/>
 
-								{isAnnotator && (
-									<DropdownMenu
-										label="אזור צוות ▾"
-										items={[
-											{ label: "הערכת שאלונים", to: "/admin/annotate" },
-											{ label: "שיחות מחקר", to: "/research-conversations" },
-										]}
-									/>
-								)}
+							{isAnnotator && (
+								<DropdownMenu
+									label="אזור צוות ▾"
+									items={[
+										{ label: "הערכת שאלונים", to: "/admin/annotate" },
+										{ label: "שיחות מחקר", to: "/research-conversations" },
+										{ label: "משימות תיוג", to: "/annotation/conv-tasks" },
+									]}
+								/>
+							)}
 
-								{isAdmin && (
-									<DropdownMenu
-										label="ניהול ▾"
-										items={[
-											{ label: "כל השיחות", to: "/admin/logs" },
-											{ label: "לוח שאלונים", to: "/admin/questionnaires" },
-											{ label: "ניהול מחקר", to: "/admin/research" },
-										]}
-									/>
-								)}
+							{isAdmin && (
+								<DropdownMenu
+									label="ניהול ▾"
+									items={[
+										{ label: "כל השיחות", to: "/admin/logs" },
+										{ label: "לוח שאלונים", to: "/admin/questionnaires" },
+										{ label: "ניהול מחקר", to: "/admin/research" },
+										{ label: "תיוג שיחות", to: "/admin/conv-annotation" },
+									]}
+								/>
+							)}
 
 								<DropdownMenu
 									label={`${getUserDisplayName()} ▾`}
