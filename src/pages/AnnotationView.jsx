@@ -60,6 +60,23 @@ function SummaryMatrix({ scores }) {
     color: "#2d3436", borderRadius: "4px", minWidth: "36px",
   });
 
+  // Check whether all 15 cells have a numeric score (0 is valid)
+  const isComplete = SCENARIO_IDS.every(sid =>
+    PCK_SKILLS.every(skill => {
+      const cell = scores[sid] && scores[sid][skill.id];
+      return cell != null && cell.score !== null && cell.score !== undefined;
+    })
+  );
+
+  // Per-dimension averages across the 3 scenarios (only when complete)
+  const columnAverages = isComplete
+    ? PCK_SKILLS.map(skill => {
+        const vals = SCENARIO_IDS.map(sid => scores[sid][skill.id].score);
+        const avg = vals.reduce((sum, v) => sum + v, 0) / vals.length;
+        return Math.round(avg * 100) / 100;
+      })
+    : null;
+
   return (
     <div style={{
       background: "#fff", border: "1px solid #dee2e6", borderRadius: "10px",
@@ -96,8 +113,39 @@ function SummaryMatrix({ scores }) {
             </tr>
           ))}
         </tbody>
+        {columnAverages && (
+          <tfoot>
+            <tr>
+              <td colSpan={PCK_SKILLS.length + 1} style={{ padding: "4px 0 2px" }}>
+                <hr style={{ margin: 0, borderColor: "#dee2e6" }} />
+              </td>
+            </tr>
+            <tr>
+              <td style={{
+                paddingLeft: "12px", paddingTop: "6px",
+                color: "#6c5ce7", fontWeight: 700, whiteSpace: "nowrap", fontSize: "0.85rem",
+              }}>
+                ממוצע
+              </td>
+              {columnAverages.map((avg, i) => (
+                <td key={PCK_SKILLS[i].id} style={{
+                  textAlign: "center", padding: "6px 10px", fontWeight: 700,
+                  background: "#f0ebf8", color: "#6c5ce7",
+                  borderRadius: "4px", fontSize: "0.9rem",
+                }}>
+                  {avg.toFixed(2)}
+                </td>
+              ))}
+            </tr>
+          </tfoot>
+        )}
       </table>
-      <p style={{ fontSize: "0.8rem", color: "#999", marginTop: "8px", marginBottom: 0 }}>
+      {!isComplete && (
+        <p style={{ fontSize: "0.78rem", color: "#b2bec3", marginTop: "8px", marginBottom: 0 }}>
+          הממוצעים יוצגו לאחר השלמת כל הציונים
+        </p>
+      )}
+      <p style={{ fontSize: "0.8rem", color: "#999", marginTop: isComplete ? "8px" : "4px", marginBottom: 0 }}>
         0 = חסר &nbsp;|&nbsp; 1 = חלקי &nbsp;|&nbsp; 2 = מלא
       </p>
     </div>
