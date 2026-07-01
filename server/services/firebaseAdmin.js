@@ -566,11 +566,10 @@ async function getConversationsMeta(filters = {}, limitCount = 300) {
         return { ...conv, assignmentInfo: { count: 0, annotators: [], types: [], derivedStatus: 'none' } };
       }
 
-      const statuses  = assignments.map(a => a.status);
-      const types     = [...new Set(assignments.map(a => a.assignmentType).filter(Boolean))];
-      const annotators = [...new Set(
-        assignments.map(a => nameMap[a.annotatorId] || a.annotatorId).filter(Boolean)
-      )];
+      const statuses     = assignments.map(a => a.status);
+      const types        = [...new Set(assignments.map(a => a.assignmentType).filter(Boolean))];
+      const annotatorIds = [...new Set(assignments.map(a => a.annotatorId).filter(Boolean))];
+      const annotators   = annotatorIds.map(id => nameMap[id] || id);
 
       const allDone      = statuses.every(s => s === 'completed');
       const someDone     = statuses.some(s => s === 'completed');
@@ -580,7 +579,7 @@ async function getConversationsMeta(filters = {}, limitCount = 300) {
                           : someDraft ? 'in_progress'
                           : 'assigned';
 
-      return { ...conv, assignmentInfo: { count: assignments.length, annotators, types, derivedStatus } };
+      return { ...conv, assignmentInfo: { count: assignments.length, annotators, annotatorIds, types, derivedStatus } };
     });
 
     return { conversations: enriched, error: null };

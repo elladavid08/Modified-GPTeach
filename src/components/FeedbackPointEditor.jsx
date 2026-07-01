@@ -74,7 +74,7 @@ function initDimensionFeedback(existingPoint) {
  *   onSave        – called with the validated feedback point object
  *   onCancel      – called when user cancels
  */
-export default function FeedbackPointEditor({ turn, existingPoint, sessionId, onSave, onCancel }) {
+export default function FeedbackPointEditor({ turn, existingPoint, sessionId, onSave, onCancel, onDelete }) {
   const [selectedDimensions, setSelectedDimensions] = useState(
     existingPoint ? (existingPoint.selectedDimensions || []) : []
   );
@@ -280,19 +280,39 @@ export default function FeedbackPointEditor({ turn, existingPoint, sessionId, on
         paddingTop: '12px', paddingBottom: '16px',
         marginTop: '12px',
         borderTop: '1px solid #e9ecef',
-        display: 'flex', gap: '10px', justifyContent: 'flex-end',
+        display: 'flex', gap: '10px',
+        justifyContent: existingPoint && onDelete ? 'space-between' : 'flex-end',
+        alignItems: 'center',
       }}>
-        <button type="button" className="btn btn-outline-secondary btn-sm" onClick={onCancel} style={{ borderRadius: '20px' }}>
-          ביטול
-        </button>
-        <button
-          type="button"
-          className="btn btn-primary btn-sm"
-          style={{ background: '#6c5ce7', borderColor: '#6c5ce7', borderRadius: '20px' }}
-          onClick={handleSave}
-        >
-          שמור נקודה
-        </button>
+        {/* Delete button — only for existing saved points */}
+        {existingPoint && onDelete && (
+          <button
+            type="button"
+            className="btn btn-outline-danger btn-sm"
+            style={{ borderRadius: '20px' }}
+            onClick={() => {
+              if (window.confirm('האם למחוק את נקודת המשוב הזו? פעולה זו תסיר את כל הציונים והמשובים שנכתבו עבור נקודה זו.')) {
+                onDelete(existingPoint.feedbackPointId);
+              }
+            }}
+          >
+            מחק נקודת משוב
+          </button>
+        )}
+
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button type="button" className="btn btn-outline-secondary btn-sm" onClick={onCancel} style={{ borderRadius: '20px' }}>
+            ביטול
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            style={{ background: '#6c5ce7', borderColor: '#6c5ce7', borderRadius: '20px' }}
+            onClick={handleSave}
+          >
+            שמור נקודה
+          </button>
+        </div>
       </div>
     </div>
   );

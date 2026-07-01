@@ -161,6 +161,9 @@ export default function ConvAnnotationEditor() {
   const [feedbackPoints, setFeedbackPoints] = useState([]);
   const [generalComment, setGeneralComment] = useState('');
 
+  // Tracks the last persisted state so we can detect unsaved changes
+  const [lastSavedState, setLastSavedState] = useState(null);
+
   // UI state
   const [loading, setLoading]             = useState(true);
   const [loadError, setLoadError]         = useState('');
@@ -205,10 +208,11 @@ export default function ConvAnnotationEditor() {
         const conv = await getFullConv(asgn.conversationId, currentUser.uid);
         setConversation(conv);
 
-        if (annotation) {
-          setFeedbackPoints(annotation.feedbackPoints || []);
-          setGeneralComment(annotation.generalComment || '');
-        }
+        const loadedPoints  = annotation ? (annotation.feedbackPoints || []) : [];
+        const loadedComment = annotation ? (annotation.generalComment  || '') : '';
+        setFeedbackPoints(loadedPoints);
+        setGeneralComment(loadedComment);
+        setLastSavedState({ feedbackPoints: loadedPoints, generalComment: loadedComment });
 
         setLoading(false);
       })
@@ -255,6 +259,25 @@ export default function ConvAnnotationEditor() {
     setEditingPoint(null);
   }, []);
 
+  const handleDeletePoint = useCallback((feedbackPointId) => {
+    setFeedbackPoints(prev => prev.filter(p => p.feedbackPointId !== feedbackPointId));
+    setActiveEditorTurn(null);
+    setEditingPoint(null);
+    setSaveSuccess(false);
+  }, []);
+
+  // Navigate back — warns if there are unsaved changes
+  function handleBackToTasks() {
+    const hasUnsaved = lastSavedState && (
+      JSON.stringify(feedbackPoints) !== JSON.stringify(lastSavedState.feedbackPoints) ||
+      generalComment !== lastSavedState.generalComment
+    );
+    if (hasUnsaved) {
+      if (!window.confirm('יש שינויים שלא נשמרו. האם לצאת בלי לשמור?')) return;
+    }
+    navigate('/annotation/conv-tasks');
+  }
+
   // Lock page scroll while the feedback editor is open
   useEffect(() => {
     if (activeEditorTurn) {
@@ -280,6 +303,7 @@ export default function ConvAnnotationEditor() {
         generalComment,
       });
       setSaveSuccess(true);
+      setLastSavedState({ feedbackPoints, generalComment });
     } catch (err) {
       setSaveError(err.message);
     } finally {
@@ -310,6 +334,7 @@ export default function ConvAnnotationEditor() {
     try {
       await saveConvAnnotation({ annotatorId: currentUser.uid, assignmentId, feedbackPoints, generalComment });
       await submitConvAnnotation(assignmentId, currentUser.uid);
+      setLastSavedState({ feedbackPoints, generalComment });
       setReadOnly(true);
       setSaveSuccess(false);
     } catch (err) {
@@ -353,7 +378,7 @@ export default function ConvAnnotationEditor() {
             <button
               className="btn btn-sm btn-outline-secondary"
               style={{ marginBottom: '8px' }}
-              onClick={() => navigate('/annotation/conv-tasks')}
+              onClick={handleBackToTasks}
             >
               ← חזרה למשימות
             </button>
@@ -419,6 +444,7 @@ export default function ConvAnnotationEditor() {
                   sessionId={assignment && assignment.conversationId}
                   onSave={handleSavePoint}
                   onCancel={handleCancelEditor}
+                  onDelete={!readOnly && editingPoint ? handleDeletePoint : undefined}
                 />
               </div>
             </div>
@@ -482,6 +508,14 @@ export default function ConvAnnotationEditor() {
             {submitError  && <span style={{ color: '#d63031', marginRight: '12px' }}>{submitError}</span>}
           </div>
           <div style={{ display: 'flex', gap: '10px' }}>
+            <button
+              className="btn btn-outline-secondary"
+              style={{ borderRadius: '20px' }}
+              disabled={saving || submitting}
+              onClick={handleBackToTasks}
+            >
+              ← חזרה למשימות
+            </button>
             <button
               className="btn btn-outline-primary"
               style={{ borderRadius: '20px', borderColor: '#6c5ce7', color: '#6c5ce7' }}

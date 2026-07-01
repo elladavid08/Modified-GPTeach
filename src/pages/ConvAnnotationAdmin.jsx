@@ -18,6 +18,12 @@ const ASSIGNMENT_TYPES = [
   { value: 'adjudication',  label: 'הכרעה סופית' },
 ];
 
+// Only these two are available for creation in v1
+const CREATABLE_ASSIGNMENT_TYPES = [
+  { value: 'reliability', label: 'בדיקת הסכמה' },
+  { value: 'production',  label: 'תיוג רגיל' },
+];
+
 const STATUS_LABELS = {
   not_started: { he: 'טרם התחיל',   cls: 'bg-secondary' },
   draft:       { he: 'טיוטה',       cls: 'bg-warning text-dark' },
@@ -124,8 +130,30 @@ function ConversationsTab({ currentUser }) {
     else            setSelected(prev => { const s = new Set(prev); visibleIds.forEach(id => s.add(id)); return s; });
   };
 
-  const toggleAnnotator = id =>
-    setSelectedAnnotators(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  // When type changes to production, drop multi-selection down to zero so the user must
+  // explicitly pick one annotator for each production assignment.
+  useEffect(() => {
+    if (assignmentType === 'production' && selectedAnnotators.size > 1) {
+      setSelectedAnnotators(new Set());
+    }
+  }, [assignmentType]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // IDs of annotators already assigned to the single selected conversation (if exactly 1 is selected)
+  const existingAnnotatorIds = useMemo(() => {
+    if (selected.size !== 1) return [];
+    const convId = [...selected][0];
+    const conv   = conversations.find(c => c.id === convId);
+    return (conv && conv.assignmentInfo && conv.assignmentInfo.annotatorIds) || [];
+  }, [selected, conversations]);
+
+  const handleAnnotatorToggle = (id) => {
+    if (assignmentType === 'production') {
+      // Single-select: clicking the already-selected one deselects; clicking another selects only it
+      setSelectedAnnotators(prev => prev.has(id) ? new Set() : new Set([id]));
+    } else {
+      setSelectedAnnotators(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+    }
+  };
 
   const handleCreate = async () => {
     if (selected.size === 0 || selectedAnnotators.size === 0) return;
@@ -185,10 +213,10 @@ function ConversationsTab({ currentUser }) {
         <div style={{ background: '#f0ebf8', border: '1px solid #b39ddb', borderRadius: '10px', padding: '16px 20px', marginBottom: '16px', direction: 'rtl' }}>
           <h6 style={{ color: '#6c5ce7', fontWeight: 700, marginBottom: '14px' }}>יצירת שיבוצים עבור {selected.size} שיחות נבחרות</h6>
           <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
-            {/* Assignment type */}
+            {/* Assignment type — only creatable types shown */}
             <div>
               <div style={{ fontWeight: 600, fontSize: '0.85rem', marginBottom: '6px' }}>סוג שיבוץ:</div>
-              {ASSIGNMENT_TYPES.map(t => (
+              {CREATABLE_ASSIGNMENT_TYPES.map(t => (
                 <label key={t.value} style={{ display: 'block', fontSize: '0.9rem', marginBottom: '4px', cursor: 'pointer' }}>
                   <input
                     type="radio"
@@ -204,28 +232,63 @@ function ConversationsTab({ currentUser }) {
             </div>
 
             {/* Annotators */}
-            <div style={{ flex: 1, minWidth: '200px' }}>
-              <div style={{ fontWeight: 600, fontSize: '0.85rem', marginBottom: '6px' }}>מעריכים:</div>
-              {annotators.length === 0
-                ? <span style={{ color: '#999', fontSize: '0.85rem' }}>לא נמצאו מעריכים</span>
-                : annotators.map(a => (
-                  <label key={a.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginLeft: '12px', marginBottom: '6px', fontSize: '0.9rem', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={selectedAnnotators.has(a.id)}
-                      onChange={() => toggleAnnotator(a.id)}
-                    />
-                    {a.fullName || a.email || a.id}
-                  </label>
-                ))
-              }
+            <div style={{ flex: 1, minWidth: '220px' }}>
+              <div style={{ fontWeight: 600, fontSize: '0.85rem', marginBottom: '6px' }}>
+                {assignmentType === 'production' ? 'מעריך (בחר אחד):' : 'מעריכים (ניתן לבחור כמה):'}
+              </div>
+
+              {/* Context message about existing assignments */}
+              {selected.size === 1 && existingAnnotatorIds.length > 0 && (
+                <div style={{ fontSize: '0.79rem', color: '#6c5ce7', marginBottom: '8px' }}>
+                  מעריכים המסומנים כבר משובצים לשיחה זו ולא ניתן לשנות זאת כאן.
+                </div>
+              )}
+              {selected.size > 1 && (
+                <div style={{ fontSize: '0.79rem', color: '#888', marginBottom: '8px', fontStyle: 'italic' }}>
+                  לחלק מהשיחות עשויים כבר להיות שיבוצים קיימים. שיבוצים כפולים לא יווצרו מחדש.
+                </div>
+              )}
+
+              {annotators.length === 0 ? (
+                <span style={{ color: '#999', fontSize: '0.85rem' }}>לא נמצאו מעריכים</span>
+              ) : (
+                annotators.map(a => {
+                  const isExisting = existingAnnotatorIds.includes(a.id);
+                  const isChecked  = selectedAnnotators.has(a.id) || isExisting;
+                  return (
+                    <label
+                      key={a.id}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '6px',
+                        marginLeft: '12px', marginBottom: '6px', fontSize: '0.9rem',
+                        cursor: isExisting ? 'default' : 'pointer',
+                        opacity: isExisting ? 0.65 : 1,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        disabled={isExisting}
+                        onChange={() => handleAnnotatorToggle(a.id)}
+                      />
+                      {a.fullName || a.email || a.id}
+                      {isExisting && (
+                        <span style={{ fontSize: '0.72rem', color: '#6c5ce7', fontWeight: 600 }}>(משובץ)</span>
+                      )}
+                    </label>
+                  );
+                })
+              )}
             </div>
 
             {/* Preview + create button */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', justifyContent: 'flex-end' }}>
               <div style={{ fontSize: '0.85rem', color: '#555' }}>
                 יווצרו <strong>{selected.size * selectedAnnotators.size}</strong> שיבוצים
-                ({selected.size} שיחות × {selectedAnnotators.size} מעריכים)
+                {assignmentType === 'production'
+                  ? ` (${selected.size} שיחות × מעריך אחד)`
+                  : ` (${selected.size} שיחות × ${selectedAnnotators.size} מעריכים)`
+                }
               </div>
               <button
                 className="btn btn-primary btn-sm"
