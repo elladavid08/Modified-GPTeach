@@ -4,14 +4,18 @@ import { useAuth } from "../contexts/AuthContext";
 import { getSubmissions } from "../services/annotationService";
 
 const STATUS_LABELS = {
-  pending:   { he: "ממתין להערכה", cls: "bg-warning text-dark" },
-  completed: { he: "הוערך",        cls: "bg-success text-white" },
+  pending:     { he: "ממתין להערכה", cls: "bg-warning text-dark" },
+  in_progress: { he: "בתהליך",       cls: "bg-warning text-dark" },
+  completed:   { he: "הוערך",        cls: "bg-success text-white" },
 };
 
 const TYPE_LABELS = {
-  pre:  { he: "לפני", cls: "bg-primary text-white" },
-  post: { he: "אחרי", cls: "bg-info text-dark" },
+  pre:  { he: "שאלון פתיחה", cls: "bg-primary text-white" },
+  post: { he: "שאלון סיום",  cls: "bg-info text-white" },
 };
+
+// pre sorts before post
+const TYPE_ORDER = { pre: 0, post: 1 };
 
 function formatDate(isoString) {
   if (!isoString) return "—";
@@ -24,15 +28,13 @@ function formatDate(isoString) {
 export default function AnnotationDashboard({ isAdminView }) {
   const { currentUser, userProfile } = useAuth();
   const navigate = useNavigate();
-  // isAdminView prop lets the route explicitly control which view to render,
-  // so an admin accessing /admin/annotate sees the annotator view instead of the admin view.
   const isAdmin = isAdminView !== undefined ? isAdminView : !!(userProfile && userProfile.isAdmin);
 
   const [submissions, setSubmissions] = useState([]);
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState("");
-  const [filterType, setFilterType]   = useState("all");   // all | pre | post
-  const [filterStatus, setFilterStatus] = useState("all"); // all | pending | completed
+  const [filterType, setFilterType]   = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
 
   useEffect(() => {
     if (!currentUser) return;
@@ -46,8 +48,25 @@ export default function AnnotationDashboard({ isAdminView }) {
       .catch(err  => { setError(err.message); setLoading(false); });
   }, [currentUser, filterType, filterStatus]);
 
-  const pending   = submissions.filter(s => s.annotationStatus === "pending").length;
-  const completed = submissions.filter(s => s.annotationStatus === "completed").length;
+  // Annotator view: only research participants; sorted by label then pre→post
+  const visibleSubmissions = React.useMemo(() => {
+    const base = isAdmin
+      ? submissions
+      : submissions.filter(s => s.showInResearchConversations);
+
+    if (isAdmin) return base;
+
+    return [...base].sort((a, b) => {
+      const labelCmp = (a.researchParticipantLabel || "").localeCompare(
+        b.researchParticipantLabel || "", "he"
+      );
+      if (labelCmp !== 0) return labelCmp;
+      return (TYPE_ORDER[a.testType] || 0) - (TYPE_ORDER[b.testType] || 0);
+    });
+  }, [submissions, isAdmin]);
+
+  const pending   = visibleSubmissions.filter(s => !s.annotatedByMe).length;
+  const completed = visibleSubmissions.filter(s =>  s.annotatedByMe).length;
 
   return (
     <div style={{ minHeight: "100vh", background: "#f8f7fc", paddingTop: "80px", paddingBottom: "60px" }}>
@@ -55,11 +74,27 @@ export default function AnnotationDashboard({ isAdminView }) {
 
         {/* Header */}
         <div style={{ marginBottom: "28px" }}>
-          <h2 style={{ color: "#6c5ce7", fontWeight: 700 }}>לוח בקרה – הערכת שאלונים</h2>
+          <h2 style={{ color: "#6c5ce7", fontWeight: 700 }}>
+            {isAdmin ? "לוח בקרה – שאלונים" : "הערכת שאלונים"}
+          </h2>
           <div style={{ display: "flex", gap: "16px", marginTop: "10px", flexWrap: "wrap" }}>
-            <span className="badge bg-secondary fs-6">סה"כ: {submissions.length}</span>
-            <span className="badge bg-warning text-dark fs-6">ממתינים: {pending}</span>
-            <span className="badge bg-success fs-6">הוערכו: {completed}</span>
+            <span className="badge bg-secondary text-white fs-6">סה"כ: {visibleSubmissions.length}</span>
+            {!isAdmin && (
+              <>
+                <span className="badge bg-warning text-white fs-6">ממתינים להערכה: {pending}</span>
+                <span className="badge bg-success text-white fs-6">הוערכו: {completed}</span>
+              </>
+            )}
+            {isAdmin && (
+              <>
+                <span className="badge bg-warning text-white fs-6">
+                  ממתינים: {visibleSubmissions.filter(s => s.annotationStatus === "pending").length}
+                </span>
+                <span className="badge bg-success text-white fs-6">
+                  הוערכו: {visibleSubmissions.filter(s => s.annotationStatus === "completed").length}
+                </span>
+              </>
+            )}
           </div>
         </div>
 
@@ -80,42 +115,44 @@ export default function AnnotationDashboard({ isAdminView }) {
                 className={`btn btn-sm ms-1 ${filterType === v ? "btn-primary" : "btn-outline-secondary"}`}
                 style={{ borderRadius: "20px" }}
               >
-                {v === "all" ? "הכל" : v === "pre" ? "לפני" : "אחרי"}
+                {v === "all" ? "הכל" : TYPE_LABELS[v].he}
               </button>
             ))}
           </div>
-          <div>
-            <label style={{ fontWeight: 600, marginLeft: "8px" }}>סטטוס:</label>
-            {["all", "pending", "completed"].map(v => (
-              <button
-                key={v}
-                onClick={() => setFilterStatus(v)}
-                className={`btn btn-sm ms-1 ${filterStatus === v ? "btn-primary" : "btn-outline-secondary"}`}
-                style={{ borderRadius: "20px" }}
-              >
-                {v === "all" ? "הכל" : STATUS_LABELS[v].he}
-              </button>
-            ))}
-          </div>
+          {isAdmin && (
+            <div>
+              <label style={{ fontWeight: 600, marginLeft: "8px" }}>סטטוס:</label>
+              {["all", "pending", "completed"].map(v => (
+                <button
+                  key={v}
+                  onClick={() => setFilterStatus(v)}
+                  className={`btn btn-sm ms-1 ${filterStatus === v ? "btn-primary" : "btn-outline-secondary"}`}
+                  style={{ borderRadius: "20px" }}
+                >
+                  {v === "all" ? "הכל" : STATUS_LABELS[v] ? STATUS_LABELS[v].he : v}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Table */}
         {loading && <p style={{ textAlign: "center", color: "#888" }}>טוען...</p>}
         {error   && <div className="alert alert-danger">{error}</div>}
 
-        {!loading && !error && submissions.length === 0 && (
-          <div className="alert alert-info">לא נמצאו שאלונים עם הסינון הנוכחי.</div>
+        {!loading && !error && visibleSubmissions.length === 0 && (
+          <div className="alert alert-info">לא נמצאו שאלונים.</div>
         )}
 
-        {!loading && !error && submissions.length > 0 && (
+        {!loading && !error && visibleSubmissions.length > 0 && (
           <div style={{ background: "#fff", borderRadius: "10px", border: "1px solid #dee2e6", overflow: "hidden" }}>
             <table className="table table-hover mb-0" style={{ direction: "rtl" }}>
               <thead style={{ background: "#6c5ce7", color: "#fff" }}>
                 <tr>
                   {isAdmin ? (
                     <>
-                      <th>מורה</th>
-                      <th>אימייל</th>
+                      <th>שם מורה</th>
+                      <th>משתתף מחקר</th>
                       <th>שאלון</th>
                       <th>תאריך הגשה</th>
                       <th>סטטוס</th>
@@ -123,21 +160,32 @@ export default function AnnotationDashboard({ isAdminView }) {
                     </>
                   ) : (
                     <>
-                      <th>#</th>
+                      <th>משתתף מחקר</th>
                       <th>שאלון</th>
-                      <th>סטטוס</th>
+                      <th>סטטוס הערכה</th>
                     </>
                   )}
                   <th></th>
                 </tr>
               </thead>
               <tbody>
-                {submissions.map((s, idx) => (
+                {visibleSubmissions.map((s) => (
                   <tr key={s.id}>
                     {isAdmin ? (
                       <>
                         <td style={{ fontWeight: 500 }}>{s.teacherName || "—"}</td>
-                        <td style={{ color: "#666", fontSize: "0.9rem" }}>{s.teacherEmail || "—"}</td>
+                        <td>
+                          {s.researchParticipantLabel
+                            ? (
+                              <span
+                                className="badge"
+                                style={{ background: "#6c5ce7", color: "#fff", fontSize: "0.82rem" }}
+                              >
+                                {s.researchParticipantLabel}
+                              </span>
+                            )
+                            : <span style={{ color: "#aaa", fontSize: "0.85rem" }}>—</span>}
+                        </td>
                         <td>
                           <span
                             className={`badge ${TYPE_LABELS[s.testType] ? TYPE_LABELS[s.testType].cls : "bg-secondary"}`}
@@ -167,7 +215,18 @@ export default function AnnotationDashboard({ isAdminView }) {
                       </>
                     ) : (
                       <>
-                        <td style={{ fontWeight: 600, color: "#6c5ce7" }}>{idx + 1}</td>
+                        <td>
+                          {s.researchParticipantLabel
+                            ? (
+                              <span
+                                className="badge fs-6"
+                                style={{ background: "#6c5ce7", color: "#fff" }}
+                              >
+                                {s.researchParticipantLabel}
+                              </span>
+                            )
+                            : <span style={{ color: "#aaa" }}>—</span>}
+                        </td>
                         <td>
                           <span
                             className={`badge ${TYPE_LABELS[s.testType] ? TYPE_LABELS[s.testType].cls : "bg-secondary"}`}
@@ -181,18 +240,18 @@ export default function AnnotationDashboard({ isAdminView }) {
                             className={`badge ${s.annotatedByMe ? "bg-success text-white" : "bg-warning text-dark"}`}
                             style={{ fontSize: "0.85rem" }}
                           >
-                            {s.annotatedByMe ? "הערכת" : "טרם הוערך"}
+                            {s.annotatedByMe ? "הוערך" : "ממתין להערכה"}
                           </span>
                         </td>
                       </>
                     )}
                     <td>
                       <button
-                        className="btn btn-sm btn-outline-primary"
+                        className={`btn btn-sm ${s.annotatedByMe ? "btn-outline-success" : "btn-outline-primary"}`}
                         style={{ borderRadius: "20px" }}
                         onClick={() => navigate(`/admin/annotate/${s.id}`)}
                       >
-                        {isAdmin ? "צפה בהערכה" : s.annotatedByMe ? "ערוך הערכה" : "הערך"}
+                        {isAdmin ? "צפה בהערכה" : s.annotatedByMe ? "צפייה" : "הערך"}
                       </button>
                     </td>
                   </tr>

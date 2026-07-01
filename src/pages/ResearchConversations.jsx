@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { getResearchParticipantsApi, getConversationsByUserApi } from '../services/researchService';
-import { checkTestSubmitted } from '../services/testService';
+import { getSubmissions } from '../services/annotationService';
 import { ConversationDetail } from './ConversationLogs';
 import { PCKSummaryModal } from '../components/PCKSummaryModal';
 
@@ -63,18 +64,34 @@ function getLastActivity(conversations) {
 
 // ─── Participants table ──────────────────────────────────────────────────────
 
-function TestStatusCell({ tests, testKey }) {
-  if (!tests) return <td style={{ textAlign: 'center' }}><span className="text-muted" style={{ fontSize: '0.8rem' }}>—</span></td>;
+/**
+ * Renders a questionnaire action cell.
+ * submissionInfo: { id } | null
+ *   null → questionnaire doesn't exist yet ("חסר")
+ *   otherwise → "צפייה" (opens questionnaire content in read-only mode)
+ */
+function QuestActionCell({ submissionInfo, onNavigate }) {
+  if (!submissionInfo) {
+    return (
+      <td style={{ textAlign: 'center' }}>
+        <span className="text-muted" style={{ fontSize: '0.85rem' }}>חסר</span>
+      </td>
+    );
+  }
   return (
     <td style={{ textAlign: 'center' }}>
-      {tests[testKey]
-        ? <span className="badge bg-success">הושלם</span>
-        : <span className="text-muted" style={{ fontSize: '0.85rem' }}>חסר</span>}
+      <button
+        className="btn btn-sm btn-outline-primary"
+        style={{ borderRadius: '20px', fontSize: '0.8rem', minWidth: '56px' }}
+        onClick={() => onNavigate(submissionInfo.id)}
+      >
+        צפייה
+      </button>
     </td>
   );
 }
 
-function ParticipantsTable({ participants, convMap, testStatuses, onSelectParticipant }) {
+function ParticipantsTable({ participants, convMap, submissionMap, onNavigateToAnnotation, onSelectParticipant }) {
   if (participants.length === 0) {
     return (
       <div className="alert alert-info">
@@ -100,19 +117,19 @@ function ParticipantsTable({ participants, convMap, testStatuses, onSelectPartic
           {participants.map((p) => {
             const convs = convMap[p.id] || [];
             const lastActivity = getLastActivity(convs);
-            const tests = testStatuses[p.id];
+            const subs = submissionMap[p.id] || {};
             return (
               <tr key={p.id}>
                 <td>
-                  <span className="badge fs-6" style={{ background: '#6c5ce7' }}>
+                  <span className="badge fs-6" style={{ background: '#6c5ce7', color: '#fff' }}>
                     {p.researchParticipantLabel}
                   </span>
                 </td>
                 <td style={{ textAlign: 'center' }}>
-                  <span className="badge bg-secondary">{convs.length}</span>
+                  <span className="badge bg-secondary text-white">{convs.length}</span>
                 </td>
-                <TestStatusCell tests={tests} testKey="pre" />
-                <TestStatusCell tests={tests} testKey="post" />
+                <QuestActionCell submissionInfo={subs.pre || null} onNavigate={onNavigateToAnnotation} />
+                <QuestActionCell submissionInfo={subs.post || null} onNavigate={onNavigateToAnnotation} />
                 <td style={{ fontSize: '0.9rem', color: '#555' }}>
                   {formatDateOnly(lastActivity)}
                 </td>
@@ -217,6 +234,7 @@ function Breadcrumb({ view, participant, onGoToParticipants, onGoToConversations
 
 export default function ResearchConversations() {
   const { currentUser } = useAuth();
+  const navigate = useNavigate();
 
   // 'participants' | 'conversations' | 'detail'
   const [view, setView] = useState('participants');
@@ -224,7 +242,8 @@ export default function ResearchConversations() {
   const [participants, setParticipants] = useState([]);
   // All conversations pre-loaded per participant: { [userId]: conversation[] }
   const [convMap, setConvMap] = useState({});
-  const [testStatuses, setTestStatuses] = useState({}); // { [userId]: { pre: bool, post: bool } }
+  // { [userId]: { pre: {id, annotatedByMe}|null, post: {id, annotatedByMe}|null } }
+  const [submissionMap, setSubmissionMap] = useState({});
 
   const [selectedParticipant, setSelectedParticipant] = useState(null);
   const [selectedConversation, setSelectedConversation] = useState(null);
@@ -247,35 +266,41 @@ export default function ResearchConversations() {
       const users = await getResearchParticipantsApi(currentUser.uid);
       setParticipants(users);
 
-      // Pre-load conversations and test statuses for all participants in parallel
       if (users.length > 0) {
-        const [convResults, testResults] = await Promise.all([
+        // Build set of research participant userId values for fast lookup
+        const participantIdSet = new Set(users.map((u) => u.id));
+
+        // Pre-load conversations and all submissions in parallel
+        const [convResults, allSubmissions] = await Promise.all([
           Promise.all(users.map((u) => getConversationsByUserApi(u.id, currentUser.uid))),
-          Promise.all(
-            users.map(async (u) => {
-              const [pre, post] = await Promise.all([
-                checkTestSubmitted(u.id, 'pre'),
-                checkTestSubmitted(u.id, 'post'),
-              ]);
-              return { id: u.id, pre: !!pre.submitted, post: !!post.submitted };
-            })
-          ),
+          getSubmissions(currentUser.uid).catch(() => []),
         ]);
 
-        const convMap = {};
+        const newConvMap = {};
         users.forEach((u, i) => {
-          convMap[u.id] = Array.isArray(convResults[i]) ? convResults[i] : [];
+          newConvMap[u.id] = Array.isArray(convResults[i]) ? convResults[i] : [];
         });
-        setConvMap(convMap);
+        setConvMap(newConvMap);
 
-        const tMap = {};
-        testResults.forEach((r) => { tMap[r.id] = { pre: r.pre, post: r.post }; });
-        setTestStatuses(tMap);
+        // Build submissionMap: only for research participants
+        // { [userId]: { pre: {id, annotatedByMe}|null, post: {id, annotatedByMe}|null } }
+        const sMap = {};
+        users.forEach((u) => { sMap[u.id] = { pre: null, post: null }; });
+        (allSubmissions || []).forEach((s) => {
+          if (participantIdSet.has(s.userId) && (s.testType === 'pre' || s.testType === 'post')) {
+            sMap[s.userId][s.testType] = { id: s.id, annotatedByMe: !!s.annotatedByMe };
+          }
+        });
+        setSubmissionMap(sMap);
       }
     } catch (err) {
       setError(err.message);
     }
     setLoading(false);
+  };
+
+  const handleNavigateToAnnotation = (submissionId) => {
+    navigate(`/admin/annotate/${submissionId}?readonly=true`);
   };
 
   const handleSelectParticipant = (participant) => {
@@ -326,7 +351,7 @@ export default function ResearchConversations() {
         {view === 'participants' && (
           <div style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
             <h2 style={{ color: '#6c5ce7', fontWeight: 700, marginBottom: 0 }}>שיחות מחקר</h2>
-            <span className="badge bg-secondary fs-6">{participants.length} משתתפים</span>
+            <span className="badge bg-secondary text-white fs-6">{participants.length} משתתפים</span>
           </div>
         )}
 
@@ -344,7 +369,8 @@ export default function ResearchConversations() {
           <ParticipantsTable
             participants={participants}
             convMap={convMap}
-            testStatuses={testStatuses}
+            submissionMap={submissionMap}
+            onNavigateToAnnotation={handleNavigateToAnnotation}
             onSelectParticipant={handleSelectParticipant}
           />
         )}

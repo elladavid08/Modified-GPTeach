@@ -211,7 +211,12 @@ async function getTestSubmissions(filters = {}) {
     profileDocs.forEach(doc => {
       if (doc.exists) {
         const d = doc.data();
-        profileMap[doc.id] = { fullName: d.fullName || '', email: d.email || '' };
+        profileMap[doc.id] = {
+          fullName: d.fullName || '',
+          email: d.email || '',
+          researchParticipantLabel: d.researchParticipantLabel || '',
+          showInResearchConversations: !!d.showInResearchConversations,
+        };
       }
     });
 
@@ -224,14 +229,19 @@ async function getTestSubmissions(filters = {}) {
       myAnnotations.forEach(doc => annotatedByMeSet.add(doc.data().submissionId));
     }
 
-    const enriched = submissions.map(s => ({
-      ...s,
-      teacherName:     profileMap[s.userId] ? profileMap[s.userId].fullName  : '',
-      teacherEmail:    profileMap[s.userId] ? profileMap[s.userId].email     : '',
-      submittedAt:     s.submittedAt ? s.submittedAt.toDate().toISOString() : null,
-      annotationCount: s.annotationCount || 0,
-      annotatedByMe:   annotatedByMeSet.has(s.id),
-    }));
+    const enriched = submissions.map(s => {
+      const profile = profileMap[s.userId] || {};
+      return {
+        ...s,
+        teacherName:                profile.fullName || '',
+        teacherEmail:               profile.email || '',
+        researchParticipantLabel:   profile.researchParticipantLabel || '',
+        showInResearchConversations: !!profile.showInResearchConversations,
+        submittedAt:                s.submittedAt ? s.submittedAt.toDate().toISOString() : null,
+        annotationCount:            s.annotationCount || 0,
+        annotatedByMe:              annotatedByMeSet.has(s.id),
+      };
+    });
 
     return { submissions: enriched, error: null };
   } catch (error) {

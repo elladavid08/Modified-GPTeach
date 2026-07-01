@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { PRE_TEST, POST_TEST, PCK_SKILLS } from "../config/testConfig";
 import { getSubmission, getAnnotation, getAllAnnotations, saveAnnotation } from "../services/annotationService";
@@ -424,7 +424,10 @@ export default function AnnotationView() {
   const { submissionId } = useParams();
   const { currentUser, userProfile } = useAuth();
   const navigate                     = useNavigate();
-  const isAdmin = userProfile && userProfile.isAdmin;
+  const [searchParams]               = useSearchParams();
+  const isAdmin    = userProfile && userProfile.isAdmin;
+  // readonly=true: show questionnaire content only, no scoring/save (used from research conversations page)
+  const isReadOnly = searchParams.get('readonly') === 'true';
 
   const [submission, setSubmission]       = useState(null);
   const [scores, setScores]               = useState(buildEmptyScores);
@@ -556,8 +559,11 @@ export default function AnnotationView() {
   if (!submission) return null;
 
   const testConfig = submission.testType === "pre" ? PRE_TEST : POST_TEST;
-  const testLabel  = submission.testType === "pre"  ? "לפני הסימולציה" : "אחרי הסימולציה";
+  const testLabel  = submission.testType === "pre"  ? "שאלון פתיחה" : "שאלון סיום";
   const missing    = countMissingScores();
+
+  // In read-only mode all panels are read-only and no scoring/save is shown
+  const showReadOnly = isAdmin || isReadOnly;
 
   return (
     <div style={{ minHeight: "100vh", background: "#f8f7fc", paddingTop: "80px", paddingBottom: "80px" }}>
@@ -569,21 +575,21 @@ export default function AnnotationView() {
             <button
               className="btn btn-sm btn-outline-secondary"
               style={{ marginBottom: "10px" }}
-              onClick={() => navigate("/admin/annotate")}
+              onClick={() => isReadOnly ? navigate(-1) : navigate("/admin/annotate")}
             >
-              ← חזרה ללוח הבקרה
+              {isReadOnly ? "← חזרה" : "← חזרה ללוח הבקרה"}
             </button>
             <h3 style={{ color: "#6c5ce7", fontWeight: 700, marginBottom: "4px" }}>
-              {isAdmin ? "צפייה בהערכות שאלון" : "הערכת שאלון"} – {testLabel}
+              {isReadOnly ? "צפייה בשאלון" : isAdmin ? "צפייה בהערכות שאלון" : "הערכת שאלון"} – {testLabel}
             </h3>
             {/* Admin sees teacher info; annotators see nothing identifying */}
-            {isAdmin && (
+            {isAdmin && !isReadOnly && (
               <p style={{ color: "#555", marginBottom: 0, fontSize: "0.95rem" }}>
                 {submission.teacherName || "מורה לא ידוע"} &nbsp;|&nbsp; {submission.teacherEmail || ""}
               </p>
             )}
           </div>
-          {!isAdmin && saveSuccess && (
+          {!showReadOnly && saveSuccess && (
             <div className="alert alert-success py-2 px-3 mb-0" style={{ borderRadius: "8px" }}>
               ✓ ההערכה נשמרה בהצלחה
             </div>
@@ -591,14 +597,14 @@ export default function AnnotationView() {
         </div>
 
         {/* Live matrix — shown only to annotators (their own in-progress scores) */}
-        {!isAdmin && <SummaryMatrix scores={scores} />}
+        {!showReadOnly && <SummaryMatrix scores={scores} />}
 
         {/* Admin-only: all annotators' comparison */}
-        {isAdmin && (
+        {isAdmin && !isReadOnly && (
           <ComparisonPanel allAnnotations={allAnnotations} />
         )}
 
-        {/* Scenario panels — always shown; read-only for admin */}
+        {/* Scenario panels — always shown; read-only for admin and readonly mode */}
         {SCENARIO_IDS.map((sid, idx) => {
           const scenarioConfig = testConfig.scenarios && testConfig.scenarios[idx];
           const scenarioAnswer = submission.answers && submission.answers[sid];
@@ -611,13 +617,13 @@ export default function AnnotationView() {
               scenarioScores={scores[sid]}
               onScoreChange={(skillId, val) => handleScoreChange(sid, skillId, val)}
               onExplanationChange={(skillId, val) => handleExplanationChange(sid, skillId, val)}
-              readOnly={isAdmin}
+              readOnly={showReadOnly}
             />
           );
         })}
 
-        {/* Save bar — annotators only */}
-        {!isAdmin && (
+        {/* Save bar — annotators only, not in readonly mode */}
+        {!showReadOnly && (
           <div style={{
             position: "sticky", bottom: "16px", background: "#fff",
             border: "1px solid #dee2e6", borderRadius: "10px",

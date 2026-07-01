@@ -4,8 +4,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { getMyAssignments } from '../services/convAnnotationService';
 
 const STATUS_LABELS = {
-  not_started: { he: 'טרם התחיל',   cls: 'bg-secondary' },
-  draft:       { he: 'טיוטה',       cls: 'bg-warning text-dark' },
+  not_started: { he: 'טרם התחיל',   cls: 'bg-secondary text-white' },
+  draft:       { he: 'טיוטה',       cls: 'bg-warning text-white' },
   completed:   { he: 'הושלם',       cls: 'bg-success text-white' },
 };
 
@@ -53,10 +53,10 @@ export default function ConvAnnotationTasks() {
           <h2 style={{ color: '#6c5ce7', fontWeight: 700 }}>משימות תיוג שיחות</h2>
           {!loading && !error && (
             <div style={{ display: 'flex', gap: '12px', marginTop: '10px', flexWrap: 'wrap' }}>
-              <span className="badge bg-secondary fs-6">סה"כ: {assignments.length}</span>
-              <span className="badge bg-warning text-dark fs-6">טרם התחיל: {notStarted}</span>
-              <span className="badge bg-info text-dark fs-6">טיוטה: {inDraft}</span>
-              <span className="badge bg-success fs-6">הושלם: {done}</span>
+              <span className="badge bg-secondary text-white fs-6">סה"כ: {assignments.length}</span>
+              <span className="badge bg-warning text-white fs-6">טרם התחיל: {notStarted}</span>
+              <span className="badge bg-info text-white fs-6">טיוטה: {inDraft}</span>
+              <span className="badge bg-success text-white fs-6">הושלם: {done}</span>
             </div>
           )}
         </div>
