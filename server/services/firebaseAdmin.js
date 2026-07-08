@@ -723,9 +723,11 @@ async function getAnnotationAssignments(filters = {}) {
     const annotatorIds = [...new Set(assignments.map(a => a.annotatorId))];
     const convIds      = [...new Set(assignments.map(a => a.conversationId))];
 
-    const [annotatorDocs, convDocs] = await Promise.all([
+    const [annotatorDocs, convDocs, annotDocs] = await Promise.all([
       Promise.all(annotatorIds.map(uid => db.collection('users').doc(uid).get())),
       Promise.all(convIds.map(cid => db.collection('conversations').doc(cid).get())),
+      // Annotation doc ID equals assignment ID — batch-fetch for progress indicators
+      Promise.all(assignments.map(a => db.collection('conversationAnnotations').doc(a.id).get())),
     ]);
 
     const nameMap = {};
@@ -738,10 +740,29 @@ async function getAnnotationAssignments(filters = {}) {
       if (d.exists) convMetaMap[d.id] = serializeConversationMeta(d);
     });
 
+    // Summary data from annotation docs (annotated distinct turns + last update time)
+    const annotSummaryMap = {};
+    annotDocs.forEach(d => {
+      if (d.exists) {
+        const data = d.data();
+        const fps = data.feedbackPoints || [];
+        // Count unique turn numbers that have at least one feedback point
+        const annotatedTurnCount = new Set(
+          fps.map(fp => fp.turnNumber).filter(n => n != null)
+        ).size;
+        annotSummaryMap[d.id] = {
+          annotatedTurnCount,
+          annotationUpdatedAt: tsToStr(data.updatedAt),
+        };
+      }
+    });
+
     const enriched = assignments.map(a => ({
       ...a,
-      annotatorName: nameMap[a.annotatorId] || a.annotatorId,
-      convMeta:      convMetaMap[a.conversationId] || null,
+      annotatorName:       nameMap[a.annotatorId] || a.annotatorId,
+      convMeta:            convMetaMap[a.conversationId] || null,
+      annotatedTurnCount:  annotSummaryMap[a.id] ? annotSummaryMap[a.id].annotatedTurnCount  : 0,
+      annotationUpdatedAt: annotSummaryMap[a.id] ? annotSummaryMap[a.id].annotationUpdatedAt : null,
     }));
 
     enriched.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
@@ -1024,6 +1045,722 @@ async function exportConvAnnotations() {
   }
 }
 
+// ─── Agreement Analysis ──────────────────────────────────────────────────────
+
+/** Build an admin-enriched two-line conversation label for reports and disagreements.
+ *  Line 1: scenario title (up to 70 chars)
+ *  Line 2: userName · date  (if available)
+ *  Returns a single string with '\n' separator so the frontend can split and style each line. */
+function buildAdminConvLabel(convMeta, convId) {
+  const title = (convMeta && convMeta.scenario && convMeta.scenario.text)
+    ? convMeta.scenario.text.slice(0, 70)
+    : (convId || '').slice(0, 12);
+
+  const userName = (convMeta && convMeta.userSnapshot && convMeta.userSnapshot.fullName)
+    || (convMeta && convMeta.userId ? convMeta.userId.slice(0, 8) : null);
+
+  const rawDate = convMeta && (convMeta.startedAt || convMeta.startTime);
+  let dateStr = null;
+  if (rawDate) {
+    try {
+      const d = new Date(typeof rawDate === 'string' ? rawDate : rawDate.toDate ? rawDate.toDate() : rawDate);
+      if (!isNaN(d.getTime())) {
+        const dd = String(d.getDate()).padStart(2, '0');
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const yyyy = d.getFullYear();
+        dateStr = `${dd}.${mm}.${yyyy}`;
+      }
+    } catch { /* ignore */ }
+  }
+
+  const subtitle = [userName, dateStr].filter(Boolean).join(' · ');
+  return subtitle ? `${title}\n${subtitle}` : title;
+}
+
+const AGREEMENT_PCK_SKILLS = [
+  { id: 'p1', label: 'זיהוי השגיאה' },
+  { id: 'p2', label: 'אפיון השגיאה' },
+  { id: 'p3', label: 'פרשנות' },
+  { id: 'p4', label: 'תגובה פדגוגית' },
+  { id: 'p5', label: 'מינוף' },
+];
+
+/** Extract the score for a specific PCK dimension from a list of feedback points
+ *  (handles both new dimensionFeedback format and legacy scores object). */
+function getScoreForDim(fps, dimId) {
+  for (const fp of fps) {
+    if (fp.dimensionFeedback && fp.dimensionFeedback[dimId] != null &&
+        fp.dimensionFeedback[dimId].score != null) {
+      return fp.dimensionFeedback[dimId].score;
+    }
+    if (fp.scores && fp.scores[dimId] != null) return fp.scores[dimId];
+  }
+  return null;
+}
+
+function round2(n) { return Math.round(n * 100) / 100; }
+
+/** Cohen's kappa for binary (yes/no) outcomes. */
+function cohensKappaBinary(bothYes, bothNo, onlyA, onlyB) {
+  const total = bothYes + bothNo + onlyA + onlyB;
+  if (total === 0) return null;
+  const pO = (bothYes + bothNo) / total;
+  const pA = (bothYes + onlyA) / total;
+  const pB = (bothYes + onlyB) / total;
+  const pE = pA * pB + (1 - pA) * (1 - pB);
+  if (1 - pE < 0.0001) return 1.0;
+  return round2((pO - pE) / (1 - pE));
+}
+
+/** Linearly weighted Cohen's kappa for ordinal 0/1/2 scores. */
+function weightedKappaLinear(matrix) {
+  const n = 3; const maxDiff = 2;
+  let total = 0;
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) total += matrix[i][j];
+  if (total === 0) return null;
+  const rowM = Array(n).fill(0), colM = Array(n).fill(0);
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) { rowM[i] += matrix[i][j]; colM[j] += matrix[i][j]; }
+  let wObs = 0, wExp = 0;
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    const w = 1 - Math.abs(i - j) / maxDiff;
+    wObs += w * matrix[i][j] / total;
+    wExp += w * (rowM[i] / total) * (colM[j] / total);
+  }
+  if (1 - wExp < 0.0001) return 1.0;
+  return round2((wObs - wExp) / (1 - wExp));
+}
+
+/**
+ * Returns conversations that have ≥2 completed reliability assignments,
+ * enriched with annotator names and assignment IDs.
+ */
+async function getEligibleAgreementConversations() {
+  try {
+    const snap = await db.collection('conversationAnnotationAssignments')
+      .where('assignmentType', '==', 'reliability')
+      .where('status', '==', 'completed')
+      .get();
+
+    if (snap.empty) return { conversations: [], error: null };
+
+    const byConv = {};
+    snap.docs.forEach(doc => {
+      const d = doc.data();
+      if (!byConv[d.conversationId]) byConv[d.conversationId] = [];
+      byConv[d.conversationId].push({ id: doc.id, annotatorId: d.annotatorId, completedAt: tsToStr(d.completedAt) });
+    });
+
+    const eligible = Object.entries(byConv)
+      .filter(([, a]) => a.length >= 2)
+      .map(([convId, assignments]) => ({ conversationId: convId, assignments }));
+
+    if (eligible.length === 0) return { conversations: [], error: null };
+
+    const convIds       = eligible.map(e => e.conversationId);
+    const allAnnotatorIds = [...new Set(eligible.flatMap(e => e.assignments.map(a => a.annotatorId)))];
+
+    const [convDocs, annotatorDocs] = await Promise.all([
+      Promise.all(convIds.map(id => db.collection('conversations').doc(id).get())),
+      Promise.all(allAnnotatorIds.map(id => db.collection('users').doc(id).get())),
+    ]);
+
+    const convMetaMap = {};
+    convDocs.forEach(d => { if (d.exists) convMetaMap[d.id] = serializeConversationMeta(d); });
+
+    const nameMap = {};
+    annotatorDocs.forEach(d => {
+      if (d.exists) nameMap[d.id] = d.data().fullName || d.data().email || d.id;
+    });
+
+    const conversations = eligible.map(e => ({
+      conversationId: e.conversationId,
+      convMeta: convMetaMap[e.conversationId] || null,
+      completedBy: e.assignments.map(a => ({
+        annotatorId: a.annotatorId,
+        annotatorName: nameMap[a.annotatorId] || a.annotatorId,
+        assignmentId: a.id,
+        completedAt: a.completedAt,
+      })),
+    }));
+
+    return { conversations, error: null };
+  } catch (error) {
+    console.error('❌ Error getting eligible agreement conversations:', error);
+    return { conversations: [], error: error.message };
+  }
+}
+
+/** List all saved agreement reports (summary fields only). */
+async function getAgreementReports() {
+  try {
+    const snap = await db.collection('annotationAgreementReports')
+      .orderBy('createdAt', 'desc')
+      .get();
+
+    const reports = snap.docs.map(doc => {
+      const d = doc.data();
+      return {
+        id: doc.id,
+        reportName: d.reportName || '—',
+        createdAt: tsToStr(d.createdAt),
+        createdBy: d.createdBy || '',
+        conversationIds: d.conversationIds || [],
+        annotatorIds: d.annotatorIds || [],
+        annotatorNames: d.annotatorNames || {},
+        summaryLocationKappa:
+          d.metrics && d.metrics.locationAgreement ? d.metrics.locationAgreement.cohensKappa : null,
+        summaryAvgDimKappa:
+          d.metrics && d.metrics.summary ? d.metrics.summary.avgDimensionKappa : null,
+      };
+    });
+
+    return { reports, error: null };
+  } catch (error) {
+    console.error('❌ Error getting agreement reports:', error);
+    return { reports: [], error: error.message };
+  }
+}
+
+/** Get a single agreement report with full metrics. */
+async function getAgreementReport(reportId) {
+  try {
+    const doc = await db.collection('annotationAgreementReports').doc(reportId).get();
+    if (!doc.exists) return { report: null, error: 'not_found' };
+    const d = doc.data();
+
+    // Enrich disagreements that are missing convLabel (e.g. reports saved before this field existed)
+    const disagreements = d.disagreements || [];
+    const needsEnrichment = disagreements.some(dis => !dis.convLabel);
+    let enrichedDisagreements = disagreements;
+
+    if (needsEnrichment && d.conversationIds && d.conversationIds.length > 0) {
+      const convDocs = await Promise.all(
+        d.conversationIds.map(id => db.collection('conversations').doc(id).get())
+      );
+      const convLabelMap = {};
+      convDocs.forEach(convDoc => {
+        if (convDoc.exists) {
+          convLabelMap[convDoc.id] = buildAdminConvLabel(serializeConversationMeta(convDoc), convDoc.id);
+        }
+      });
+      enrichedDisagreements = disagreements.map(dis => ({
+        ...dis,
+        convLabel: dis.convLabel || convLabelMap[dis.conversationId] || null,
+      }));
+    }
+
+    return {
+      report: {
+        id: doc.id, ...d,
+        disagreements: enrichedDisagreements,
+        createdAt: tsToStr(d.createdAt),
+        updatedAt: tsToStr(d.updatedAt),
+      },
+      error: null,
+    };
+  } catch (error) {
+    console.error('❌ Error getting agreement report:', error);
+    return { report: null, error: error.message };
+  }
+}
+
+/**
+ * Compute pairwise inter-rater agreement metrics for exactly two annotators
+ * across the selected conversations, then persist as a new report document.
+ *
+ * @param {{ reportName, conversationIds, annotatorIds, includedAssignmentIds }} params
+ * @param {string} adminId
+ */
+async function computeAndSaveAgreementReport(
+  { reportName, conversationIds, annotatorIds, includedAssignmentIds },
+  adminId
+) {
+  try {
+    const [uidA, uidB] = annotatorIds;
+
+    const [convDocs, annotDocs, assignDocs, annotatorUserDocs] = await Promise.all([
+      Promise.all(conversationIds.map(id => db.collection('conversations').doc(id).get())),
+      Promise.all(includedAssignmentIds.map(id => db.collection('conversationAnnotations').doc(id).get())),
+      Promise.all(includedAssignmentIds.map(id => db.collection('conversationAnnotationAssignments').doc(id).get())),
+      Promise.all(annotatorIds.map(id => db.collection('users').doc(id).get())),
+    ]);
+
+    // Name map
+    const nameMap = {};
+    annotatorUserDocs.forEach(d => {
+      if (d.exists) nameMap[d.id] = d.data().fullName || d.data().email || d.id;
+    });
+    const annotatorNames = { [uidA]: nameMap[uidA] || uidA, [uidB]: nameMap[uidB] || uidB };
+    const nameA = annotatorNames[uidA], nameB = annotatorNames[uidB];
+
+    // Conversation data
+    const convDataMap = {};
+    convDocs.forEach(d => {
+      if (d.exists) {
+        const data = d.data();
+        convDataMap[d.id] = {
+          turns: (data.turns || []).sort((a, b) => (a.turnNumber || 0) - (b.turnNumber || 0)),
+          convMeta: serializeConversationMeta(d),
+        };
+      }
+    });
+
+    // Map assignmentId -> { annotatorId, conversationId }
+    const assignMetaMap = {};
+    assignDocs.forEach(d => {
+      if (d.exists) {
+        const data = d.data();
+        assignMetaMap[d.id] = { annotatorId: data.annotatorId, conversationId: data.conversationId };
+      }
+    });
+
+    // Map `${convId}:${annotatorId}` -> feedbackPoints[]
+    const fpMap = {};
+    annotDocs.forEach(d => {
+      if (d.exists) {
+        const data = d.data();
+        const meta = assignMetaMap[d.id];
+        if (meta) fpMap[`${meta.conversationId}:${meta.annotatorId}`] = data.feedbackPoints || [];
+      }
+    });
+
+    // ── Compute metrics ─────────────────────────────────────────────────────
+    const locAgg = { bothMarked: 0, neitherMarked: 0, onlyA: 0, onlyB: 0 };
+    const dimAgg = {}, scoreAgg = {};
+    AGREEMENT_PCK_SKILLS.forEach(({ id }) => {
+      dimAgg[id]   = { bothSelected: 0, neitherSelected: 0, onlyA: 0, onlyB: 0, turnsAnalyzed: 0 };
+      scoreAgg[id] = { confusionMatrix: [[0,0,0],[0,0,0],[0,0,0]], cases: 0, exactMatch: 0, totalDiff: 0 };
+    });
+    const disagreements = [];
+    let totalTeacherTurns = 0;
+
+    // Only include conversations where we have data for BOTH annotators
+    const analysisCovIds = conversationIds.filter(
+      cid => fpMap[`${cid}:${uidA}`] !== undefined || fpMap[`${cid}:${uidB}`] !== undefined
+    );
+
+    for (const convId of analysisCovIds) {
+      const conv = convDataMap[convId];
+      if (!conv || !conv.turns || conv.turns.length === 0) continue;
+
+      const fpA = fpMap[`${convId}:${uidA}`] || [];
+      const fpB = fpMap[`${convId}:${uidB}`] || [];
+
+      const scenarioTitle = (conv.convMeta && conv.convMeta.scenario && conv.convMeta.scenario.text)
+        ? conv.convMeta.scenario.text.slice(0, 65)
+        : convId.slice(0, 12);
+      // Admin-enriched label (scenario title + userName + date, '\n'-separated)
+      const convLabel = buildAdminConvLabel(conv.convMeta, convId);
+
+      const turnsA = new Set(fpA.map(fp => fp.turnNumber).filter(n => n != null));
+      const turnsB = new Set(fpB.map(fp => fp.turnNumber).filter(n => n != null));
+
+      for (const turn of conv.turns) {
+        const turnNum = turn.turnNumber;
+        if (turnNum == null) continue;
+        totalTeacherTurns++;
+
+        const aMarked = turnsA.has(turnNum), bMarked = turnsB.has(turnNum);
+
+        // ── Location ─────────────────────────────────────────────────────────
+        if (aMarked && bMarked) {
+          locAgg.bothMarked++;
+        } else if (!aMarked && !bMarked) {
+          locAgg.neitherMarked++;
+        } else if (aMarked) {
+          locAgg.onlyA++;
+          disagreements.push({ conversationId: convId, scenarioTitle, convLabel, turnNumber: turnNum, type: 'location', details: `נקודת משוב סומנה רק על ידי ${nameA}` });
+        } else {
+          locAgg.onlyB++;
+          disagreements.push({ conversationId: convId, scenarioTitle, convLabel, turnNumber: turnNum, type: 'location', details: `נקודת משוב סומנה רק על ידי ${nameB}` });
+        }
+
+        // ── Dimension + score (only for turns where at least one marked) ──────
+        if (aMarked || bMarked) {
+          const fpAT = fpA.filter(fp => fp.turnNumber === turnNum);
+          const fpBT = fpB.filter(fp => fp.turnNumber === turnNum);
+          const dimsA = new Set(fpAT.flatMap(fp => fp.selectedDimensions || []));
+          const dimsB = new Set(fpBT.flatMap(fp => fp.selectedDimensions || []));
+
+          for (const { id: dimId, label: dimLabel } of AGREEMENT_PCK_SKILLS) {
+            const aSelected = dimsA.has(dimId), bSelected = dimsB.has(dimId);
+            dimAgg[dimId].turnsAnalyzed++;
+
+            if (aSelected && bSelected)      dimAgg[dimId].bothSelected++;
+            else if (!aSelected && !bSelected) dimAgg[dimId].neitherSelected++;
+            else if (aSelected) {
+              dimAgg[dimId].onlyA++;
+              disagreements.push({ conversationId: convId, scenarioTitle, convLabel, turnNumber: turnNum, type: 'dimension', details: `הממד ${dimLabel} סומן רק על ידי ${nameA}` });
+            } else {
+              dimAgg[dimId].onlyB++;
+              disagreements.push({ conversationId: convId, scenarioTitle, convLabel, turnNumber: turnNum, type: 'dimension', details: `הממד ${dimLabel} סומן רק על ידי ${nameB}` });
+            }
+
+            // Score comparison only when both selected this dimension
+            if (aSelected && bSelected) {
+              const scoreA = getScoreForDim(fpAT, dimId);
+              const scoreB = getScoreForDim(fpBT, dimId);
+              if (scoreA != null && scoreB != null) {
+                scoreAgg[dimId].cases++;
+                if (scoreA === scoreB) scoreAgg[dimId].exactMatch++;
+                scoreAgg[dimId].totalDiff += Math.abs(scoreA - scoreB);
+                scoreAgg[dimId].confusionMatrix[scoreA][scoreB]++;
+                if (scoreA !== scoreB) {
+                  disagreements.push({ conversationId: convId, scenarioTitle, convLabel, turnNumber: turnNum, type: 'score', details: `${dimLabel}: ציון ${scoreA} אצל ${nameA}, ציון ${scoreB} אצל ${nameB}` });
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // ── Aggregate into report metrics ────────────────────────────────────────
+    const locTotal = locAgg.bothMarked + locAgg.neitherMarked + locAgg.onlyA + locAgg.onlyB;
+    const locationAgreement = {
+      ...locAgg,
+      totalTurns: locTotal,
+      percentAgreement: locTotal > 0 ? round2((locAgg.bothMarked + locAgg.neitherMarked) / locTotal) : null,
+      cohensKappa: cohensKappaBinary(locAgg.bothMarked, locAgg.neitherMarked, locAgg.onlyA, locAgg.onlyB),
+    };
+
+    const dimensionAgreement = {};
+    const dimKappas = [];
+    AGREEMENT_PCK_SKILLS.forEach(({ id: dimId, label }) => {
+      const d = dimAgg[dimId];
+      const pct = d.turnsAnalyzed > 0 ? round2((d.bothSelected + d.neitherSelected) / d.turnsAnalyzed) : null;
+      const kappa = cohensKappaBinary(d.bothSelected, d.neitherSelected, d.onlyA, d.onlyB);
+      dimensionAgreement[dimId] = { label, ...d, percentAgreement: pct, cohensKappa: kappa };
+      if (kappa != null) dimKappas.push({ id: dimId, label, kappa });
+    });
+
+    const scoreAgreement = {};
+    const wKappas = [];
+    AGREEMENT_PCK_SKILLS.forEach(({ id: dimId, label }) => {
+      const s = scoreAgg[dimId];
+      const wk = weightedKappaLinear(s.confusionMatrix);
+      scoreAgreement[dimId] = {
+        label,
+        comparableCases: s.cases,
+        exactAgreement:        s.cases > 0 ? s.exactMatch  : 0,
+        exactAgreementPercent: s.cases > 0 ? round2(s.exactMatch / s.cases) : null,
+        meanAbsoluteDiff:      s.cases > 0 ? round2(s.totalDiff / s.cases)  : null,
+        weightedKappa: wk,
+        // Firestore doesn't support arrays-of-arrays; flatten to row-major 9-element array
+        confusionMatrix: s.confusionMatrix.flat(),
+      };
+      if (wk != null) wKappas.push(wk);
+    });
+
+    const mostDisagreedDim = AGREEMENT_PCK_SKILLS.reduce((worst, { id, label }) => {
+      const cnt = dimAgg[id].onlyA + dimAgg[id].onlyB;
+      return (!worst || cnt > worst.count) ? { id, label, count: cnt } : worst;
+    }, null);
+
+    const avgDimKappas = dimKappas.filter(d => d.kappa != null);
+    const metrics = {
+      totalConversations: analysisCovIds.length,
+      totalTeacherTurns,
+      locationAgreement,
+      dimensionAgreement,
+      scoreAgreement,
+      summary: {
+        avgDimensionKappa: avgDimKappas.length > 0
+          ? round2(avgDimKappas.reduce((s, d) => s + d.kappa, 0) / avgDimKappas.length) : null,
+        avgWeightedKappa: wKappas.length > 0
+          ? round2(wKappas.reduce((s, k) => s + k, 0) / wKappas.length) : null,
+        mostDisagreedDimension: mostDisagreedDim
+          ? `${mostDisagreedDim.label} (${mostDisagreedDim.count} חוסר הסכמות)` : null,
+      },
+    };
+
+    const reportData = {
+      reportName: reportName || `דוח הסכמה – ${new Date().toLocaleDateString('he-IL')}`,
+      createdBy: adminId,
+      assignmentType: 'reliability',
+      conversationIds,
+      annotatorIds,
+      annotatorNames,
+      includedAssignmentIds,
+      metrics,
+      disagreements: disagreements.slice(0, 1000),
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    const docRef = await db.collection('annotationAgreementReports').add(reportData);
+
+    return {
+      reportId: docRef.id,
+      report: { id: docRef.id, ...reportData, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      error: null,
+    };
+  } catch (error) {
+    console.error('❌ Error computing agreement report:', error);
+    return { reportId: null, report: null, error: error.message };
+  }
+}
+
+// ─── Annotation Comparison Sets ──────────────────────────────────────────────
+
+/**
+ * Returns all conversations that have ≥2 completed assignments (any type),
+ * enriched with conv metadata and annotator names.
+ */
+async function getConversationsWithCompletedPairs() {
+  try {
+    const snap = await db.collection('conversationAnnotationAssignments')
+      .where('status', '==', 'completed')
+      .get();
+
+    if (snap.empty) return { conversations: [], error: null };
+
+    const byConv = {};
+    snap.docs.forEach(doc => {
+      const d = doc.data();
+      if (!byConv[d.conversationId]) byConv[d.conversationId] = [];
+      byConv[d.conversationId].push({
+        id: doc.id, annotatorId: d.annotatorId,
+        assignmentType: d.assignmentType, completedAt: tsToStr(d.completedAt),
+      });
+    });
+
+    const eligible = Object.entries(byConv)
+      .filter(([, a]) => a.length >= 2)
+      .map(([convId, assignments]) => ({ conversationId: convId, assignments }));
+
+    if (eligible.length === 0) return { conversations: [], error: null };
+
+    const convIds        = eligible.map(e => e.conversationId);
+    const allAnnotatorIds = [...new Set(eligible.flatMap(e => e.assignments.map(a => a.annotatorId)))];
+
+    const [convDocs, annotatorDocs] = await Promise.all([
+      Promise.all(convIds.map(id => db.collection('conversations').doc(id).get())),
+      Promise.all(allAnnotatorIds.map(id => db.collection('users').doc(id).get())),
+    ]);
+
+    const convMetaMap = {};
+    convDocs.forEach(d => { if (d.exists) convMetaMap[d.id] = serializeConversationMeta(d); });
+
+    const nameMap = {};
+    annotatorDocs.forEach(d => {
+      if (d.exists) nameMap[d.id] = d.data().fullName || d.data().email || d.id;
+    });
+
+    const TYPE_LABELS_MAP = {
+      reliability: 'בדיקת הסכמה', production: 'תיוג רגיל', double_coded: 'תיוג כפול',
+    };
+
+    return {
+      conversations: eligible.map(e => ({
+        conversationId: e.conversationId,
+        convMeta: convMetaMap[e.conversationId] || null,
+        completedAssignments: e.assignments.map(a => ({
+          assignmentId: a.id,
+          annotatorId:  a.annotatorId,
+          annotatorName: nameMap[a.annotatorId] || a.annotatorId,
+          assignmentType: a.assignmentType,
+          typeLabel: TYPE_LABELS_MAP[a.assignmentType] || a.assignmentType,
+          completedAt: a.completedAt,
+        })),
+      })),
+      error: null,
+    };
+  } catch (error) {
+    console.error('❌ Error getting conversations with completed pairs:', error);
+    return { conversations: [], error: error.message };
+  }
+}
+
+async function createComparisonSet({ title, description, items, visibleToAnnotators }, adminId) {
+  try {
+    const data = {
+      title: title || 'סט השוואה חדש',
+      description: description || null,
+      visibleToAnnotators: visibleToAnnotators === true,
+      items: (items || []).map(item => ({
+        conversationId: item.conversationId,
+        assignmentIds: item.assignmentIds || [],
+      })),
+      createdBy: adminId,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    const ref = await db.collection('annotationComparisonSets').add(data);
+    return { setId: ref.id, error: null };
+  } catch (error) {
+    console.error('❌ Error creating comparison set:', error);
+    return { setId: null, error: error.message };
+  }
+}
+
+async function updateComparisonSet(setId, updates) {
+  try {
+    const allowed = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
+    if (updates.title             !== undefined) allowed.title             = updates.title;
+    if (updates.description       !== undefined) allowed.description       = updates.description;
+    if (updates.items             !== undefined) allowed.items             = updates.items;
+    if (updates.visibleToAnnotators !== undefined) allowed.visibleToAnnotators = updates.visibleToAnnotators;
+    await db.collection('annotationComparisonSets').doc(setId).update(allowed);
+    return { error: null };
+  } catch (error) {
+    console.error('❌ Error updating comparison set:', error);
+    return { error: error.message };
+  }
+}
+
+async function deleteComparisonSet(setId) {
+  try {
+    await db.collection('annotationComparisonSets').doc(setId).delete();
+    return { error: null };
+  } catch (error) {
+    console.error('❌ Error deleting comparison set:', error);
+    return { error: error.message };
+  }
+}
+
+async function getComparisonSets(isAdmin) {
+  try {
+    // Fetch all documents without a compound filter+orderBy to avoid requiring a composite index.
+    // Filter and sort in JS instead.
+    const snap = await db.collection('annotationComparisonSets').get();
+    let sets = snap.docs
+      .map(doc => {
+        const d = doc.data();
+        return {
+          id: doc.id,
+          title: d.title || '—',
+          description: d.description || null,
+          visibleToAnnotators: !!d.visibleToAnnotators,
+          createdAt: tsToStr(d.createdAt),
+          itemCount: (d.items || []).length,
+          _createdAtRaw: d.createdAt && d.createdAt.toMillis ? d.createdAt.toMillis() : 0,
+        };
+      })
+      .filter(s => isAdmin || s.visibleToAnnotators)
+      .sort((a, b) => b._createdAtRaw - a._createdAtRaw)
+      .map(({ _createdAtRaw, ...s }) => s); // strip internal sort key
+
+    return { sets, error: null };
+  } catch (error) {
+    console.error('❌ Error getting comparison sets:', error);
+    return { sets: [], error: error.message };
+  }
+}
+
+async function getComparisonSetDetail(setId, isAdmin) {
+  try {
+    const doc = await db.collection('annotationComparisonSets').doc(setId).get();
+    if (!doc.exists) return { set: null, error: 'not_found' };
+    const d = doc.data();
+    if (!isAdmin && !d.visibleToAnnotators) return { set: null, error: 'access_denied' };
+
+    const items    = d.items || [];
+    const convIds  = [...new Set(items.map(item => item.conversationId))];
+    const allAsgIds = [...new Set(items.flatMap(item => item.assignmentIds || []))];
+
+    const [convDocs, asgDocs] = await Promise.all([
+      Promise.all(convIds.map(id => db.collection('conversations').doc(id).get())),
+      allAsgIds.length > 0
+        ? Promise.all(allAsgIds.map(id => db.collection('conversationAnnotationAssignments').doc(id).get()))
+        : Promise.resolve([]),
+    ]);
+
+    const convMetaMap = {};
+    convDocs.forEach(d => { if (d.exists) convMetaMap[d.id] = serializeConversationMeta(d); });
+
+    // Build annotatorId → name map (needed for both admin and annotator views — show annotator names)
+    const annotatorIds = [...new Set(asgDocs.filter(d => d.exists).map(d => d.data().annotatorId))];
+    const userDocs     = annotatorIds.length > 0
+      ? await Promise.all(annotatorIds.map(id => db.collection('users').doc(id).get()))
+      : [];
+    const nameMap = {};
+    userDocs.forEach(d => { if (d.exists) nameMap[d.id] = d.data().fullName || d.data().email || d.id; });
+    // Map assignmentId → annotatorName
+    const asgNameMap = {};
+    asgDocs.forEach(d => {
+      if (d.exists) asgNameMap[d.id] = nameMap[d.data().annotatorId] || d.data().annotatorId;
+    });
+
+    return {
+      set: {
+        id: doc.id,
+        title: d.title,
+        description: d.description || null,
+        visibleToAnnotators: !!d.visibleToAnnotators,
+        createdAt: tsToStr(d.createdAt),
+        updatedAt: tsToStr(d.updatedAt),
+        items: items.map((item, idx) => ({
+          ...item,
+          itemIndex: idx,
+          convMeta: convMetaMap[item.conversationId] || null,
+          annotatorNames: (item.assignmentIds || []).map(aid => asgNameMap[aid] || aid),
+        })),
+      },
+      error: null,
+    };
+  } catch (error) {
+    console.error('❌ Error getting comparison set detail:', error);
+    return { set: null, error: error.message };
+  }
+}
+
+/** Fetch full comparison data for one conversation pair of assignments.
+ *  Requires either admin or annotator role. */
+async function getComparisonData(conversationId, assignmentIdA, assignmentIdB, requesterId, isAdmin) {
+  try {
+    if (!isAdmin) {
+      const { isAnnotator } = await verifyAnnotator(requesterId);
+      if (!isAnnotator) return { data: null, error: 'access_denied' };
+    }
+
+    const [convDoc, annotDocA, annotDocB, asgDocA, asgDocB] = await Promise.all([
+      db.collection('conversations').doc(conversationId).get(),
+      db.collection('conversationAnnotations').doc(assignmentIdA).get(),
+      db.collection('conversationAnnotations').doc(assignmentIdB).get(),
+      db.collection('conversationAnnotationAssignments').doc(assignmentIdA).get(),
+      db.collection('conversationAnnotationAssignments').doc(assignmentIdB).get(),
+    ]);
+
+    if (!convDoc.exists) return { data: null, error: 'conversation_not_found' };
+
+    const convData = convDoc.data();
+    const annotatorIdA = asgDocA.exists ? asgDocA.data().annotatorId : null;
+    const annotatorIdB = asgDocB.exists ? asgDocB.data().annotatorId : null;
+
+    const uidSet = [...new Set([annotatorIdA, annotatorIdB].filter(Boolean))];
+    const userDocs = await Promise.all(uidSet.map(id => db.collection('users').doc(id).get()));
+    const nameMap = {};
+    userDocs.forEach(d => { if (d.exists) nameMap[d.id] = d.data().fullName || d.data().email || d.id; });
+
+    return {
+      data: {
+        conv: {
+          id: convDoc.id,
+          turns: (convData.turns || []).sort((a, b) => (a.turnNumber || 0) - (b.turnNumber || 0)),
+          convMeta: serializeConversationMeta(convDoc),
+        },
+        annotatorA: {
+          id: annotatorIdA,
+          name: annotatorIdA ? (nameMap[annotatorIdA] || annotatorIdA) : '—',
+          feedbackPoints: annotDocA.exists ? (annotDocA.data().feedbackPoints || []) : [],
+          generalComment: annotDocA.exists ? (annotDocA.data().generalComment || null) : null,
+        },
+        annotatorB: {
+          id: annotatorIdB,
+          name: annotatorIdB ? (nameMap[annotatorIdB] || annotatorIdB) : '—',
+          feedbackPoints: annotDocB.exists ? (annotDocB.data().feedbackPoints || []) : [],
+          generalComment: annotDocB.exists ? (annotDocB.data().generalComment || null) : null,
+        },
+      },
+      error: null,
+    };
+  } catch (error) {
+    console.error('❌ Error getting comparison data:', error);
+    return { data: null, error: error.message };
+  }
+}
+
 /**
  * Delete an assignment (admin only).
  * Also deletes the linked annotation document if one exists.
@@ -1048,6 +1785,213 @@ async function cancelAnnotationAssignment(assignmentId) {
   } catch (error) {
     console.error('❌ Error deleting assignment:', error);
     return { error: error.message };
+  }
+}
+
+// ─── Consensus annotation helpers (private) ──────────────────────────────────
+
+/**
+ * Resolve the caller's role from Firestore. Never trust a flag from the client.
+ * Returns { isAnnotator, isAdmin, error }.
+ */
+async function resolveCallerRole(requesterId) {
+  const [annotatorResult, adminResult] = await Promise.all([
+    verifyAnnotator(requesterId),
+    verifyAdmin(requesterId),
+  ]);
+  return {
+    isAnnotator: annotatorResult.isAnnotator,
+    isAdmin: adminResult.isAdmin,
+    error: annotatorResult.error || adminResult.error || null,
+  };
+}
+
+/**
+ * Verify that comparisonSetId exists, conversationId is one of its items, and
+ * (optionally) the provided assignmentIds match the stored item.
+ * Returns { ok, error, set, item }.
+ * @param {string|null} providedAssignmentIds - pass null to skip the assignment-ID check.
+ */
+async function verifyComparisonSetItem(comparisonSetId, conversationId, providedAssignmentIds) {
+  const setDoc = await db.collection('annotationComparisonSets').doc(comparisonSetId).get();
+  if (!setDoc.exists) return { ok: false, error: 'comparison_set_not_found', set: null, item: null };
+  const setData = setDoc.data();
+  const item = (setData.items || []).find(i => i.conversationId === conversationId);
+  if (!item) return { ok: false, error: 'conversation_not_in_set', set: setData, item: null };
+  if (providedAssignmentIds) {
+    const provided = [...providedAssignmentIds].sort().join(',');
+    const expected = [...(item.assignmentIds || [])].sort().join(',');
+    if (provided !== expected) return { ok: false, error: 'assignment_ids_mismatch', set: setData, item };
+  }
+  return { ok: true, set: setData, item };
+}
+
+/**
+ * Build a Map<turnNumber, Set<dimId>> from the union of both source annotation docs.
+ * Used to enforce that consensus can only reference dims selected by either annotator.
+ */
+async function buildAllowedDimsMap(assignmentIdA, assignmentIdB) {
+  const [docA, docB] = await Promise.all([
+    db.collection('conversationAnnotations').doc(assignmentIdA).get(),
+    db.collection('conversationAnnotations').doc(assignmentIdB).get(),
+  ]);
+  const fpA = docA.exists ? (docA.data().feedbackPoints || []) : [];
+  const fpB = docB.exists ? (docB.data().feedbackPoints || []) : [];
+  const map = new Map();
+  for (const fp of [...fpA, ...fpB]) {
+    const tn = fp.turnNumber;
+    if (!map.has(tn)) map.set(tn, new Set());
+    for (const d of (fp.selectedDimensions || [])) map.get(tn).add(d);
+  }
+  return map;
+}
+
+// ─── Consensus annotation: public functions ───────────────────────────────────
+
+/**
+ * Get the consensus annotation doc (or null if not yet created).
+ * Annotators can only access sets with visibleToAnnotators === true.
+ * Consensus doc ID: comparisonSetId + '__' + conversationId  (double underscore).
+ * Returns { consensus, error }.
+ */
+async function getConsensusAnnotation(comparisonSetId, conversationId, requesterId) {
+  try {
+    const { isAnnotator, isAdmin } = await resolveCallerRole(requesterId);
+    if (!isAnnotator && !isAdmin) return { consensus: null, error: 'access_denied' };
+
+    if (!isAdmin) {
+      const setDoc = await db.collection('annotationComparisonSets').doc(comparisonSetId).get();
+      if (!setDoc.exists || !setDoc.data().visibleToAnnotators) {
+        return { consensus: null, error: 'set_not_visible' };
+      }
+    }
+
+    const consensusId = `${comparisonSetId}__${conversationId}`;
+    const doc = await db.collection('conversationConsensusAnnotations').doc(consensusId).get();
+    return {
+      consensus: doc.exists
+        ? { consensusId, ...doc.data(), updatedAt: tsToStr(doc.data().updatedAt), submittedAt: tsToStr(doc.data().submittedAt), createdAt: tsToStr(doc.data().createdAt) }
+        : null,
+      error: null,
+    };
+  } catch (err) {
+    console.error('❌ getConsensusAnnotation:', err);
+    return { consensus: null, error: err.message };
+  }
+}
+
+/**
+ * Save (create or update) a consensus annotation draft.
+ * Enforces: annotator access, visibleToAnnotators, set/conv/assignment validation,
+ * and strips any PCK dims not in the union of the two source annotations.
+ * Returns { consensusId, error }.
+ */
+async function saveConsensusAnnotation(comparisonSetId, conversationId, sourceAssignmentIds, feedbackPoints, requesterId) {
+  try {
+    const { isAnnotator, isAdmin } = await resolveCallerRole(requesterId);
+    if (!isAnnotator && !isAdmin) return { consensusId: null, error: 'access_denied' };
+
+    // Annotator: verify set is visible
+    if (!isAdmin) {
+      const setDoc = await db.collection('annotationComparisonSets').doc(comparisonSetId).get();
+      if (!setDoc.exists || !setDoc.data().visibleToAnnotators) {
+        return { consensusId: null, error: 'set_not_visible' };
+      }
+    }
+
+    // Verify set exists, conv is in it, assignment IDs match
+    const check = await verifyComparisonSetItem(comparisonSetId, conversationId, sourceAssignmentIds);
+    if (!check.ok) return { consensusId: null, error: check.error };
+
+    const consensusId = `${comparisonSetId}__${conversationId}`;
+    const ref = db.collection('conversationConsensusAnnotations').doc(consensusId);
+    const existing = await ref.get();
+
+    if (existing.exists && existing.data().status === 'completed') {
+      return { consensusId, error: 'already_completed' };
+    }
+
+    // Strip disallowed PCK dims (enforce union-only rule)
+    const allowedMap = await buildAllowedDimsMap(sourceAssignmentIds[0], sourceAssignmentIds[1]);
+    const filteredFeedbackPoints = (feedbackPoints || []).map(fp => {
+      const allowed = allowedMap.get(fp.turnNumber) || new Set();
+      const filteredDimFeedback = {};
+      const filteredSelectedDims = [];
+      for (const dimId of (fp.selectedDimensions || [])) {
+        if (allowed.has(dimId)) {
+          filteredSelectedDims.push(dimId);
+          if (fp.dimensionFeedback && fp.dimensionFeedback[dimId] !== undefined) {
+            filteredDimFeedback[dimId] = fp.dimensionFeedback[dimId];
+          }
+        }
+      }
+      return { ...fp, selectedDimensions: filteredSelectedDims, dimensionFeedback: filteredDimFeedback };
+    });
+
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    if (!existing.exists) {
+      await ref.set({
+        consensusId,
+        comparisonSetId,
+        conversationId,
+        sourceAssignmentIds,
+        status: 'draft',
+        feedbackPoints: filteredFeedbackPoints,
+        createdAt: now,
+        createdBy: requesterId,
+        updatedAt: now,
+        updatedBy: requesterId,
+        submittedAt: null,
+        submittedBy: null,
+      });
+    } else {
+      await ref.update({
+        feedbackPoints: filteredFeedbackPoints,
+        sourceAssignmentIds,
+        status: 'draft',
+        updatedAt: now,
+        updatedBy: requesterId,
+      });
+    }
+
+    return { consensusId, error: null };
+  } catch (err) {
+    console.error('❌ saveConsensusAnnotation:', err);
+    return { consensusId: null, error: err.message };
+  }
+}
+
+/**
+ * Submit (complete) a consensus annotation. Sets status to 'completed' and locks editing.
+ * Returns { error }.
+ */
+async function submitConsensusAnnotation(comparisonSetId, conversationId, requesterId) {
+  try {
+    const { isAnnotator, isAdmin } = await resolveCallerRole(requesterId);
+    if (!isAnnotator && !isAdmin) return { error: 'access_denied' };
+
+    if (!isAdmin) {
+      const setDoc = await db.collection('annotationComparisonSets').doc(comparisonSetId).get();
+      if (!setDoc.exists || !setDoc.data().visibleToAnnotators) {
+        return { error: 'set_not_visible' };
+      }
+    }
+
+    const check = await verifyComparisonSetItem(comparisonSetId, conversationId, null);
+    if (!check.ok) return { error: check.error };
+
+    const consensusId = `${comparisonSetId}__${conversationId}`;
+    const ref = db.collection('conversationConsensusAnnotations').doc(consensusId);
+    const doc = await ref.get();
+    if (!doc.exists) return { error: 'consensus_not_found' };
+    if (doc.data().status === 'completed') return { error: 'already_completed' };
+
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    await ref.update({ status: 'completed', submittedAt: now, submittedBy: requesterId, updatedAt: now });
+    return { error: null };
+  } catch (err) {
+    console.error('❌ submitConsensusAnnotation:', err);
+    return { error: err.message };
   }
 }
 
@@ -1084,6 +2028,23 @@ export {
   submitConvAnnotation,
   exportConvAnnotations,
   cancelAnnotationAssignment,
+  // Agreement analysis
+  getEligibleAgreementConversations,
+  getAgreementReports,
+  getAgreementReport,
+  computeAndSaveAgreementReport,
+  // Comparison sets
+  getConversationsWithCompletedPairs,
+  createComparisonSet,
+  updateComparisonSet,
+  deleteComparisonSet,
+  getComparisonSets,
+  getComparisonSetDetail,
+  getComparisonData,
+  // Consensus annotations
+  getConsensusAnnotation,
+  saveConsensusAnnotation,
+  submitConsensusAnnotation,
 };
 
 export default admin;

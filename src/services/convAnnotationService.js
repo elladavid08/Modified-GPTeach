@@ -141,6 +141,172 @@ export async function cancelAssignment(adminId, assignmentId) {
   );
 }
 
+// ─── Admin: read-only annotation view ───────────────────────────────────────
+
+/**
+ * Fetch full annotation as admin (read-only). Uses existing conv-annotations endpoint.
+ * @param {string} assignmentId
+ * @param {string} adminId
+ * @returns {Object|null} annotation or null if not yet started
+ */
+export async function getAdminAnnotation(assignmentId, adminId) {
+  const params = new URLSearchParams({ requesterId: adminId });
+  const data = await handleResponse(
+    await fetch(`${API_BASE_URL}/api/conv-annotations/${assignmentId}?${params}`)
+  );
+  return data.annotation;
+}
+
+// ─── Agreement Analysis ──────────────────────────────────────────────────────
+
+/**
+ * Get conversations eligible for agreement analysis
+ * (≥2 completed reliability assignments).
+ * @param {string} adminId
+ */
+export async function getEligibleAgreementConversations(adminId) {
+  const params = new URLSearchParams({ adminId });
+  const data = await handleResponse(
+    await fetch(`${API_BASE_URL}/api/agreement-eligible?${params}`)
+  );
+  return data.conversations;
+}
+
+/**
+ * List all saved agreement reports (summary fields only).
+ * @param {string} adminId
+ */
+export async function getAgreementReports(adminId) {
+  const params = new URLSearchParams({ adminId });
+  const data = await handleResponse(
+    await fetch(`${API_BASE_URL}/api/agreement-reports?${params}`)
+  );
+  return data.reports;
+}
+
+/**
+ * Fetch a single agreement report with full metrics.
+ * @param {string} reportId
+ * @param {string} adminId
+ */
+export async function getAgreementReport(reportId, adminId) {
+  const params = new URLSearchParams({ adminId });
+  const data = await handleResponse(
+    await fetch(`${API_BASE_URL}/api/agreement-reports/${reportId}?${params}`)
+  );
+  return data.report;
+}
+
+/**
+ * Compute a new pairwise agreement report and save it to Firestore.
+ * @param {string} adminId
+ * @param {{ reportName: string, conversationIds: string[], annotatorIds: string[], includedAssignmentIds: string[] }} params
+ */
+export async function computeAgreementReport(adminId, params) {
+  const data = await handleResponse(
+    await fetch(`${API_BASE_URL}/api/agreement-reports`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ adminId, ...params }),
+    })
+  );
+  return data.report;
+}
+
+// ─── Comparison Sets ─────────────────────────────────────────────────────────
+
+export async function fetchComparisonSets(requesterId, isAdmin) {
+  const params = new URLSearchParams({ requesterId, isAdmin: isAdmin ? 'true' : 'false' });
+  const data = await handleResponse(await fetch(`${API_BASE_URL}/api/comparison-sets?${params}`));
+  return data.sets;
+}
+
+export async function fetchComparisonSetDetail(requesterId, setId, isAdmin) {
+  const params = new URLSearchParams({ requesterId, isAdmin: isAdmin ? 'true' : 'false' });
+  const data = await handleResponse(await fetch(`${API_BASE_URL}/api/comparison-sets/${setId}?${params}`));
+  return data.set;
+}
+
+export async function saveComparisonSet(adminId, setData) {
+  const data = await handleResponse(
+    await fetch(`${API_BASE_URL}/api/comparison-sets`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adminId, ...setData }),
+    })
+  );
+  return data.setId;
+}
+
+export async function patchComparisonSet(adminId, setId, updates) {
+  await handleResponse(
+    await fetch(`${API_BASE_URL}/api/comparison-sets/${setId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adminId, ...updates }),
+    })
+  );
+}
+
+export async function removeComparisonSet(adminId, setId) {
+  const params = new URLSearchParams({ adminId });
+  await handleResponse(await fetch(`${API_BASE_URL}/api/comparison-sets/${setId}?${params}`, { method: 'DELETE' }));
+}
+
+export async function fetchComparisonEligible(adminId) {
+  const params = new URLSearchParams({ adminId });
+  const data = await handleResponse(await fetch(`${API_BASE_URL}/api/comparison-eligible?${params}`));
+  return data.conversations;
+}
+
+export async function fetchComparisonData(requesterId, conversationId, assignmentIdA, assignmentIdB, isAdmin) {
+  const params = new URLSearchParams({ requesterId, conversationId, assignmentIdA, assignmentIdB, isAdmin: isAdmin ? 'true' : 'false' });
+  const data = await handleResponse(await fetch(`${API_BASE_URL}/api/comparison-data?${params}`));
+  return data.data;
+}
+
+// ─── Consensus annotations ───────────────────────────────────────────────────
+
+/**
+ * Fetch the shared consensus annotation for a conversation in a comparison set.
+ * Returns null if not yet created.
+ */
+export async function fetchConsensusAnnotation(requesterId, comparisonSetId, conversationId) {
+  const params = new URLSearchParams({ requesterId, comparisonSetId, conversationId });
+  const data = await handleResponse(await fetch(`${API_BASE_URL}/api/consensus-annotation?${params}`));
+  return data.consensus; // null or doc
+}
+
+/**
+ * Save (create or update) a consensus annotation draft.
+ * feedbackPoints: array of { turnNumber, selectedDimensions, dimensionFeedback, teacherMessageSnapshot }
+ * Returns the consensusId.
+ */
+export async function saveConsensusAnnotationDraft(requesterId, comparisonSetId, conversationId, sourceAssignmentIds, feedbackPoints) {
+  const data = await handleResponse(
+    await fetch(`${API_BASE_URL}/api/consensus-annotation`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requesterId, comparisonSetId, conversationId, sourceAssignmentIds, feedbackPoints }),
+    })
+  );
+  return data.consensusId;
+}
+
+/**
+ * Submit (complete) a consensus annotation. Makes it read-only for everyone.
+ */
+export async function submitConsensusAnnotation(requesterId, comparisonSetId, conversationId) {
+  const consensusId = `${comparisonSetId}__${conversationId}`;
+  await handleResponse(
+    await fetch(`${API_BASE_URL}/api/consensus-annotation/${consensusId}/submit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requesterId, comparisonSetId, conversationId }),
+    })
+  );
+}
+
 // ─── Admin: export ───────────────────────────────────────────────────────────
 
 /**

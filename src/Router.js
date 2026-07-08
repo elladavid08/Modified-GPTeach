@@ -22,6 +22,7 @@ import ResearchManagement from "./pages/ResearchManagement";
 import ConvAnnotationAdmin from "./pages/ConvAnnotationAdmin";
 import ConvAnnotationTasks from "./pages/ConvAnnotationTasks";
 import ConvAnnotationEditor from "./pages/ConvAnnotationEditor";
+import ComparisonSetsPage from "./pages/ComparisonSetsPage";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AnnotatorRoute } from "./components/AnnotatorRoute";
 import { AdminRoute } from "./components/AdminRoute";
@@ -81,6 +82,9 @@ export const Router = () => {
 	{/* Conversation annotation — annotator task list and editor */}
 	<Route path="/annotation/conv-tasks" element={<AnnotatorRoute><ConvAnnotationTasks /></AnnotatorRoute>} />
 	<Route path="/annotation/conv-tasks/:assignmentId" element={<AnnotatorRoute><ConvAnnotationEditor /></AnnotatorRoute>} />
+
+	{/* Annotation comparison — annotator facing */}
+	<Route path="/annotation/comparisons" element={<AnnotatorRoute><ComparisonSetsPage /></AnnotatorRoute>} />
 	</Routes>
 	);
 };

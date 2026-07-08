@@ -147,9 +147,10 @@ export default function Navbar() {
 								<DropdownMenu
 									label="אזור צוות ▾"
 									items={[
-										{ label: "הערכת שאלונים", to: "/admin/annotate" },
-										{ label: "שיחות מחקר", to: "/research-conversations" },
-										{ label: "משימות תיוג", to: "/annotation/conv-tasks" },
+						{ label: "הערכת שאלונים", to: "/admin/annotate" },
+									{ label: "שיחות מחקר", to: "/research-conversations" },
+									{ label: "משימות תיוג", to: "/annotation/conv-tasks" },
+									{ label: "השוואת תיוגים", to: "/annotation/comparisons" },
 									]}
 								/>
 							)}

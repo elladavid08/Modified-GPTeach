@@ -12,7 +12,7 @@ import { fileURLToPath } from 'url';
 import { VertexAI } from '@google-cloud/vertexai';
 import { GoogleAuth } from 'google-auth-library';
 import { formatSkillsForPrompt, formatConversationHistory, getPCKSkillById } from './universal_pck_skills.js';
-import { saveConversation, saveMessage, createUserProfile, getUserProfile, saveTestSubmission, checkTestSubmission, verifyAnnotator, verifyAdmin, getTestSubmissions, getTestSubmission, saveTestAnnotation, getTestAnnotation, getAllAnnotationsForSubmission, getAllUsersAdmin, getResearchParticipantsAdmin, updateUserResearchStatusAdmin, getConversationsByUserAdmin, getConversationsMeta, getFullConversationForAnnotation, createAnnotationAssignments, getAnnotationAssignments, getAnnotatorAssignments, getConvAnnotation, saveConvAnnotation, submitConvAnnotation, exportConvAnnotations, cancelAnnotationAssignment } from './services/firebaseAdmin.js';
+import { saveConversation, saveMessage, createUserProfile, getUserProfile, saveTestSubmission, checkTestSubmission, verifyAnnotator, verifyAdmin, getTestSubmissions, getTestSubmission, saveTestAnnotation, getTestAnnotation, getAllAnnotationsForSubmission, getAllUsersAdmin, getResearchParticipantsAdmin, updateUserResearchStatusAdmin, getConversationsByUserAdmin, getConversationsMeta, getFullConversationForAnnotation, createAnnotationAssignments, getAnnotationAssignments, getAnnotatorAssignments, getConvAnnotation, saveConvAnnotation, submitConvAnnotation, exportConvAnnotations, cancelAnnotationAssignment, getEligibleAgreementConversations, getAgreementReports, getAgreementReport, computeAndSaveAgreementReport, getConversationsWithCompletedPairs, createComparisonSet, updateComparisonSet, deleteComparisonSet, getComparisonSets, getComparisonSetDetail, getComparisonData, getConsensusAnnotation, saveConsensusAnnotation, submitConsensusAnnotation } from './services/firebaseAdmin.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1863,6 +1863,270 @@ app.post('/api/conv-annotations/:assignmentId/submit', async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ─── Agreement Analysis endpoints ───────────────────────────────────────────
+
+// GET /api/agreement-eligible?adminId=...
+// Returns conversations with ≥2 completed reliability assignments.
+app.get('/api/agreement-eligible', async (req, res) => {
+  try {
+    const adminId = req.query.adminId;
+    if (!adminId) return res.status(400).json({ success: false, error: 'adminId required' });
+    const { isAdmin } = await verifyAdmin(adminId);
+    if (!isAdmin) return res.status(403).json({ success: false, error: 'access_denied' });
+    const { conversations, error } = await getEligibleAgreementConversations();
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true, conversations });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/agreement-reports?adminId=...
+app.get('/api/agreement-reports', async (req, res) => {
+  try {
+    const adminId = req.query.adminId;
+    if (!adminId) return res.status(400).json({ success: false, error: 'adminId required' });
+    const { isAdmin } = await verifyAdmin(adminId);
+    if (!isAdmin) return res.status(403).json({ success: false, error: 'access_denied' });
+    const { reports, error } = await getAgreementReports();
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true, reports });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/agreement-reports/:reportId?adminId=...
+app.get('/api/agreement-reports/:reportId', async (req, res) => {
+  try {
+    const adminId = req.query.adminId;
+    if (!adminId) return res.status(400).json({ success: false, error: 'adminId required' });
+    const { isAdmin } = await verifyAdmin(adminId);
+    if (!isAdmin) return res.status(403).json({ success: false, error: 'access_denied' });
+    const { report, error } = await getAgreementReport(req.params.reportId);
+    if (error === 'not_found') return res.status(404).json({ success: false, error: 'not_found' });
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true, report });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /api/agreement-reports
+// Body: { adminId, reportName, conversationIds, annotatorIds, includedAssignmentIds }
+app.post('/api/agreement-reports', async (req, res) => {
+  try {
+    const { adminId, reportName, conversationIds, annotatorIds, includedAssignmentIds } = req.body;
+    if (!adminId) return res.status(400).json({ success: false, error: 'adminId required' });
+    const { isAdmin } = await verifyAdmin(adminId);
+    if (!isAdmin) return res.status(403).json({ success: false, error: 'access_denied' });
+    if (!Array.isArray(annotatorIds) || annotatorIds.length !== 2) {
+      return res.status(400).json({ success: false, error: 'Exactly 2 annotatorIds required' });
+    }
+    if (!Array.isArray(conversationIds) || conversationIds.length === 0) {
+      return res.status(400).json({ success: false, error: 'conversationIds required' });
+    }
+    const { reportId, report, error } = await computeAndSaveAgreementReport(
+      { reportName, conversationIds, annotatorIds, includedAssignmentIds },
+      adminId
+    );
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true, reportId, report });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ─── Annotation Comparison Sets ──────────────────────────────────────────────
+
+// GET /api/comparison-sets?requesterId=&isAdmin=true
+app.get('/api/comparison-sets', async (req, res) => {
+  try {
+    const { requesterId, isAdmin: isAdminQ } = req.query;
+    if (!requesterId) return res.status(400).json({ success: false, error: 'requesterId required' });
+    const isAdminBool = isAdminQ === 'true';
+    if (isAdminBool) {
+      const { isAdmin } = await verifyAdmin(requesterId);
+      if (!isAdmin) return res.status(403).json({ success: false, error: 'access_denied' });
+    } else {
+      const { isAnnotator } = await verifyAnnotator(requesterId);
+      if (!isAnnotator) return res.status(403).json({ success: false, error: 'access_denied' });
+    }
+    const { sets, error } = await getComparisonSets(isAdminBool);
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true, sets });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/comparison-sets/:setId?requesterId=&isAdmin=true
+app.get('/api/comparison-sets/:setId', async (req, res) => {
+  try {
+    const { requesterId, isAdmin: isAdminQ } = req.query;
+    if (!requesterId) return res.status(400).json({ success: false, error: 'requesterId required' });
+    const isAdminBool = isAdminQ === 'true';
+    if (isAdminBool) {
+      const { isAdmin } = await verifyAdmin(requesterId);
+      if (!isAdmin) return res.status(403).json({ success: false, error: 'access_denied' });
+    } else {
+      const { isAnnotator } = await verifyAnnotator(requesterId);
+      if (!isAnnotator) return res.status(403).json({ success: false, error: 'access_denied' });
+    }
+    const { set, error } = await getComparisonSetDetail(req.params.setId, isAdminBool);
+    if (error === 'not_found')    return res.status(404).json({ success: false, error: 'not_found' });
+    if (error === 'access_denied') return res.status(403).json({ success: false, error: 'access_denied' });
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true, set });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /api/comparison-sets  body: { adminId, title, description, items, visibleToAnnotators }
+app.post('/api/comparison-sets', async (req, res) => {
+  try {
+    const { adminId, ...setData } = req.body;
+    if (!adminId) return res.status(400).json({ success: false, error: 'adminId required' });
+    const { isAdmin } = await verifyAdmin(adminId);
+    if (!isAdmin) return res.status(403).json({ success: false, error: 'access_denied' });
+    const { setId, error } = await createComparisonSet(setData, adminId);
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true, setId });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// PATCH /api/comparison-sets/:setId  body: { adminId, ...updates }
+app.patch('/api/comparison-sets/:setId', async (req, res) => {
+  try {
+    const { adminId, ...updates } = req.body;
+    if (!adminId) return res.status(400).json({ success: false, error: 'adminId required' });
+    const { isAdmin } = await verifyAdmin(adminId);
+    if (!isAdmin) return res.status(403).json({ success: false, error: 'access_denied' });
+    const { error } = await updateComparisonSet(req.params.setId, updates);
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// DELETE /api/comparison-sets/:setId?adminId=
+app.delete('/api/comparison-sets/:setId', async (req, res) => {
+  try {
+    const { adminId } = req.query;
+    if (!adminId) return res.status(400).json({ success: false, error: 'adminId required' });
+    const { isAdmin } = await verifyAdmin(adminId);
+    if (!isAdmin) return res.status(403).json({ success: false, error: 'access_denied' });
+    const { error } = await deleteComparisonSet(req.params.setId);
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/comparison-eligible?adminId=  (conversations with ≥2 completed assignments)
+app.get('/api/comparison-eligible', async (req, res) => {
+  try {
+    const { adminId } = req.query;
+    if (!adminId) return res.status(400).json({ success: false, error: 'adminId required' });
+    const { isAdmin } = await verifyAdmin(adminId);
+    if (!isAdmin) return res.status(403).json({ success: false, error: 'access_denied' });
+    const { conversations, error } = await getConversationsWithCompletedPairs();
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true, conversations });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/comparison-data?conversationId=&assignmentIdA=&assignmentIdB=&requesterId=&isAdmin=
+app.get('/api/comparison-data', async (req, res) => {
+  try {
+    const { conversationId, assignmentIdA, assignmentIdB, requesterId, isAdmin: isAdminQ } = req.query;
+    if (!conversationId || !assignmentIdA || !assignmentIdB || !requesterId) {
+      return res.status(400).json({ success: false, error: 'Missing required parameters' });
+    }
+    const isAdminBool = isAdminQ === 'true';
+    const { data, error } = await getComparisonData(conversationId, assignmentIdA, assignmentIdB, requesterId, isAdminBool);
+    if (error === 'access_denied') return res.status(403).json({ success: false, error: 'access_denied' });
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true, data });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ─── Consensus annotations ────────────────────────────────────────────────────
+
+// GET /api/consensus-annotation?requesterId=&comparisonSetId=&conversationId=
+app.get('/api/consensus-annotation', async (req, res) => {
+  try {
+    const { requesterId, comparisonSetId, conversationId } = req.query;
+    if (!requesterId || !comparisonSetId || !conversationId) {
+      return res.status(400).json({ success: false, error: 'Missing required parameters' });
+    }
+    const { consensus, error } = await getConsensusAnnotation(comparisonSetId, conversationId, requesterId);
+    if (error === 'access_denied' || error === 'set_not_visible') {
+      return res.status(403).json({ success: false, error });
+    }
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true, consensus });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/consensus-annotation  body: { requesterId, comparisonSetId, conversationId, sourceAssignmentIds, feedbackPoints }
+app.post('/api/consensus-annotation', async (req, res) => {
+  try {
+    const { requesterId, comparisonSetId, conversationId, sourceAssignmentIds, feedbackPoints } = req.body;
+    if (!requesterId || !comparisonSetId || !conversationId || !Array.isArray(sourceAssignmentIds)) {
+      return res.status(400).json({ success: false, error: 'Missing required parameters' });
+    }
+    const { consensusId, error } = await saveConsensusAnnotation(
+      comparisonSetId, conversationId, sourceAssignmentIds, feedbackPoints || [], requesterId
+    );
+    if (error === 'access_denied' || error === 'set_not_visible') {
+      return res.status(403).json({ success: false, error });
+    }
+    if (error === 'already_completed') {
+      return res.status(409).json({ success: false, error });
+    }
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true, consensusId });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/consensus-annotation/:consensusId/submit  body: { requesterId, comparisonSetId, conversationId }
+app.post('/api/consensus-annotation/:consensusId/submit', async (req, res) => {
+  try {
+    const { requesterId, comparisonSetId, conversationId } = req.body;
+    if (!requesterId || !comparisonSetId || !conversationId) {
+      return res.status(400).json({ success: false, error: 'Missing required parameters' });
+    }
+    const { error } = await submitConsensusAnnotation(comparisonSetId, conversationId, requesterId);
+    if (error === 'access_denied' || error === 'set_not_visible') {
+      return res.status(403).json({ success: false, error });
+    }
+    if (error === 'already_completed') {
+      return res.status(409).json({ success: false, error });
+    }
+    if (error === 'consensus_not_found') {
+      return res.status(404).json({ success: false, error });
+    }
+    if (error) return res.status(500).json({ success: false, error });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
