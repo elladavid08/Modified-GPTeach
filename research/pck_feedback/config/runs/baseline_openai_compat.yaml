@@ -1,0 +1,27 @@
+# Baseline run: any OpenAI-compatible endpoint.
+#
+# Use this for OpenAI itself, or for a self-hosted OpenAI-compatible server
+# (vLLM, TGI, Ollama, ...) -- e.g. a future local/GPU-hosted fine-tuned
+# model. Point `PCK_RESEARCH_OPENAI_BASE_URL` at the right server and
+# `model_name` at whatever model id that server exposes.
+
+run_id: baseline_openai_compat
+
+provider: openai_compatible
+model_name: gpt-4o-mini   # replace with your target model id / local model name
+
+prompt_version: baseline_v1
+include_student_info: false
+include_board_images: false   # set true if the target model supports vision
+
+generation:
+  temperature: 0.7
+  max_output_tokens: 2000
+  top_p: 1.0
+
+# Provider-specific overrides (all optional -- defaults come from env vars,
+# see .env.example):
+# base_url: http://localhost:8000/v1
+# api_key: not-needed
+# base_url_env_var: PCK_RESEARCH_OPENAI_BASE_URL
+# api_key_env_var: PCK_RESEARCH_OPENAI_API_KEY

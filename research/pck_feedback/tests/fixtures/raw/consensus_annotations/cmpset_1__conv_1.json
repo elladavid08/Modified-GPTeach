@@ -1,0 +1,26 @@
+{
+  "consensus_id": "cmpset_1__conv_1",
+  "consensusId": "cmpset_1__conv_1",
+  "comparisonSetId": "cmpset_1",
+  "conversationId": "conv_1",
+  "sourceAssignmentIds": ["a1", "a2"],
+  "status": "completed",
+  "feedbackPoints": [
+    {
+      "turnNumber": 1,
+      "teacherMessageSnapshot": "נועה טענה שריבוע הוא לא מלבן. מה דעתכם?",
+      "selectedDimensions": ["p1", "p4"],
+      "dimensionFeedback": {
+        "p1": {"included": true, "score": 2, "feedbackText": "זיהוי ברור ומפורש של הטענה השגויה."},
+        "p3": {"included": false},
+        "p4": {"included": true, "score": 1, "feedbackText": "שאלה מנחה כללית; אפשר להעמיק עם דוגמה נגדית."}
+      }
+    }
+  ],
+  "createdAt": "2026-01-07T10:00:00.000Z",
+  "createdBy": "admin_uid",
+  "updatedAt": "2026-01-07T10:30:00.000Z",
+  "updatedBy": "admin_uid",
+  "submittedAt": "2026-01-07T10:30:00.000Z",
+  "submittedBy": "admin_uid"
+}

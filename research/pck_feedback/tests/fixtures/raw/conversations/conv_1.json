@@ -1,0 +1,51 @@
+{
+  "conversation_id": "conv_1",
+  "sessionId": "conv_1",
+  "userId": "teacher_uid_1",
+  "userSnapshot": {"fullName": "מורה בדיקה", "role": "teacher"},
+  "systemVersion": "1.0",
+  "startTime": "2026-01-05T10:00:00.000Z",
+  "endTime": "2026-01-05T10:20:00.000Z",
+  "scenario": {
+    "text": "יחסי הכלה בין ריבוע למלבן",
+    "grade_level": 7,
+    "ai_context_summary": "כיתה ז'. השיעור עוסק במעבר מהגדרת מלבן להגדרת ריבוע וביחסי הכלה בין שתי הצורות.",
+    "ai_prior_knowledge": "התלמידים כבר מכירים את הגדרת המלבן.",
+    "ai_pedagogical_focus": ["להכריע לפי הגדרה פורמלית ולא לפי מראה חזותי"],
+    "misconception_focus": "ריבוע ומלבן הם שני סוגי מרובעים שונים, ולכן ריבוע אינו מלבן",
+    "target_pck_skills": ["kcs-square-rectangle-inclusion-7th"],
+    "initiated_by": "teacher"
+  },
+  "studentRefs": ["v1_noa"],
+  "turns": [
+    {
+      "turnNumber": 1,
+      "timestamp": "2026-01-05T10:05:00.000Z",
+      "teacher": {
+        "message": "נועה טענה שריבוע הוא לא מלבן. מה דעתכם?",
+        "image": "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEUlEQVR4nGP4z8DA8B+MgBgAHfAD/dPQfSYAAAAASUVORK5CYII=",
+        "timestamp": "2026-01-05T10:05:00.000Z"
+      },
+      "students": [
+        {"name": "נועה", "message": "ריבוע נראה אחרת ממלבן אז זה לא אותו דבר.", "timestamp": "2026-01-05T10:05:30.000Z"}
+      ],
+      "pckFeedback": null
+    },
+    {
+      "turnNumber": 2,
+      "timestamp": "2026-01-05T10:08:00.000Z",
+      "teacher": {
+        "message": "בואו נבדוק את ההגדרה הפורמלית של מלבן ונראה אם ריבוע מקיים אותה.",
+        "image": null,
+        "timestamp": "2026-01-05T10:08:00.000Z"
+      },
+      "students": [
+        {"name": "נועה", "message": "אוקיי, מלבן זה מרובע עם כל הזוויות ישרות.", "timestamp": "2026-01-05T10:08:20.000Z"}
+      ],
+      "pckFeedback": null
+    }
+  ],
+  "stats": {"totalTeacherMessages": 2, "totalStudentMessages": 2, "totalPCKFeedbacks": 0},
+  "summaryFeedback": null,
+  "lastUpdated": "2026-01-05T10:20:05.000Z"
+}

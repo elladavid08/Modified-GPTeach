@@ -1,0 +1,26 @@
+{
+  "assignment_id": "a1",
+  "assignmentId": "a1",
+  "conversationId": "conv_1",
+  "annotatorId": "annotator_alice",
+  "assignmentType": "reliability",
+  "status": "completed",
+  "feedbackPoints": [
+    {
+      "feedbackPointId": "fp_a1_1",
+      "turnNumber": 1,
+      "sessionId": "conv_1",
+      "teacherMessageSnapshot": "נועה טענה שריבוע הוא לא מלבן. מה דעתכם?",
+      "selectedDimensions": ["p1", "p4"],
+      "scores": {"p1": 2, "p4": 1},
+      "feedbackText": "זיהוי טוב של הטענה השגויה, אפשר להעמיק בשאלות המנחות.",
+      "internalNote": "",
+      "createdAt": "2026-01-06T08:30:00.000Z",
+      "updatedAt": "2026-01-06T08:45:00.000Z"
+    }
+  ],
+  "generalComment": "",
+  "createdAt": "2026-01-06T08:00:00.000Z",
+  "updatedAt": "2026-01-06T08:45:00.000Z",
+  "submittedAt": "2026-01-06T09:00:00.000Z"
+}

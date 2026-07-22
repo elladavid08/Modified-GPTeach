@@ -1,0 +1,26 @@
+{
+  "assignment_id": "a2",
+  "assignmentId": "a2",
+  "conversationId": "conv_1",
+  "annotatorId": "annotator_bob",
+  "assignmentType": "reliability",
+  "status": "completed",
+  "feedbackPoints": [
+    {
+      "feedbackPointId": "fp_a2_1",
+      "turnNumber": 1,
+      "sessionId": "conv_1",
+      "teacherMessageSnapshot": "נועה טענה שריבוע הוא לא מלבן. מה דעתכם?",
+      "selectedDimensions": ["p1", "p3"],
+      "scores": {"p1": 2, "p3": 1},
+      "feedbackText": "זיהוי נכון; אפשר להסביר יותר את מקור הבלבול החזותי.",
+      "internalNote": "",
+      "createdAt": "2026-01-06T09:00:00.000Z",
+      "updatedAt": "2026-01-06T09:05:00.000Z"
+    }
+  ],
+  "generalComment": "",
+  "createdAt": "2026-01-06T08:05:00.000Z",
+  "updatedAt": "2026-01-06T09:05:00.000Z",
+  "submittedAt": "2026-01-06T09:10:00.000Z"
+}

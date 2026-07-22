@@ -1,0 +1,37 @@
+# Default export configuration for `pck-research export`.
+# CLI flags (see `pck-research export --help`) override values here.
+#
+# No secrets live in this file -- credentials come from environment
+# variables (see ../.env.example).
+
+collections:
+  - conversations
+  - conversationAnnotationAssignments
+  - conversationAnnotations
+  - conversationConsensusAnnotations
+  - annotationComparisonSets
+
+output_dir: data/raw
+
+# --- Optional filters (leave null / omit to export everything) ---
+
+# ISO date string, e.g. "2026-01-01". Filters the `conversations` collection
+# by `startTime >= since`. Does not affect other collections directly (they
+# are filtered transitively via `conversationId` once conversations are
+# selected -- see export_collections.py::_matches_conversation_filter, which
+# only applies when `conversation_ids` is set explicitly, not via `since`).
+since: null
+
+# List of specific conversation IDs (Firestore `conversations` doc IDs) to
+# export. When set, all 5 collections are filtered down to only the docs
+# related to these conversations. Leave null to export everything.
+conversation_ids: null
+
+# Cap the number of docs fetched per collection. Mainly useful for a quick
+# smoke-test export against a small number of real documents; leave null
+# for a full export.
+limit: null
+
+# If true, re-download and overwrite local files even if they look
+# unchanged (same updatedAt/lastUpdated). Default false = incremental.
+force: false

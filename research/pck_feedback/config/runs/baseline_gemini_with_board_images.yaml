@@ -1,0 +1,23 @@
+# Baseline run: Vertex AI Gemini, WITH board images attached when available.
+#
+# Human annotators saw board drawings while producing the consensus ground
+# truth, so this variant is expected to be the fairer comparison against
+# human judgment -- unlike current production, which never sends board
+# images to the PCK model.
+
+run_id: baseline_gemini_with_board_images
+
+provider: vertex_gemini
+model_name: gemini-2.5-flash-lite
+
+prompt_version: baseline_v1
+include_student_info: false
+include_board_images: true   # attaches TurnExample.board_image_path as an image part, when present
+
+generation:
+  temperature: 0.7
+  max_output_tokens: 2000
+  top_p: 1.0
+
+# Provider-specific overrides -- see baseline_gemini_text_only.yaml for the
+# full list of optional keys.

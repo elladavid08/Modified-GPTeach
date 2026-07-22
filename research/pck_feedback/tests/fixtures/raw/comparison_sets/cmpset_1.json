@@ -1,0 +1,7 @@
+{
+  "comparison_set_id": "cmpset_1",
+  "items": [
+    {"conversationId": "conv_1", "assignmentIds": ["a1", "a2"]}
+  ],
+  "visibleToAnnotators": true
+}

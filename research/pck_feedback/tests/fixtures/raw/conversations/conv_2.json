@@ -1,0 +1,38 @@
+{
+  "conversation_id": "conv_2",
+  "sessionId": "session_abc_999",
+  "userId": "teacher_uid_2",
+  "userSnapshot": {"fullName": "מורה שני", "role": "teacher"},
+  "systemVersion": "1.0",
+  "startTime": "2026-02-01T09:00:00.000Z",
+  "endTime": "2026-02-01T09:10:00.000Z",
+  "scenario": {
+    "text": "שטח והיקף של מלבן",
+    "grade_level": 6,
+    "ai_context_summary": "כיתה ו'. השיעור עוסק בהבחנה בין שטח להיקף.",
+    "ai_prior_knowledge": "התלמידים מכירים את הצורות הבסיסיות.",
+    "ai_pedagogical_focus": [],
+    "misconception_focus": "בלבול בין שטח להיקף",
+    "target_pck_skills": [],
+    "initiated_by": "teacher"
+  },
+  "studentRefs": ["v1_hila"],
+  "turns": [
+    {
+      "turnNumber": 1,
+      "timestamp": "2026-02-01T09:05:00.000Z",
+      "teacher": {
+        "message": "מה ההבדל בין שטח להיקף של מלבן?",
+        "image": null,
+        "timestamp": "2026-02-01T09:05:00.000Z"
+      },
+      "students": [
+        {"name": "הילה", "message": "היקף זה השטח כפול שתיים?", "timestamp": "2026-02-01T09:05:20.000Z"}
+      ],
+      "pckFeedback": null
+    }
+  ],
+  "stats": {"totalTeacherMessages": 1, "totalStudentMessages": 1, "totalPCKFeedbacks": 0},
+  "summaryFeedback": null,
+  "lastUpdated": "2026-02-01T09:10:05.000Z"
+}
