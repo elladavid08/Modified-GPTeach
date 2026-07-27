@@ -5,8 +5,9 @@ modeling and evaluation, run entirely outside of the production website on
 already-completed teacher-simulation conversations.
 
 Implemented so far: **export -> dataset build (test set + train set) ->
-prompt preview -> baseline inference -> evaluation**. Fine-tuning/DPO is
-explicitly out of scope for now (see `src/pck_feedback/training/README.md`).
+prompt preview -> baseline inference -> evaluation -> SFT dataset build**.
+Actual fine-tuning/training runs and DPO are explicitly out of scope for now
+(see `src/pck_feedback/training/README.md`).
 
 ## Isolation from the production website
 
@@ -62,6 +63,15 @@ explicitly out of scope for now (see `src/pck_feedback/training/README.md`).
    metrics JSON, prints a terminal summary, and can optionally write a
    mismatches-only error report (CSV or JSONL). See
    `src/pck_feedback/eval/README.md` for details.
+8. **SFT dataset build** (`pck-research build-sft-dataset`) -- converts an
+   already-built individual-annotator train JSONL (from
+   `build-train-dataset`) into HuggingFace/TRL-ready `messages`-format
+   `train.jsonl` / `val.jsonl`, using the exact same prompt builder as
+   `infer`/`render-prompt` for the user turn and the annotator's own label
+   (re-serialized into the `Prediction`-shaped strict JSON) as the assistant
+   target. Splits by `conversation_id` (group-based, leak-safe) and hard-fails
+   if any consensus/test conversation is present in the input. Does **not**
+   train anything -- see `src/pck_feedback/training/README.md`.
 
 ## Setup
 
@@ -138,6 +148,14 @@ pck-research evaluate \
   --predictions data/predictions/baseline_gemini_text_only/predictions.jsonl \
   --out data/eval/baseline_gemini_text_only/metrics.json \
   --errors-out data/eval/baseline_gemini_text_only/errors.jsonl
+
+# 7. Build an SFT training dataset from the individual-annotator train set.
+#    No model call, no Firestore, no training -- just a dataset reshape + split.
+pck-research build-sft-dataset \
+  --input data/processed/train_individual_annotations_v1.jsonl \
+  --run-config config/runs/baseline_gemini_text_only.yaml \
+  --test-set data/processed/test_set_v1.jsonl
+# -> writes data/training/sft/baseline_v1_text_only/{train,val}.jsonl + split_manifest.json
 ```
 
 ## Folder structure

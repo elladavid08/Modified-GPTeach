@@ -1,14 +1,22 @@
-# Training / Fine-tuning / DPO -- NOT IMPLEMENTED, OUT OF SCOPE FOR NOW
+# Training / Fine-tuning / DPO
 
-This module is a placeholder only. There is no training or DPO logic in
-this repository, and none should be added until explicitly requested and
-planned separately.
+## What's implemented here so far
 
-## What this will eventually cover (future stage, not now)
+- **SFT dataset build** (`build_sft_dataset.py`, wired as
+  `pck-research build-sft-dataset`): converts an already-built individual-
+  annotator train JSONL (`dataset/build_train_dataset.py`'s output) into
+  HuggingFace/TRL-ready `messages`-format `train.jsonl` / `val.jsonl`, using
+  the exact same prompt builder as inference for the user turn and the
+  annotator's own label (re-serialized into the `Prediction`-shaped strict
+  JSON) as the assistant target. Splits by `conversation_id` (group-based,
+  leak-safe) and hard-fails if any held-out consensus/test conversation is
+  present in the input. This stage never calls a model API, never connects
+  to Firestore, and never trains anything -- it is a dataset reshape only.
 
-- Supervised fine-tuning of a local/GPU-hosted model on turn-level examples
-  with consensus ground truth, using the same `TurnExample` /
-  `Prediction` schemas as the baseline inference stage.
+## What is still NOT implemented (out of scope until explicitly requested)
+
+- Actually running supervised fine-tuning (no `transformers`/`trl` training
+  loop, no GPU job, no model checkpoints produced anywhere in this repo).
 - Preference-based training (e.g. DPO) once enough comparison data between
   model outputs exists.
 - Serving a fine-tuned checkpoint behind an OpenAI-compatible endpoint
@@ -18,6 +26,6 @@ planned separately.
 
 ## Explicit scope note
 
-Per the project plan: "Do not implement training yet. Do not implement DPO
-yet." This directory exists only to reserve the location in the folder
-structure for later.
+Per the project plan: "Do not train yet. Do not run GPU jobs yet." Only the
+SFT dataset-build stage above is implemented; the actual training script is
+a future, separately-planned stage.

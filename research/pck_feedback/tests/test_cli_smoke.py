@@ -217,6 +217,37 @@ def test_infer_command_end_to_end_with_fake_adapter(raw_dir: Path, tmp_path: Pat
     assert len(predictions) == 5
 
 
+def test_build_sft_dataset_command(raw_dir: Path, tmp_path: Path):
+    train_path = tmp_path / "train_examples.jsonl"
+    runner.invoke(app, ["build-train-dataset", "--raw-dir", str(raw_dir), "--out", str(train_path)])
+
+    out_dir = tmp_path / "sft_out"
+    result = runner.invoke(
+        app,
+        [
+            "build-sft-dataset",
+            "--input",
+            str(train_path),
+            "--run-config",
+            "config/runs/baseline_gemini_text_only.yaml",
+            "--out-dir",
+            str(out_dir),
+            "--test-set",
+            str(tmp_path / "does_not_exist.jsonl"),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Wrote 4 train / 0 val" in result.output
+    assert (out_dir / "train.jsonl").exists()
+    assert (out_dir / "val.jsonl").exists()
+    assert (out_dir / "split_manifest.json").exists()
+    records = list(read_jsonl(out_dir / "train.jsonl"))
+    assert len(records) == 4
+    assert records[0]["messages"][0]["role"] == "user"
+    assert records[0]["messages"][1]["role"] == "assistant"
+
+
 def test_infer_command_resumes_on_second_invocation(raw_dir: Path, tmp_path: Path, monkeypatch):
     dataset_path = tmp_path / "turn_examples.jsonl"
     runner.invoke(app, ["build-dataset", "--raw-dir", str(raw_dir), "--out", str(dataset_path)])

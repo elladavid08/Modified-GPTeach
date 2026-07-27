@@ -8,6 +8,7 @@
     pck-research render-prompt       -- dry-run: render one example's exact prompt to a local Markdown file (no model call)
     pck-research infer               -- turn_examples.jsonl -> predictions.jsonl (resume-safe)
     pck-research evaluate            -- test_set_v1.jsonl + predictions.jsonl -> metrics.json (+ terminal summary, + optional error report)
+    pck-research build-sft-dataset   -- train_examples.jsonl -> SFT {train,val}.jsonl + split_manifest.json (no training)
 
 None of these commands are executed automatically by this codebase -- they
 are meant to be run manually, after credentials are configured (see
@@ -225,6 +226,67 @@ def evaluate(
 
     metrics = run_evaluate(dataset, predictions, out, errors_out_path=errors_out)
     typer.echo(format_summary(metrics))
+
+
+@app.command("build-sft-dataset")
+def build_sft_dataset_cmd(
+    input: Path = typer.Option(
+        Path("data/processed/train_individual_annotations_v1.jsonl"),
+        help="Path to a TrainExample JSONL (produced by `build-train-dataset`).",
+    ),
+    run_config: Path = typer.Option(
+        Path("config/runs/baseline_gemini_text_only.yaml"),
+        help="Path to a run config YAML under config/runs/ -- selects prompt_version/"
+        "include_student_info/include_board_images, so the SFT input distribution matches "
+        "a specific, named inference recipe.",
+    ),
+    out_dir: Optional[Path] = typer.Option(
+        None,
+        help="Output directory for train.jsonl/val.jsonl/split_manifest.json. Defaults to a versioned "
+        "data/training/sft/<prompt_version>_<text_only|with_images>/ folder.",
+    ),
+    raw_dir: Optional[Path] = typer.Option(
+        None, help="Required if the run config has include_board_images=true."
+    ),
+    test_set: Path = typer.Option(
+        Path("data/processed/test_set_v1.jsonl"),
+        help="Consensus test-set JSONL; its conversation_ids are hard-excluded from the SFT "
+        "dataset as a leakage safety check.",
+    ),
+    val_fraction: float = typer.Option(
+        0.15, help="Target fraction of examples (grouped by conversation_id) held out for validation."
+    ),
+    seed: int = typer.Option(42, help="Random seed for the group-based train/val split."),
+) -> None:
+    """
+    Build an SFT training dataset (`messages`-format JSONL, HuggingFace/TRL-ready) from an
+    already-built individual-annotator TrainExample JSONL, with a group-based train/val split.
+    Never calls a model API, never connects to Firestore, never trains anything.
+    """
+    from pck_feedback.models.run_config import RunConfig
+    from pck_feedback.training.build_sft_dataset import build_sft_dataset as run_build_sft_dataset
+
+    config = RunConfig.from_yaml(run_config)
+
+    if config.include_board_images and raw_dir is None:
+        raise typer.BadParameter(
+            f"Run config '{config.run_id}' has include_board_images=true, so --raw-dir must be provided."
+        )
+
+    manifest = run_build_sft_dataset(
+        input,
+        config,
+        run_config_source=str(run_config),
+        out_dir=out_dir,
+        raw_dir=raw_dir,
+        val_fraction=val_fraction,
+        seed=seed,
+        test_set_path=test_set,
+    )
+    typer.echo(
+        f"Wrote {manifest['output']['train_count']} train / {manifest['output']['val_count']} val "
+        f"SFT record(s) to {manifest['output']['out_dir']}"
+    )
 
 
 if __name__ == "__main__":
