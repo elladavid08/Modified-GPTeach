@@ -1,0 +1,54 @@
+# Smoke-test variant of sft_baseline_v1.yaml -- run this FIRST on a new GPU
+# host to confirm the training script, dependencies, and data all work
+# end-to-end, before spending real time/budget on the full run.
+#
+#   pck-research train-sft --config config/training/sft_baseline_v1_smoke.yaml
+#
+# Writes to a separate output_dir so it can never be confused with (or
+# accidentally overwrite) a real checkpoint.
+
+run_id: sft_baseline_v1_smoke
+base_model: Qwen/Qwen2.5-7B-Instruct
+
+output_dir: data/training/checkpoints/sft_baseline_v1_smoke
+
+train_dataset: data/training/sft/baseline_v1_text_only/train.jsonl
+val_dataset: data/training/sft/baseline_v1_text_only/val.jsonl
+
+max_seq_length: 8192
+method: lora
+on_overlong_sequence: fail
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+
+training:
+  num_train_epochs: 1
+  per_device_train_batch_size: 1
+  per_device_eval_batch_size: 1
+  gradient_accumulation_steps: 8
+  learning_rate: 2.0e-4
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.03
+  weight_decay: 0.0
+  bf16: true
+  gradient_checkpointing: true
+  packing: false
+  completion_only_loss: true
+  # Frequent eval/save/logging so a handful of steps is actually enough to
+  # verify the full loop (train step -> eval -> checkpoint save) runs.
+  eval_strategy: steps
+  eval_steps: 5
+  save_strategy: steps
+  save_steps: 5
+  save_total_limit: 1
+  load_best_model_at_end: false
+  logging_steps: 1
+  seed: 42
+  # The actual point of the smoke test: stop after a handful of optimizer
+  # steps regardless of epoch count. Equivalent to passing
+  # `--max-steps 5` against sft_baseline_v1.yaml.
+  max_steps: 5

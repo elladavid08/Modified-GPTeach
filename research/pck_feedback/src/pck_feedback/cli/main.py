@@ -9,6 +9,7 @@
     pck-research infer               -- turn_examples.jsonl -> predictions.jsonl (resume-safe)
     pck-research evaluate            -- test_set_v1.jsonl + predictions.jsonl -> metrics.json (+ terminal summary, + optional error report)
     pck-research build-sft-dataset   -- train_examples.jsonl -> SFT {train,val}.jsonl + split_manifest.json (no training)
+    pck-research train-sft           -- LoRA SFT training (requires the 'train' extra + a GPU host, e.g. B200)
 
 None of these commands are executed automatically by this codebase -- they
 are meant to be run manually, after credentials are configured (see
@@ -287,6 +288,42 @@ def build_sft_dataset_cmd(
         f"Wrote {manifest['output']['train_count']} train / {manifest['output']['val_count']} val "
         f"SFT record(s) to {manifest['output']['out_dir']}"
     )
+
+
+@app.command("train-sft")
+def train_sft_cmd(
+    config: Path = typer.Option(..., help="Path to a training config YAML under config/training/."),
+    preflight_only: bool = typer.Option(
+        False,
+        "--preflight-only",
+        help="Only load the tokenizer and measure sequence lengths (train/val), then exit -- "
+        "no model is loaded and no training happens. Use this before a real run.",
+    ),
+    max_steps: Optional[int] = typer.Option(
+        None,
+        help="Override training.max_steps for a quick smoke test (e.g. 5), without editing the "
+        "config file. Takes precedence over the config's own training.max_steps if set.",
+    ),
+) -> None:
+    """
+    Fine-tune a base model with LoRA on an SFT dataset (see
+    `pck-research build-sft-dataset`). Requires the 'train' extra
+    (`pip install -e ".\\[train]"`) -- torch/transformers/trl/peft/datasets
+    are never required for any other command in this CLI. Meant to run on a
+    GPU host (e.g. the B200 cluster); never invoked automatically.
+    """
+    import json
+
+    from pck_feedback.training.train_sft import TrainingConfig, run_training
+
+    training_config = TrainingConfig.from_yaml(config)
+    result = run_training(training_config, preflight_only=preflight_only, max_steps_override=max_steps)
+
+    if preflight_only:
+        typer.echo("Length preflight only -- no model loaded, no training run:")
+        typer.echo(json.dumps(result, indent=2, ensure_ascii=False))
+    else:
+        typer.echo(f"Training complete. Wrote checkpoint + manifest to {training_config.output_dir}")
 
 
 if __name__ == "__main__":

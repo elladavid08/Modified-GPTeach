@@ -1,0 +1,40 @@
+# Qwen2.5-7B-Instruct + the sft_baseline_v1 LoRA adapter (see
+# config/training/sft_baseline_v1.yaml), served locally via vLLM's
+# OpenAI-compatible API using native LoRA serving -- no merge-into-base-model
+# step needed:
+#
+#   vllm serve Qwen/Qwen2.5-7B-Instruct \
+#     --enable-lora \
+#     --lora-modules sft_baseline_v1=data/training/checkpoints/sft_baseline_v1 \
+#     --port 8000
+#
+# IMPORTANT: `model_name` below MUST exactly match the name given after `=`
+# in --lora-modules above (the LoRA adapter's served name), NOT the base
+# model id -- otherwise vLLM will silently serve the un-fine-tuned base
+# model instead of this adapter.
+#
+# Then, same as any other run config:
+#   pck-research infer --run-config config/runs/sft_baseline_v1_vllm.yaml \
+#     --dataset data/processed/test_set_v1.jsonl \
+#     --out data/predictions/sft_baseline_v1/predictions.jsonl
+
+run_id: sft_baseline_v1_vllm
+
+provider: openai_compatible
+model_name: sft_baseline_v1   # must match --lora-modules' served name exactly
+
+prompt_version: baseline_v1
+include_student_info: false
+include_board_images: false
+
+generation:
+  temperature: 0.1
+  max_output_tokens: 2000
+  top_p: 1.0
+
+# Provider-specific overrides (all optional -- defaults come from env vars,
+# see .env.example):
+# base_url: http://localhost:8000/v1
+# api_key: not-needed
+# base_url_env_var: PCK_RESEARCH_OPENAI_BASE_URL
+# api_key_env_var: PCK_RESEARCH_OPENAI_API_KEY

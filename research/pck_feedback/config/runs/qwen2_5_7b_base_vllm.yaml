@@ -1,0 +1,35 @@
+# Base Qwen2.5-7B-Instruct, PROMPT-ONLY (no LoRA / no fine-tuning), served
+# locally via vLLM's OpenAI-compatible API. This lets us compare three
+# points on the same test_set_v1.jsonl + `pck-research evaluate` pipeline:
+#   1. Gemini prompt baseline        (config/runs/baseline_gemini_text_only.yaml)
+#   2. Qwen2.5-7B-Instruct, prompt-only   (this file)
+#   3. Qwen2.5-7B-Instruct + SFT LoRA     (config/runs/sft_baseline_v1_vllm.yaml)
+#
+# Serve the base model on the GPU host, e.g.:
+#   vllm serve Qwen/Qwen2.5-7B-Instruct --port 8000
+# then point PCK_RESEARCH_OPENAI_BASE_URL (see .env.example) at that server,
+# e.g. http://localhost:8000/v1, and run:
+#   pck-research infer --run-config config/runs/qwen2_5_7b_base_vllm.yaml \
+#     --dataset data/processed/test_set_v1.jsonl \
+#     --out data/predictions/qwen2_5_7b_base/predictions.jsonl
+
+run_id: qwen2_5_7b_base_vllm
+
+provider: openai_compatible
+model_name: Qwen/Qwen2.5-7B-Instruct   # must match the model id vLLM serves
+
+prompt_version: baseline_v1
+include_student_info: false
+include_board_images: false   # base Qwen2.5-7B-Instruct is text-only
+
+generation:
+  temperature: 0.1        # near-deterministic, matches the Gemini baselines for a fair comparison
+  max_output_tokens: 2000
+  top_p: 1.0
+
+# Provider-specific overrides (all optional -- defaults come from env vars,
+# see .env.example):
+# base_url: http://localhost:8000/v1
+# api_key: not-needed
+# base_url_env_var: PCK_RESEARCH_OPENAI_BASE_URL
+# api_key_env_var: PCK_RESEARCH_OPENAI_API_KEY

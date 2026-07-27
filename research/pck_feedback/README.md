@@ -5,9 +5,9 @@ modeling and evaluation, run entirely outside of the production website on
 already-completed teacher-simulation conversations.
 
 Implemented so far: **export -> dataset build (test set + train set) ->
-prompt preview -> baseline inference -> evaluation -> SFT dataset build**.
-Actual fine-tuning/training runs and DPO are explicitly out of scope for now
-(see `src/pck_feedback/training/README.md`).
+prompt preview -> baseline inference -> evaluation -> SFT dataset build ->
+SFT LoRA training**. Preference-based training (e.g. DPO) is explicitly out
+of scope for now (see `src/pck_feedback/training/README.md`).
 
 ## Isolation from the production website
 
@@ -72,6 +72,14 @@ Actual fine-tuning/training runs and DPO are explicitly out of scope for now
    target. Splits by `conversation_id` (group-based, leak-safe) and hard-fails
    if any consensus/test conversation is present in the input. Does **not**
    train anything -- see `src/pck_feedback/training/README.md`.
+9. **SFT LoRA training** (`pck-research train-sft`) -- fine-tunes an open
+   base model (default: Qwen2.5-7B-Instruct) with LoRA on the SFT dataset
+   above. Requires the `train` extra and a GPU host (developed for an
+   NVIDIA B200 cluster); never run automatically. Enforces completion-only
+   loss (never trains on the user prompt) and a tokenizer length preflight
+   (never silently truncates). See `src/pck_feedback/training/README.md`
+   for the full step-by-step B200 workflow, including how to serve the
+   resulting adapter with vLLM for evaluation.
 
 ## Setup
 
@@ -87,6 +95,7 @@ pip install -e ".[dev]"
 pip install -e ".[firestore]"   # Firestore export
 pip install -e ".[vertex]"      # Vertex AI / Gemini adapter
 pip install -e ".[openai]"      # OpenAI-compatible adapter (OpenAI, vLLM, TGI, ...)
+pip install -e ".[train]"       # LoRA SFT training (GPU host only, e.g. B200 -- torch/transformers/trl/peft)
 # or all at once:
 pip install -e ".[all]"
 
@@ -156,6 +165,13 @@ pck-research build-sft-dataset \
   --run-config config/runs/baseline_gemini_text_only.yaml \
   --test-set data/processed/test_set_v1.jsonl
 # -> writes data/training/sft/baseline_v1_text_only/{train,val}.jsonl + split_manifest.json
+
+# 8. (GPU host, e.g. B200 -- requires `pip install -e ".[train]"`) Fine-tune
+#    with LoRA. See src/pck_feedback/training/README.md for the full
+#    preflight / smoke-test / full-run / vLLM-serving workflow.
+pck-research train-sft --config config/training/sft_baseline_v1.yaml --preflight-only
+pck-research train-sft --config config/training/sft_baseline_v1_smoke.yaml
+pck-research train-sft --config config/training/sft_baseline_v1.yaml
 ```
 
 ## Folder structure
@@ -173,7 +189,7 @@ research/pck_feedback/
     models/                  # ModelAdapter interface + Vertex/Gemini + OpenAI-compatible adapters
     inference/               # response parsing + run_inference.py (resume-safe)
     eval/                    # metrics.py, run_eval.py, report.py -- see eval/README.md
-    training/                # NOT IMPLEMENTED YET, explicitly out of scope for now (stub)
+    training/                # SFT dataset build + LoRA SFT training (train_sft.py, GPU-host-only, see training/README.md)
     cli/                     # `pck-research` command entrypoint
   data/                      # git-ignored; created at runtime by the CLI
   tests/                     # fixture-based unit tests (no network/credentials)

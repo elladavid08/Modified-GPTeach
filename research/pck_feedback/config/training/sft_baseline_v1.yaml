@@ -1,0 +1,67 @@
+# First practical SFT run: LoRA fine-tune of Qwen2.5-7B-Instruct on the
+# individual-annotator train set (see README.md / training/README.md for the
+# full workflow). Meant to run on a GPU host (e.g. the B200 cluster) via:
+#
+#   pck-research train-sft --config config/training/sft_baseline_v1.yaml
+#
+# For a quick smoke test before this full run, use
+# config/training/sft_baseline_v1_smoke.yaml instead (or pass
+# `--max-steps 5` to override this config's step count for one run without
+# editing the file).
+
+run_id: sft_baseline_v1
+base_model: Qwen/Qwen2.5-7B-Instruct
+
+output_dir: data/training/checkpoints/sft_baseline_v1
+
+train_dataset: data/training/sft/baseline_v1_text_only/train.jsonl
+val_dataset: data/training/sft/baseline_v1_text_only/val.jsonl
+
+# Measured prompt lengths top out around ~19.5K chars (~6.5K tokens, rough
+# estimate) -- 8192 leaves comfortable headroom. The training script MEASURES
+# actual tokenizer lengths before training (see `run-sft --preflight-only`)
+# rather than assuming this number is correct.
+max_seq_length: 8192
+
+# lora | qlora | full -- v1 uses plain LoRA (see training/README.md for why:
+# B200 has ample memory for a 7B model, so quantization isn't needed, and
+# LoRA is the lower-overfitting-risk choice for only ~430 training examples).
+method: lora
+
+# What to do if any example's tokenized length exceeds max_seq_length above.
+# NEVER silently truncated -- "fail" (default) refuses to start training;
+# set to "drop" to explicitly exclude the offending examples instead (both
+# choices are logged loudly and recorded in training_manifest.json).
+on_overlong_sequence: fail
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+
+training:
+  num_train_epochs: 3
+  per_device_train_batch_size: 1
+  per_device_eval_batch_size: 1
+  gradient_accumulation_steps: 8
+  learning_rate: 2.0e-4
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.03
+  weight_decay: 0.0
+  bf16: true
+  gradient_checkpointing: true
+  # No packing: the dataset is small enough that padding waste is
+  # negligible, and packing would risk mixing unrelated conversations'
+  # context into one training sequence.
+  packing: false
+  # See train_sft.py's `build_completion_only_collator` -- loss is computed
+  # ONLY on the assistant's JSON completion tokens, never the user prompt.
+  completion_only_loss: true
+  eval_strategy: epoch
+  save_strategy: epoch
+  save_total_limit: 3
+  load_best_model_at_end: true
+  logging_steps: 5
+  seed: 42
+  max_steps: null # null = run all epochs; set via --max-steps for a smoke test
