@@ -1,0 +1,51 @@
+{
+  "conversation_id": "conv_3",
+  "sessionId": "session_conv3_xyz",
+  "userId": "teacher_uid_3",
+  "userSnapshot": {"fullName": "מורה שלישי", "role": "teacher"},
+  "systemVersion": "1.0",
+  "startTime": "2026-03-01T09:00:00.000Z",
+  "endTime": "2026-03-01T09:15:00.000Z",
+  "scenario": {
+    "text": "זיהוי מעוין על סמך תכונות",
+    "grade_level": 8,
+    "ai_context_summary": "כיתה ח'. השיעור עוסק בהגדרת מעוין ובזיהויו לפי תכונות.",
+    "ai_prior_knowledge": "התלמידים מכירים מרובעים בסיסיים.",
+    "ai_pedagogical_focus": [],
+    "misconception_focus": "בלבול בין תנאי הכרחי לתנאי מספיק לזיהוי מעוין",
+    "target_pck_skills": [],
+    "initiated_by": "teacher"
+  },
+  "studentRefs": ["v1_hila"],
+  "turns": [
+    {
+      "turnNumber": 1,
+      "timestamp": "2026-03-01T09:05:00.000Z",
+      "teacher": {
+        "message": "מה ההגדרה הפורמלית של מעוין?",
+        "image": null,
+        "timestamp": "2026-03-01T09:05:00.000Z"
+      },
+      "students": [
+        {"name": "הילה", "message": "מרובע עם כל הצלעות שוות.", "timestamp": "2026-03-01T09:05:20.000Z"}
+      ],
+      "pckFeedback": null
+    },
+    {
+      "turnNumber": 2,
+      "timestamp": "2026-03-01T09:10:00.000Z",
+      "teacher": {
+        "message": "אם כל הזוויות ישרות במרובע, האם זה תמיד מעוין?",
+        "image": null,
+        "timestamp": "2026-03-01T09:10:00.000Z"
+      },
+      "students": [
+        {"name": "הילה", "message": "כן, זה אותו דבר.", "timestamp": "2026-03-01T09:10:20.000Z"}
+      ],
+      "pckFeedback": null
+    }
+  ],
+  "stats": {"totalTeacherMessages": 2, "totalStudentMessages": 2, "totalPCKFeedbacks": 0},
+  "summaryFeedback": null,
+  "lastUpdated": "2026-03-01T09:15:05.000Z"
+}

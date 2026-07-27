@@ -1,0 +1,27 @@
+{
+  "assignment_id": "a3",
+  "assignmentId": "a3",
+  "conversationId": "conv_3",
+  "annotatorId": "annotator_carol",
+  "assignmentType": "production",
+  "status": "completed",
+  "feedbackPoints": [
+    {
+      "feedbackPointId": "fp_a3_1",
+      "turnNumber": 1,
+      "sessionId": "session_conv3_xyz",
+      "teacherMessageSnapshot": "מה ההגדרה הפורמלית של מעוין?",
+      "selectedDimensions": ["p1"],
+      "dimensionFeedback": {
+        "p1": {"feedbackText": "זיהוי טוב של הצורך לחזור להגדרה פורמלית.", "score": 2}
+      },
+      "internalNote": "",
+      "createdAt": "2026-03-02T08:30:00.000Z",
+      "updatedAt": "2026-03-02T08:35:00.000Z"
+    }
+  ],
+  "generalComment": "",
+  "createdAt": "2026-03-02T08:00:00.000Z",
+  "updatedAt": "2026-03-02T08:35:00.000Z",
+  "submittedAt": "2026-03-02T09:00:00.000Z"
+}

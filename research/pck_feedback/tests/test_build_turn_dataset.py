@@ -13,7 +13,9 @@ def _examples_by_id(raw_dir: Path, **kwargs) -> dict[str, object]:
 
 def test_all_turns_present_without_filters(raw_dir: Path):
     examples = _examples_by_id(raw_dir)
-    assert set(examples.keys()) == {"conv_1__1", "conv_1__2", "conv_2__1"}
+    # conv_3 was added for build_train_dataset tests but, since build_turn_dataset
+    # iterates over ALL conversations regardless of annotation data, it shows up here too.
+    assert set(examples.keys()) == {"conv_1__1", "conv_1__2", "conv_2__1", "conv_3__1", "conv_3__2"}
 
 
 def test_conversation_id_and_session_id_are_kept_separate(raw_dir: Path):
@@ -114,9 +116,9 @@ def test_build_dataset_writes_jsonl(raw_dir: Path, tmp_path: Path):
     out_path = tmp_path / "turn_examples.jsonl"
     count = build_dataset(raw_dir, out_path)
 
-    assert count == 3
+    assert count == 5
     lines = out_path.read_text(encoding="utf-8").strip().split("\n")
-    assert len(lines) == 3
+    assert len(lines) == 5
 
 
 def test_build_dataset_only_completed_consensus_writes_fewer_rows(raw_dir: Path, tmp_path: Path):

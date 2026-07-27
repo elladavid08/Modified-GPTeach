@@ -29,9 +29,9 @@ def test_build_dataset_command(raw_dir: Path, tmp_path: Path):
     )
 
     assert result.exit_code == 0, result.output
-    assert "Wrote 3 turn example(s)" in result.output
+    assert "Wrote 5 turn example(s)" in result.output
     assert out_path.exists()
-    assert len(list(read_jsonl(out_path))) == 3
+    assert len(list(read_jsonl(out_path))) == 5
 
 
 def test_build_dataset_command_only_completed_consensus(raw_dir: Path, tmp_path: Path):
@@ -95,9 +95,9 @@ def test_infer_command_end_to_end_with_fake_adapter(raw_dir: Path, tmp_path: Pat
     )
 
     assert result.exit_code == 0, result.output
-    assert "'processed': 3" in result.output
+    assert "'processed': 5" in result.output
     predictions = list(read_jsonl(out_path))
-    assert len(predictions) == 3
+    assert len(predictions) == 5
 
 
 def test_infer_command_resumes_on_second_invocation(raw_dir: Path, tmp_path: Path, monkeypatch):
@@ -124,9 +124,9 @@ def test_infer_command_resumes_on_second_invocation(raw_dir: Path, tmp_path: Pat
         str(out_path),
     ]
     runner.invoke(app, infer_args)
-    assert len(fake_adapter.calls) == 3
+    assert len(fake_adapter.calls) == 5
 
     result = runner.invoke(app, infer_args)
     assert result.exit_code == 0, result.output
-    assert "'skipped': 3" in result.output
-    assert len(fake_adapter.calls) == 3  # no new calls on the resumed run
+    assert "'skipped': 5" in result.output
+    assert len(fake_adapter.calls) == 5  # no new calls on the resumed run

@@ -24,6 +24,22 @@ class _LenientModel(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class RawDimensionFeedback(_LenientModel):
+    """
+    Shared per-dimension shape, used by both individual (pre-consensus)
+    annotations and consensus annotations. `included` is only ever
+    meaningful on the *consensus* side (where a dimension can be explicitly
+    recorded as excluded); individual annotation feedback points never
+    populate it, so callers reading an individual annotation's
+    `dimensionFeedback` must treat *key presence* as `included=True` rather
+    than trusting this field's default -- see `build_train_dataset.py`.
+    """
+
+    included: bool = False
+    score: Optional[int] = None
+    feedbackText: Optional[str] = None
+
+
 # ---------------------------------------------------------------------------
 # conversations/{conversationId}
 # ---------------------------------------------------------------------------
@@ -64,7 +80,11 @@ class RawConversation(_LenientModel):
     studentRefs: list[str] = Field(default_factory=list)
     turns: list[RawTurn] = Field(default_factory=list)
     stats: dict[str, Any] = Field(default_factory=dict)
-    summaryFeedback: Optional[dict[str, Any]] = None
+    # Observed in production as a dict, a plain markdown string (a
+    # human/AI-readable session summary), or None -- genuinely polymorphic
+    # and not consumed anywhere downstream in this pipeline, so it's kept
+    # untyped rather than forcing one shape.
+    summaryFeedback: Optional[Any] = None
     lastUpdated: Optional[Any] = None
 
 
@@ -96,8 +116,11 @@ class RawAnnotationFeedbackPoint(_LenientModel):
     sessionId: Optional[str] = None
     teacherMessageSnapshot: Optional[str] = None
     selectedDimensions: list[str] = Field(default_factory=list)
-    scores: dict[str, int] = Field(default_factory=dict)
-    feedbackText: Optional[str] = None
+    # Real production shape (verified against live exports): one entry per
+    # dimension the annotator selected, keyed by p1-p5, each carrying that
+    # dimension's own score + feedback text -- NOT a flat top-level
+    # `scores`/`feedbackText` pair shared across dimensions.
+    dimensionFeedback: dict[str, RawDimensionFeedback] = Field(default_factory=dict)
     internalNote: Optional[str] = None
     createdAt: Optional[str] = None
     updatedAt: Optional[str] = None
@@ -120,12 +143,6 @@ class RawAnnotation(_LenientModel):
 # ---------------------------------------------------------------------------
 # conversationConsensusAnnotations/{comparisonSetId}__{conversationId}
 # ---------------------------------------------------------------------------
-
-
-class RawDimensionFeedback(_LenientModel):
-    included: bool = False
-    score: Optional[int] = None
-    feedbackText: Optional[str] = None
 
 
 class RawConsensusFeedbackPoint(_LenientModel):

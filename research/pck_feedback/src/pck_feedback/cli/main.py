@@ -1,11 +1,12 @@
 """
 `pck-research` CLI entrypoint.
 
-    pck-research export         -- Firestore (read-only) -> data/raw/*.json
-    pck-research extract-images -- data/raw/conversations/*.json -> data/raw/images/*.png (additive)
-    pck-research build-dataset  -- data/raw/* -> turn_examples.jsonl
-    pck-research infer          -- turn_examples.jsonl -> predictions.jsonl (resume-safe)
-    pck-research evaluate       -- NOT IMPLEMENTED YET (stub)
+    pck-research export              -- Firestore (read-only) -> data/raw/*.json
+    pck-research extract-images      -- data/raw/conversations/*.json -> data/raw/images/*.png (additive)
+    pck-research build-dataset       -- data/raw/* -> turn_examples.jsonl (consensus-based test set)
+    pck-research build-train-dataset -- data/raw/* -> train_examples.jsonl (individual-annotation train set)
+    pck-research infer               -- turn_examples.jsonl -> predictions.jsonl (resume-safe)
+    pck-research evaluate            -- NOT IMPLEMENTED YET (stub)
 
 None of these commands are executed automatically by this codebase -- they
 are meant to be run manually, after credentials are configured (see
@@ -106,6 +107,31 @@ def build_dataset_cmd(
         only_completed_consensus=only_completed_consensus,
     )
     typer.echo(f"Wrote {count} turn example(s) to {out}")
+
+
+@app.command("build-train-dataset")
+def build_train_dataset_cmd(
+    raw_dir: Path = typer.Option(Path("data/raw"), help="Directory containing exported raw data."),
+    out: Path = typer.Option(
+        Path("data/processed/train_individual_annotations.jsonl"), help="Output JSONL path."
+    ),
+    include_consensus_conversations: bool = typer.Option(
+        False,
+        help=(
+            "Include conversations that already have a completed consensus annotation. "
+            "By default these are excluded so the held-out consensus test set never leaks into training data."
+        ),
+    ),
+) -> None:
+    """Build the train dataset from completed individual (pre-consensus) annotator annotations."""
+    from pck_feedback.dataset.build_train_dataset import build_train_dataset
+
+    count = build_train_dataset(
+        raw_dir,
+        out,
+        exclude_consensus_conversations=not include_consensus_conversations,
+    )
+    typer.echo(f"Wrote {count} train example(s) to {out}")
 
 
 @app.command()

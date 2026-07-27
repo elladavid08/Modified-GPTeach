@@ -7,6 +7,7 @@ from pck_feedback.schemas.raw import (
     RawConversation,
     RawTurn,
 )
+from pck_feedback.schemas.train_example import AnnotatorLabel, TrainExample
 from pck_feedback.schemas.turn_example import GroundTruth, GroundTruthDimension, TurnExample
 
 __all__ = [
@@ -18,6 +19,8 @@ __all__ = [
     "RawConsensusAnnotation",
     "RawConversation",
     "RawTurn",
+    "AnnotatorLabel",
+    "TrainExample",
     "GroundTruth",
     "GroundTruthDimension",
     "TurnExample",

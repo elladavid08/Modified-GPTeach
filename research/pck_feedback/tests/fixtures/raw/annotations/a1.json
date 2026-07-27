@@ -12,8 +12,10 @@
       "sessionId": "conv_1",
       "teacherMessageSnapshot": "נועה טענה שריבוע הוא לא מלבן. מה דעתכם?",
       "selectedDimensions": ["p1", "p4"],
-      "scores": {"p1": 2, "p4": 1},
-      "feedbackText": "זיהוי טוב של הטענה השגויה, אפשר להעמיק בשאלות המנחות.",
+      "dimensionFeedback": {
+        "p1": {"feedbackText": "זיהוי ברור של הטענה השגויה.", "score": 2},
+        "p4": {"feedbackText": "אפשר להעמיק בשאלות מנחות.", "score": 1}
+      },
       "internalNote": "",
       "createdAt": "2026-01-06T08:30:00.000Z",
       "updatedAt": "2026-01-06T08:45:00.000Z"

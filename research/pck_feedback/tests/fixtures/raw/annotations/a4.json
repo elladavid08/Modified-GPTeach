@@ -1,0 +1,27 @@
+{
+  "assignment_id": "a4",
+  "assignmentId": "a4",
+  "conversationId": "conv_3",
+  "annotatorId": "annotator_dave",
+  "assignmentType": "production",
+  "status": "completed",
+  "feedbackPoints": [
+    {
+      "feedbackPointId": "fp_a4_1",
+      "turnNumber": 2,
+      "sessionId": "session_conv3_xyz",
+      "teacherMessageSnapshot": "אם כל הזוויות ישרות במרובע, האם זה תמיד מעוין?",
+      "selectedDimensions": ["p5"],
+      "dimensionFeedback": {
+        "p5": {"feedbackText": "הזדמנות טובה להרחיב לדיון על מלבן מול מעוין.", "score": 1}
+      },
+      "internalNote": "",
+      "createdAt": "2026-03-02T09:00:00.000Z",
+      "updatedAt": "2026-03-02T09:10:00.000Z"
+    }
+  ],
+  "generalComment": "",
+  "createdAt": "2026-03-02T08:05:00.000Z",
+  "updatedAt": "2026-03-02T09:10:00.000Z",
+  "submittedAt": "2026-03-02T09:20:00.000Z"
+}
