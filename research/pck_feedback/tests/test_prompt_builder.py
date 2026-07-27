@@ -123,3 +123,49 @@ def test_build_prompt_via_registry(raw_dir: Path):
     example = _example(raw_dir, "conv_1__1")
     payload = build_prompt("baseline_v1", example)
     assert example.teacher_message in payload.text
+
+
+def test_prompt_includes_general_assessment_guidance(raw_dir: Path):
+    example = _example(raw_dir, "conv_1__1")
+    payload = build_baseline_prompt(example)
+    assert "General Assessment Guidance" in payload.text
+    assert "missed a pedagogical opportunity" in payload.text
+    assert "not the severity" in payload.text
+
+
+def test_prompt_includes_should_provide_feedback_consistency_rule(raw_dir: Path):
+    example = _example(raw_dir, "conv_1__1")
+    payload = build_baseline_prompt(example)
+    assert "Consistency requirement" in payload.text
+    assert '"relevant": true, then "should_provide_feedback" must be true' in payload.text
+    assert 'have "relevant": false, then "should_provide_feedback" must be false' in payload.text
+
+
+def test_prompt_includes_hebrew_patterns_illustrative_note(raw_dir: Path):
+    example = _example(raw_dir, "conv_1__1")
+    payload = build_baseline_prompt(example)
+    assert "illustrative examples only, not exact string-matching rules" in payload.text
+
+
+def test_prompt_without_board_image_has_no_image_instruction_section(raw_dir: Path):
+    example = _example(raw_dir, "conv_1__1")
+    payload = build_baseline_prompt(example, include_board_images=False)
+    assert "Attached Board Image" not in payload.text
+
+
+def test_prompt_with_board_image_includes_image_instruction_section(raw_dir_copy: Path):
+    extract_all_images(raw_dir_copy)
+    example = _example(raw_dir_copy, "conv_1__1")
+    payload = build_baseline_prompt(example, include_board_images=True, raw_dir=raw_dir_copy)
+
+    assert len(payload.images) == 1
+    assert "Attached Board Image" in payload.text
+    assert "the shape on the board" in payload.text
+
+
+def test_prompt_include_board_images_true_but_no_image_available_has_no_image_section(raw_dir: Path):
+    # raw_dir (no image extraction run) -> board_image_path is None for turn 1.
+    example = _example(raw_dir, "conv_1__1")
+    payload = build_baseline_prompt(example, include_board_images=True, raw_dir=raw_dir)
+    assert payload.images == []
+    assert "Attached Board Image" not in payload.text

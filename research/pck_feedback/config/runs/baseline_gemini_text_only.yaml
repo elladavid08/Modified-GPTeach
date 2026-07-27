@@ -14,7 +14,7 @@ include_student_info: false
 include_board_images: false
 
 generation:
-  temperature: 0.7        # matches production's generationConfig
+  temperature: 0.1        # near-deterministic, for reproducible evaluation (was 0.7)
   max_output_tokens: 2000 # matches production's generationConfig
   top_p: 1.0
 

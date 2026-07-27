@@ -5,8 +5,9 @@
     pck-research extract-images      -- data/raw/conversations/*.json -> data/raw/images/*.png (additive)
     pck-research build-dataset       -- data/raw/* -> turn_examples.jsonl (consensus-based test set)
     pck-research build-train-dataset -- data/raw/* -> train_examples.jsonl (individual-annotation train set)
+    pck-research render-prompt       -- dry-run: render one example's exact prompt to a local Markdown file (no model call)
     pck-research infer               -- turn_examples.jsonl -> predictions.jsonl (resume-safe)
-    pck-research evaluate            -- NOT IMPLEMENTED YET (stub)
+    pck-research evaluate            -- test_set_v1.jsonl + predictions.jsonl -> metrics.json (+ terminal summary, + optional error report)
 
 None of these commands are executed automatically by this codebase -- they
 are meant to be run manually, after credentials are configured (see
@@ -134,6 +135,47 @@ def build_train_dataset_cmd(
     typer.echo(f"Wrote {count} train example(s) to {out}")
 
 
+@app.command("render-prompt")
+def render_prompt_cmd(
+    run_config: Path = typer.Option(..., help="Path to a run config YAML under config/runs/."),
+    dataset: Path = typer.Option(..., help="Path to a turn_examples.jsonl dataset."),
+    example_id: str = typer.Option(..., help="The `example_id` (from the dataset) to render a prompt preview for."),
+    out: Path = typer.Option(..., help="Output Markdown file path for the rendered prompt preview."),
+    raw_dir: Optional[Path] = typer.Option(
+        None, help="Required if the run config has include_board_images=true."
+    ),
+) -> None:
+    """
+    Dry-run: render the exact prompt `infer` would build (and send) for one
+    example, to a local Markdown file. Never calls a model API, never
+    connects to Firestore, never runs inference.
+    """
+    from pck_feedback.models.run_config import RunConfig
+    from pck_feedback.prompts.preview import find_example, render_prompt_preview
+    from pck_feedback.utils.io import ensure_dir
+
+    config = RunConfig.from_yaml(run_config)
+
+    if config.include_board_images and raw_dir is None:
+        raise typer.BadParameter(
+            f"Run config '{config.run_id}' has include_board_images=true, so --raw-dir must be provided."
+        )
+
+    example = find_example(dataset, example_id)
+
+    markdown = render_prompt_preview(
+        run_config=config,
+        run_config_path=run_config,
+        dataset_path=dataset,
+        example=example,
+        raw_dir=raw_dir,
+    )
+
+    ensure_dir(out.parent)
+    out.write_text(markdown, encoding="utf-8")
+    typer.echo(f"Wrote prompt preview for example_id={example_id} to {out}")
+
+
 @app.command()
 def infer(
     run_config: Path = typer.Option(..., help="Path to a run config YAML under config/runs/."),
@@ -165,12 +207,24 @@ def infer(
 
 
 @app.command()
-def evaluate() -> None:
-    """NOT IMPLEMENTED YET -- see src/pck_feedback/eval/README.md."""
-    typer.echo(
-        "Evaluation is not implemented yet in this stage of the pipeline. "
-        "See src/pck_feedback/eval/README.md for what's planned."
-    )
+def evaluate(
+    dataset: Path = typer.Option(
+        ..., help="Path to a turn_examples.jsonl built with `build-dataset --only-completed-consensus`."
+    ),
+    predictions: Path = typer.Option(..., help="Path to a predictions.jsonl file produced by `pck-research infer`."),
+    out: Path = typer.Option(..., help="Output metrics JSON path."),
+    errors_out: Optional[Path] = typer.Option(
+        None,
+        help="Optional error report path for mismatching rows only, for manual inspection. "
+        "Format is chosen by extension: '.csv' -> CSV, anything else -> JSONL.",
+    ),
+) -> None:
+    """Evaluate model predictions against the completed-consensus test set's ground truth."""
+    from pck_feedback.eval.report import format_summary
+    from pck_feedback.eval.run_eval import evaluate as run_evaluate
+
+    metrics = run_evaluate(dataset, predictions, out, errors_out_path=errors_out)
+    typer.echo(format_summary(metrics))
 
 
 if __name__ == "__main__":

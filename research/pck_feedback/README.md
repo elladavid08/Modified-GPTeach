@@ -4,9 +4,9 @@ Offline research pipeline for **PCK (Pedagogical Content Knowledge) feedback**
 modeling and evaluation, run entirely outside of the production website on
 already-completed teacher-simulation conversations.
 
-This is stage 1: **export -> dataset build -> baseline inference**. Evaluation
-and fine-tuning/DPO are explicitly out of scope for now (see `src/pck_feedback/eval/README.md`
-and `src/pck_feedback/training/README.md`).
+Implemented so far: **export -> dataset build (test set + train set) ->
+prompt preview -> baseline inference -> evaluation**. Fine-tuning/DPO is
+explicitly out of scope for now (see `src/pck_feedback/training/README.md`).
 
 ## Isolation from the production website
 
@@ -24,20 +24,44 @@ and `src/pck_feedback/training/README.md`).
 - Nothing here changes any existing route, page, or server behavior in the
   production app.
 
-## What's implemented so far (stage 1)
+## What's implemented so far
 
 1. **Export** (`pck-research export`) -- pulls `conversations`,
    `conversationAnnotationAssignments`, `conversationAnnotations`,
    `conversationConsensusAnnotations`, and `annotationComparisonSets` from
    Firestore into byte-faithful local JSON files under `data/raw/`.
-2. **Dataset build** (`pck-research build-dataset`) -- turns raw exports into
-   a turn-level JSONL dataset (`data/processed/turn_examples.jsonl`), one
-   example per teacher turn, joined with consensus-annotation ground truth
-   where available.
-3. **Inference** (`pck-research infer`) -- runs a configurable baseline PCK
+2. **Image extraction** (`pck-research extract-images`) -- additively decodes
+   base64 board-drawing images from `data/raw/conversations/*.json` into PNG
+   files under `data/raw/images/`, without mutating the raw export.
+3. **Test-set build** (`pck-research build-dataset`) -- turns raw exports into
+   a turn-level JSONL dataset, one example per teacher turn, joined with
+   *consensus*-annotation ground truth where available. Use
+   `--only-completed-consensus` to build the held-out eval set
+   (`data/processed/test_set_v1.jsonl`).
+4. **Train-set build** (`pck-research build-train-dataset`) -- turns raw
+   exports into a turn-level JSONL dataset labeled from completed
+   *individual annotator* annotations (one labeled set per completed
+   assignment; a conversation annotated by two people yields two example
+   sets). Excludes conversations/assignments already used for a completed
+   consensus annotation by default, so the test set never leaks into
+   training data.
+5. **Prompt preview** (`pck-research render-prompt`) -- dry-run: renders the
+   exact prompt `infer` would build (and send) for one dataset example to a
+   local Markdown file. Never calls a model API, never connects to
+   Firestore, never runs inference -- useful for sanity-checking a run
+   config before spending API budget.
+6. **Inference** (`pck-research infer`) -- runs a configurable baseline PCK
    feedback model (Vertex/Gemini or an OpenAI-compatible endpoint, e.g. for a
    future local/GPU-hosted model) over the dataset and writes standardized
-   predictions to `data/predictions/<run_id>/predictions.jsonl`.
+   predictions to `data/predictions/<run_id>/predictions.jsonl`. Resume-safe:
+   re-running skips `(run_id, example_id)` pairs already in `--out`.
+7. **Evaluation** (`pck-research evaluate`) -- scores a `predictions.jsonl`
+   file against the completed-consensus test set: feedback-decision
+   accuracy/precision/recall/F1, per-dimension inclusion metrics, per-dimension
+   score agreement (MAE, weighted kappa), and feedback-text presence. Writes a
+   metrics JSON, prints a terminal summary, and can optionally write a
+   mismatches-only error report (CSV or JSONL). See
+   `src/pck_feedback/eval/README.md` for details.
 
 ## Setup
 
@@ -79,14 +103,28 @@ pck-research export --config config/export.yaml
 # 2. Extract board-drawing images to PNG files (additive, does not touch data/raw/*.json).
 pck-research extract-images --raw-dir data/raw
 
-# 3. Build the turn-level dataset.
-pck-research build-dataset --raw-dir data/raw --out data/processed/turn_examples.jsonl
-
-# ... or build the first eval-ready test set from completed consensus conversations only:
+# 3. Build the eval-ready test set from completed consensus conversations only.
 pck-research build-dataset --raw-dir data/raw --only-completed-consensus \
   --out data/processed/test_set_v1.jsonl
 
-# 4. Run baseline inference.
+# ... or build the full (non-filtered) turn-level dataset:
+pck-research build-dataset --raw-dir data/raw --out data/processed/turn_examples.jsonl
+
+# 3b. Build the train set from completed individual annotator annotations
+#     (excludes the consensus/test conversations by default).
+pck-research build-train-dataset --raw-dir data/raw \
+  --out data/processed/train_individual_annotations_v1.jsonl
+
+# 4. (Optional but recommended before spending API budget) Preview the exact
+#    prompt a run config would send for a given example -- no model call,
+#    no Firestore, no inference.
+pck-research render-prompt \
+  --run-config config/runs/baseline_gemini_text_only.yaml \
+  --dataset data/processed/test_set_v1.jsonl \
+  --example-id <EXAMPLE_ID> \
+  --out data/prompt_previews/baseline_gemini_text_only_<EXAMPLE_ID>.md
+
+# 5. Run baseline inference.
 pck-research infer --run-config config/runs/baseline_gemini_text_only.yaml \
   --dataset data/processed/test_set_v1.jsonl \
   --out data/predictions/baseline_gemini_text_only/predictions.jsonl
@@ -94,8 +132,12 @@ pck-research infer --run-config config/runs/baseline_gemini_text_only.yaml \
 # Re-running the same `infer` command resumes/skips (run_id, example_id) pairs
 # already present in --out -- safe after an API timeout or partial run.
 
-# 5. Evaluation is not implemented yet.
-pck-research evaluate   # prints a "not implemented yet" message and exits.
+# 6. Evaluate predictions against the consensus test set's ground truth.
+pck-research evaluate \
+  --dataset data/processed/test_set_v1.jsonl \
+  --predictions data/predictions/baseline_gemini_text_only/predictions.jsonl \
+  --out data/eval/baseline_gemini_text_only/metrics.json \
+  --errors-out data/eval/baseline_gemini_text_only/errors.jsonl
 ```
 
 ## Folder structure
@@ -108,11 +150,11 @@ research/pck_feedback/
     pck_skills.py            # p1-p5 rubrics ported from server/universal_pck_skills.js + RUBRIC_VERSION
     firestore_client.py      # read-only Firestore client init
     export/                  # Firestore -> data/raw/*.json, image extraction
-    dataset/                 # data/raw/ -> turn_examples.jsonl
-    prompts/                 # baseline prompt builder + versioned registry
+    dataset/                 # data/raw/ -> turn_examples.jsonl (test set) / train_examples.jsonl (train set)
+    prompts/                 # baseline prompt builder, versioned registry, dry-run preview renderer
     models/                  # ModelAdapter interface + Vertex/Gemini + OpenAI-compatible adapters
     inference/               # response parsing + run_inference.py (resume-safe)
-    eval/                    # NOT IMPLEMENTED YET (stub)
+    eval/                    # metrics.py, run_eval.py, report.py -- see eval/README.md
     training/                # NOT IMPLEMENTED YET, explicitly out of scope for now (stub)
     cli/                     # `pck-research` command entrypoint
   data/                      # git-ignored; created at runtime by the CLI

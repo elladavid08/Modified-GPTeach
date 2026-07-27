@@ -9,6 +9,7 @@ CLI wiring (config load -> dataset read -> prompt build -> "model" call ->
 parse -> write predictions.jsonl) be smoke-tested safely.
 """
 
+import json
 from pathlib import Path
 
 from fakes.fake_adapter import FakeAdapter
@@ -61,10 +62,126 @@ def test_extract_images_command(raw_dir_copy: Path):
     assert (raw_dir_copy / "images" / "conv_1" / "1.png").exists()
 
 
-def test_evaluate_command_is_a_stub():
-    result = runner.invoke(app, ["evaluate"])
-    assert result.exit_code == 0
-    assert "not implemented yet" in result.output.lower()
+def test_render_prompt_command(raw_dir: Path, tmp_path: Path):
+    dataset_path = tmp_path / "test_set.jsonl"
+    runner.invoke(
+        app,
+        ["build-dataset", "--raw-dir", str(raw_dir), "--out", str(dataset_path), "--only-completed-consensus"],
+    )
+
+    run_config_path = tmp_path / "fake_run.yaml"
+    run_config_path.write_text(
+        "run_id: preview_run\nprovider: fake_provider\nmodel_name: fake-model\n",
+        encoding="utf-8",
+    )
+
+    out_path = tmp_path / "preview.md"
+    result = runner.invoke(
+        app,
+        [
+            "render-prompt",
+            "--run-config",
+            str(run_config_path),
+            "--dataset",
+            str(dataset_path),
+            "--example-id",
+            "conv_1__1",
+            "--out",
+            str(out_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert out_path.exists()
+    content = out_path.read_text(encoding="utf-8")
+    assert "preview_run" in content
+    assert "conv_1__1" in content
+    assert "## Full prompt text" in content
+    # This command must never call a model API -- there is no adapter/network wiring
+    # anywhere in its code path, so there is nothing to monkeypatch here (unlike `infer`).
+
+
+def test_render_prompt_command_unknown_example_id_fails(raw_dir: Path, tmp_path: Path):
+    dataset_path = tmp_path / "test_set.jsonl"
+    runner.invoke(
+        app,
+        ["build-dataset", "--raw-dir", str(raw_dir), "--out", str(dataset_path), "--only-completed-consensus"],
+    )
+    run_config_path = tmp_path / "fake_run.yaml"
+    run_config_path.write_text(
+        "run_id: preview_run\nprovider: fake_provider\nmodel_name: fake-model\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "render-prompt",
+            "--run-config",
+            str(run_config_path),
+            "--dataset",
+            str(dataset_path),
+            "--example-id",
+            "does_not_exist",
+            "--out",
+            str(tmp_path / "preview.md"),
+        ],
+    )
+    assert result.exit_code != 0
+
+
+def test_evaluate_command_end_to_end(raw_dir: Path, tmp_path: Path, monkeypatch):
+    dataset_path = tmp_path / "test_set.jsonl"
+    runner.invoke(
+        app,
+        ["build-dataset", "--raw-dir", str(raw_dir), "--out", str(dataset_path), "--only-completed-consensus"],
+    )
+
+    run_config_path = tmp_path / "fake_run.yaml"
+    run_config_path.write_text(
+        "run_id: fake_cli_run\nprovider: fake_provider\nmodel_name: fake-model\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("pck_feedback.inference.run_inference.get_adapter", lambda config: FakeAdapter())
+
+    predictions_path = tmp_path / "predictions.jsonl"
+    runner.invoke(
+        app,
+        [
+            "infer",
+            "--run-config",
+            str(run_config_path),
+            "--dataset",
+            str(dataset_path),
+            "--out",
+            str(predictions_path),
+        ],
+    )
+
+    metrics_path = tmp_path / "metrics.json"
+    errors_path = tmp_path / "errors.jsonl"
+    result = runner.invoke(
+        app,
+        [
+            "evaluate",
+            "--dataset",
+            str(dataset_path),
+            "--predictions",
+            str(predictions_path),
+            "--out",
+            str(metrics_path),
+            "--errors-out",
+            str(errors_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "PCK Feedback Evaluation" in result.output
+    assert "Feedback decision" in result.output
+    assert metrics_path.exists()
+    metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+    assert metrics["counts"]["n_evaluated"] == 2
+    assert errors_path.exists()
 
 
 def test_infer_command_end_to_end_with_fake_adapter(raw_dir: Path, tmp_path: Path, monkeypatch):

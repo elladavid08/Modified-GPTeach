@@ -123,12 +123,37 @@ Respond with STRICT JSON only (no markdown fences, no commentary before or after
 }}
 
 Rules:
-- "relevant": true only for dimensions that actually apply to this teacher turn (per the "When relevant?" guidance for each skill above). Set "score" and "feedback_text" to null when "relevant" is false.
-- "score" must be an integer 0, 1, or 2, following the rubric above, whenever "relevant" is true.
-- "feedback_text" (when present) should be short, actionable feedback for the teacher, written in Hebrew.
+- "relevant": true only for dimensions that actually apply to this teacher turn (per the "When relevant?" guidance for each skill above, and the "General Assessment Guidance" above regarding missed opportunities). Set "score" and "feedback_text" to null when "relevant" is false.
+- "score" must be an integer 0, 1, or 2, following the rubric above, whenever "relevant" is true. The score reflects the QUALITY of the teacher's pedagogical move for that dimension, not the severity of the student's error or problem -- a well-handled turn can and should score 2.
+- "feedback_text" (when present) should be short and actionable, written in Hebrew. When a dimension is relevant and the teacher handled it well (score=2), feedback_text may be positive/confirming (e.g. praising a strong diagnostic question) rather than corrective.
+- Consistency requirement: if ANY of {dims} has "relevant": true, then "should_provide_feedback" must be true. If ALL of {dims} have "relevant": false, then "should_provide_feedback" must be false.
 - "feedback_text_overall" is an optional short Hebrew summary combining the most important point(s) across dimensions; use null if "should_provide_feedback" is false.
-- "should_provide_feedback" should be false only when the teacher's move requires no pedagogical feedback at all (e.g. no error was made and no opportunity was missed).
 """.strip()
+
+
+def _general_assessment_guidance() -> str:
+    return (
+        "- Evaluate not only how the teacher responded to an explicit student error, but also "
+        "whether the teacher's current move missed a pedagogical opportunity, given the lesson's "
+        "goal, the likely misconception, and the conversation history so far.\n"
+        "- However, p1 (Error Identification), p2 (Error Type Characterization), and p3 "
+        "(Diagnostic Interpretation of Student Thinking) should generally be marked relevant only "
+        "when there is an actual student error or misconception to identify, characterize, or "
+        "interpret in this turn or the preceding student message(s). p4 (Adapted Pedagogical "
+        "Response) and p5 (Leveraging Error for Learning) may still be relevant even without a new "
+        "explicit error, if the teacher had an opportunity to deepen or extend student understanding.\n"
+        "- For every dimension, the score (0/1/2) evaluates the quality of the teacher's pedagogical "
+        "move for that dimension, not the severity of the underlying error or problem. If a dimension "
+        "is relevant and the teacher handled it well, score=2 is valid, and the feedback text can be "
+        "positive/confirming rather than corrective."
+    )
+
+
+BOARD_IMAGE_INSTRUCTION = (
+    "An image of the board is attached as part of this prompt's context. Use it to understand "
+    'any references in the conversation history or the teacher\'s current turn to visual '
+    'elements on the board (e.g. "the shape on the board", "the two shapes", "the diagram above").'
+)
 
 
 def build_baseline_prompt(
@@ -147,29 +172,6 @@ def build_baseline_prompt(
     behavior (no images, no explicit student-info block) while
     `baseline_gemini_with_board_images.yaml` can opt into richer context.
     """
-    sections: list[str] = []
-
-    sections.append(
-        "You are a PCK (Pedagogical Content Knowledge) expert analyzing a "
-        "Hebrew geometry teacher's pedagogical move, offline, on a single "
-        "teacher turn taken from a completed simulated lesson."
-    )
-
-    sections.append("## Lesson Context\n" + format_scenario_context(example.scenario))
-
-    if include_student_info:
-        sections.append("## Student Information\n" + format_student_info(example.student_info))
-
-    sections.append("## PCK Skills to Assess (p1-p5)\n" + format_skills_for_prompt())
-
-    sections.append("## Conversation History (Hebrew)\n" + format_conversation_history(example.conversation_history))
-
-    sections.append(f'## Teacher\'s Turn to Analyze\n"{example.teacher_message}"')
-
-    sections.append("## Required Output Format\n" + _output_schema_instructions())
-
-    text = "\n\n".join(sections)
-
     images: list[PromptImage] = []
     if include_board_images and example.board_image_path:
         if raw_dir is None:
@@ -182,5 +184,38 @@ def build_baseline_prompt(
         # If the image file is missing (e.g. dataset built before image
         # extraction ran), we silently proceed text-only rather than
         # failing the whole inference run for one turn.
+
+    sections: list[str] = []
+
+    sections.append(
+        "You are a PCK (Pedagogical Content Knowledge) expert analyzing a "
+        "Hebrew geometry teacher's pedagogical move, offline, on a single "
+        "teacher turn taken from a completed simulated lesson."
+    )
+
+    sections.append("## General Assessment Guidance\n" + _general_assessment_guidance())
+
+    sections.append("## Lesson Context\n" + format_scenario_context(example.scenario))
+
+    if include_student_info:
+        sections.append("## Student Information\n" + format_student_info(example.student_info))
+
+    sections.append(
+        "## PCK Skills to Assess (p1-p5)\n"
+        'Note: the "Hebrew patterns" listed below for each score band are illustrative examples '
+        "only, not exact string-matching rules -- judge the teacher's move by its pedagogical "
+        "substance and meaning, not by matching these exact phrases.\n\n" + format_skills_for_prompt()
+    )
+
+    sections.append("## Conversation History (Hebrew)\n" + format_conversation_history(example.conversation_history))
+
+    if images:
+        sections.append("## Attached Board Image\n" + BOARD_IMAGE_INSTRUCTION)
+
+    sections.append(f'## Teacher\'s Turn to Analyze\n"{example.teacher_message}"')
+
+    sections.append("## Required Output Format\n" + _output_schema_instructions())
+
+    text = "\n\n".join(sections)
 
     return PromptPayload(text=text, images=images)

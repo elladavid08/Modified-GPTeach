@@ -15,7 +15,7 @@ include_student_info: false
 include_board_images: true   # attaches TurnExample.board_image_path as an image part, when present
 
 generation:
-  temperature: 0.7
+  temperature: 0.1        # near-deterministic, for reproducible evaluation (was 0.7)
   max_output_tokens: 2000
   top_p: 1.0
 

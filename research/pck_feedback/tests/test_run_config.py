@@ -11,7 +11,7 @@ def test_load_baseline_gemini_text_only_config():
     assert config.provider == "vertex_gemini"
     assert config.model_name == "gemini-2.5-flash-lite"
     assert config.include_board_images is False
-    assert config.generation["temperature"] == 0.7
+    assert config.generation["temperature"] == 0.1
     assert config.provider_config == {}
 
 
