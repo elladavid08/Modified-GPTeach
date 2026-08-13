@@ -5,6 +5,7 @@ import { getResearchParticipantsApi, getConversationsByUserApi } from '../servic
 import { getSubmissions } from '../services/annotationService';
 import { ConversationDetail } from './ConversationLogs';
 import { PCKSummaryModal } from '../components/PCKSummaryModal';
+import { exportConversationToExcel } from '../services/exportConversationExcel';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -155,6 +156,8 @@ function ParticipantsTable({ participants, convMap, submissionMap, onNavigateToA
 // ─── Conversations table for a single participant ────────────────────────────
 
 function ConversationsList({ participant, conversations, onSelectConversation }) {
+  const [exportingId, setExportingId] = useState(null);
+
   if (conversations.length === 0) {
     return <div className="alert alert-info">אין שיחות שמורות עבור משתתף זה.</div>;
   }
@@ -164,6 +167,19 @@ function ConversationsList({ participant, conversations, onSelectConversation })
     const tb = getStartTs(b) || '';
     return String(tb).localeCompare(String(ta));
   });
+
+  const handleExport = (conv) => {
+    const id = conv.id || conv.sessionId;
+    setExportingId(id);
+    try {
+      exportConversationToExcel(conv, participant && participant.researchParticipantLabel);
+    } catch (err) {
+      console.error('שגיאה בייצוא לאקסל:', err);
+      alert('שגיאה בייצוא לאקסל. אנא נסה שוב.');
+    } finally {
+      setExportingId(null);
+    }
+  };
 
   return (
     <div style={{ background: '#fff', borderRadius: '10px', border: '1px solid #dee2e6', overflow: 'hidden' }}>
@@ -179,26 +195,39 @@ function ConversationsList({ participant, conversations, onSelectConversation })
           </tr>
         </thead>
         <tbody>
-          {sorted.map((conv, idx) => (
-            <tr key={conv.id || conv.sessionId}>
-              <td style={{ color: '#6c5ce7', fontWeight: 600 }}>{sorted.length - idx}</td>
-              <td style={{ fontSize: '0.88rem', maxWidth: '280px' }}>
-                {getScenarioTitle(conv)}
-              </td>
-              <td style={{ fontSize: '0.9rem' }}>{formatDateTime(getStartTs(conv))}</td>
-              <td style={{ textAlign: 'center' }}>{getDuration(conv)}</td>
-              <td style={{ textAlign: 'center' }}>{getTurnCount(conv)}</td>
-              <td>
-                <button
-                  className="btn btn-sm btn-outline-primary"
-                  style={{ borderRadius: '20px' }}
-                  onClick={() => onSelectConversation(conv)}
-                >
-                  צפייה בשיחה
-                </button>
-              </td>
-            </tr>
-          ))}
+          {sorted.map((conv, idx) => {
+            const convId = conv.id || conv.sessionId;
+            const isExporting = exportingId === convId;
+            return (
+              <tr key={convId}>
+                <td style={{ color: '#6c5ce7', fontWeight: 600 }}>{sorted.length - idx}</td>
+                <td style={{ fontSize: '0.88rem', maxWidth: '280px' }}>
+                  {getScenarioTitle(conv)}
+                </td>
+                <td style={{ fontSize: '0.9rem' }}>{formatDateTime(getStartTs(conv))}</td>
+                <td style={{ textAlign: 'center' }}>{getDuration(conv)}</td>
+                <td style={{ textAlign: 'center' }}>{getTurnCount(conv)}</td>
+                <td style={{ whiteSpace: 'nowrap' }}>
+                  <button
+                    className="btn btn-sm btn-outline-primary"
+                    style={{ borderRadius: '20px', marginLeft: '6px' }}
+                    onClick={() => onSelectConversation(conv)}
+                  >
+                    צפייה בשיחה
+                  </button>
+                  <button
+                    className="btn btn-sm btn-outline-success"
+                    style={{ borderRadius: '20px' }}
+                    disabled={isExporting}
+                    onClick={() => handleExport(conv)}
+                    title="הורדת השיחה כקובץ Excel לניתוח איכותני"
+                  >
+                    {isExporting ? '⏳' : '📥'} הורדה לאקסל
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
