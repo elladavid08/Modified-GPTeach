@@ -681,7 +681,7 @@ function CreateReportView({ adminId, onBack, onReportCreated }) {
 
         {eligibleConvs.length === 0 ? (
           <div className="alert alert-warning" style={{ fontSize: '0.9rem' }}>
-            לא נמצאו שיחות עם שתי הערכות "בדיקת הסכמה" מושלמות. וודא שיש לפחות שני מעריכים שסיימו לתייג את אותה שיחה.
+            לא נמצאו שיחות מתאימות לניתוח הסכמה. כדי שיחה תהיה מזכה, עליה לכלול לפחות שיבוץ אחד מסוג "בדיקת הסכמה" ולפחות שני מעריכים שסיימו לתייגה (מכל סוג שיבוץ).
           </div>
         ) : (
           <div className="table-responsive" style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid #dee2e6', borderRadius: 4 }}>

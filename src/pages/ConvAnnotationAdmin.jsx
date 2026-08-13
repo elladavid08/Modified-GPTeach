@@ -791,13 +791,14 @@ function ConversationsTab({ currentUser }) {
 // ─── Grouped conversation status ──────────────────────────────────────────────
 
 function getGroupStatus(groupAssignments) {
-  const statuses    = groupAssignments.map(a => a.status);
-  const types       = groupAssignments.map(a => a.assignmentType);
+  const statuses      = groupAssignments.map(a => a.status);
+  const types         = groupAssignments.map(a => a.assignmentType);
   const allCompleted  = statuses.every(s => s === 'completed');
   const someCompleted = statuses.some(s => s === 'completed');
   const anyDraft      = statuses.some(s => s === 'draft');
-  const allReliability = types.every(t => t === 'reliability');
-  if (allCompleted && allReliability && groupAssignments.length >= 2) return 'ready_for_agreement';
+  // Ready when: all completed, at least one reliability assignment, and ≥2 assignments total.
+  const hasAnyReliability = types.some(t => t === 'reliability');
+  if (allCompleted && hasAnyReliability && groupAssignments.length >= 2) return 'ready_for_agreement';
   if (allCompleted)   return 'done';
   if (someCompleted)  return 'partial';
   if (anyDraft)       return 'in_progress';
@@ -998,12 +999,14 @@ function AssignmentsTab({ currentUser }) {
   const summary = useMemo(() => {
     const total     = allAssignments.length;
     const completed = allAssignments.filter(a => a.status === 'completed').length;
+    // A conversation is "ready for agreement" when it has ≥1 reliability assignment
+    // AND ≥2 completed assignments (any type).
     const relConvIds = [...new Set(
       allAssignments.filter(a => a.assignmentType === 'reliability').map(a => a.conversationId)
     )];
     const reliabilityReady = relConvIds.filter(cid => {
       const ca = allAssignments.filter(a => a.conversationId === cid);
-      return ca.length >= 2 && ca.every(a => a.status === 'completed');
+      return ca.filter(a => a.status === 'completed').length >= 2;
     }).length;
     const regularCompleted = allAssignments.filter(
       a => a.assignmentType !== 'reliability' && a.status === 'completed'

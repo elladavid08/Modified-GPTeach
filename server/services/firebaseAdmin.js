@@ -1131,32 +1131,55 @@ function weightedKappaLinear(matrix) {
 }
 
 /**
- * Returns conversations that have ≥2 completed reliability assignments,
- * enriched with annotator names and assignment IDs.
+ * Returns conversations that are eligible for agreement analysis.
+ *
+ * Eligibility rules:
+ *   1. The conversation must have at least one assignment with assignmentType === 'reliability'
+ *      (signals it was intentionally selected for an agreement check).
+ *   2. It must have at least two COMPLETED assignments, regardless of type.
+ *
+ * This means a conversation with one completed 'production' and one completed 'reliability'
+ * assignment is eligible, and both annotators are included in completedBy.
+ *
+ * A conversation with only completed 'production' assignments (no 'reliability') is NOT eligible.
  */
 async function getEligibleAgreementConversations() {
   try {
-    const snap = await db.collection('conversationAnnotationAssignments')
-      .where('assignmentType', '==', 'reliability')
-      .where('status', '==', 'completed')
-      .get();
+    // Run two parallel queries: all completed assignments, and all reliability assignments.
+    const [completedSnap, reliabilitySnap] = await Promise.all([
+      db.collection('conversationAnnotationAssignments').where('status', '==', 'completed').get(),
+      db.collection('conversationAnnotationAssignments').where('assignmentType', '==', 'reliability').get(),
+    ]);
 
-    if (snap.empty) return { conversations: [], error: null };
+    // Build set of conversationIds that have at least one reliability assignment (any status).
+    const reliabilityConvIds = new Set();
+    reliabilitySnap.docs.forEach(doc => reliabilityConvIds.add(doc.data().conversationId));
 
-    const byConv = {};
-    snap.docs.forEach(doc => {
+    if (reliabilityConvIds.size === 0) return { conversations: [], error: null };
+
+    // Group completed assignments by conversationId, restricted to reliability-flagged conversations.
+    const completedByConv = {};
+    completedSnap.docs.forEach(doc => {
       const d = doc.data();
-      if (!byConv[d.conversationId]) byConv[d.conversationId] = [];
-      byConv[d.conversationId].push({ id: doc.id, annotatorId: d.annotatorId, completedAt: tsToStr(d.completedAt) });
+      if (!reliabilityConvIds.has(d.conversationId)) return; // skip non-reliability conversations
+      if (!completedByConv[d.conversationId]) completedByConv[d.conversationId] = [];
+      completedByConv[d.conversationId].push({
+        id: doc.id,
+        annotatorId: d.annotatorId,
+        assignmentType: d.assignmentType,
+        completedAt: tsToStr(d.completedAt),
+      });
     });
 
-    const eligible = Object.entries(byConv)
-      .filter(([, a]) => a.length >= 2)
+    // Keep only conversations with ≥2 completed assignments.
+    const eligible = Object.entries(completedByConv)
+      .filter(([, assignments]) => assignments.length >= 2)
       .map(([convId, assignments]) => ({ conversationId: convId, assignments }));
 
     if (eligible.length === 0) return { conversations: [], error: null };
 
-    const convIds       = eligible.map(e => e.conversationId);
+    // Fetch conversation metadata and annotator display names.
+    const convIds = eligible.map(e => e.conversationId);
     const allAnnotatorIds = [...new Set(eligible.flatMap(e => e.assignments.map(a => a.annotatorId)))];
 
     const [convDocs, annotatorDocs] = await Promise.all([
@@ -1179,6 +1202,7 @@ async function getEligibleAgreementConversations() {
         annotatorId: a.annotatorId,
         annotatorName: nameMap[a.annotatorId] || a.annotatorId,
         assignmentId: a.id,
+        assignmentType: a.assignmentType,
         completedAt: a.completedAt,
       })),
     }));
