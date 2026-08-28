@@ -4,7 +4,14 @@ const API_BASE_URL =
     : 'http://localhost:3001';
 
 async function handleResponse(res) {
-  const data = await res.json();
+  let data;
+  try {
+    data = await res.json();
+  } catch (parseError) {
+    // Non-JSON body (e.g. an IIS 502 HTML page while the backend restarts).
+    // Surface the status instead of a confusing JSON parse error.
+    throw new Error(`שגיאה בתקשורת עם השרת (HTTP ${res.status})`);
+  }
   if (!data.success) throw new Error(data.error || 'שגיאה בתקשורת עם השרת');
   return data;
 }

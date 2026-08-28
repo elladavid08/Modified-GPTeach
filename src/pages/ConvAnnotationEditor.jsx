@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -10,6 +10,32 @@ import {
 } from '../services/convAnnotationService';
 import FeedbackPointEditor from '../components/FeedbackPointEditor';
 import { PCK_SKILLS } from '../config/testConfig';
+import {
+  logEvent,
+  flushEvents,
+  beaconEvents,
+  setDiagnosticContext,
+  getNavigationType,
+} from '../utils/annotationDiagnostics';
+import {
+  hashContent,
+  readLocalDraft,
+  writeLocalDraft,
+  clearLocalDraft,
+  isSafeToPrune,
+} from '../utils/annotationLocalDraft';
+import { useAnnotationAutosave } from '../hooks/useAnnotationAutosave';
+
+function formatLocalTime(iso) {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString('he-IL', {
+      day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+    });
+  } catch {
+    return '—';
+  }
+}
 
 // ─── Read-only conversation view ─────────────────────────────────────────────
 
@@ -105,8 +131,10 @@ function TurnBlock({ turn, feedbackPoints, onAddFeedback, onEditFeedback, readOn
         </div>
       ))}
 
-      {/* Add feedback button */}
-      {!readOnly && (
+      {/* Add feedback button — only while this turn has no feedback point yet.
+          Once one exists it is edited via עריכה, which keeps a turn to a single
+          point and makes it impossible to score the same PCK dimension twice. */}
+      {!readOnly && existing.length === 0 && (
         <button
           type="button"
           style={{
@@ -178,10 +206,62 @@ export default function ConvAnnotationEditor() {
   const [activeEditorTurn, setActiveEditorTurn]   = useState(null);  // turn object being edited
   const [editingPoint, setEditingPoint]           = useState(null);  // existing point or null for new
 
+  // Local backup / recovery state
+  const [modalDraft, setModalDraft]               = useState(null);  // uncommitted FeedbackPointEditor work
+  const [modalInitialDraft, setModalInitialDraft] = useState(null);  // seed for a restored modal
+  const [recovery, setRecovery]                   = useState(null);  // pending local-backup offer
+  const [serverAckHash, setServerAckHash]         = useState(null);  // hash confirmed persisted server-side
+  const [serverUpdatedAt, setServerUpdatedAt]     = useState(null);
+
+  const uid = currentUser && currentUser.uid;
+
+  // Fingerprint of the draft. Drives dirty detection, autosave and recovery.
+  const contentHash = useMemo(
+    () => hashContent({ feedbackPoints, generalComment }),
+    [feedbackPoints, generalComment]
+  );
+
+  // Latest values for timer-driven callbacks that must not close over stale state.
+  const stateRef = useRef({ feedbackPoints, generalComment, contentHash });
+  stateRef.current = { feedbackPoints, generalComment, contentHash };
+
+  const autosaveEnabled = !readOnly && !loading && !loadError && !!uid && !!assignment;
+
+  const autosave = useAnnotationAutosave({
+    enabled: autosaveEnabled,
+    contentHash,
+    getSnapshot: useCallback(() => {
+      const s = stateRef.current;
+      return {
+        payload: {
+          annotatorId:    uid,
+          assignmentId,
+          feedbackPoints: s.feedbackPoints,
+          generalComment: s.generalComment,
+        },
+        hash: s.contentHash,
+      };
+    }, [uid, assignmentId]),
+    save: useCallback(async (payload) => { await saveConvAnnotation(payload); }, []),
+    // Keep lastSavedState in step with what was actually persisted, so the
+    // existing "unsaved changes" prompt in handleBackToTasks stays accurate.
+    onSaved: useCallback((hash, payload) => {
+      setServerAckHash(hash);
+      setLastSavedState({
+        feedbackPoints: payload.feedbackPoints,
+        generalComment: payload.generalComment,
+      });
+    }, []),
+  });
+
+  const autosaveRef = useRef(autosave);
+  autosaveRef.current = autosave;
+
   // Load assignment + full conversation + annotation draft in parallel
   useEffect(() => {
     if (!currentUser || !assignmentId) return;
     setLoading(true);
+    logEvent('load_start');
 
     // First, fetch the user's assignment list to get assignment metadata
     // We don't have a single-assignment endpoint, so we infer from the annotation's assignmentType
@@ -195,6 +275,10 @@ export default function ConvAnnotationEditor() {
         const asgn = myAssignments.find(a => a.id === assignmentId);
 
         if (!asgn) {
+          logEvent('load_error', {
+            stage: 'assignment_lookup',
+            assignmentCount: Array.isArray(myAssignments) ? myAssignments.length : null,
+          });
           setLoadError('לא נמצאה משימה זו. ייתכן שהיא לא שויכה אליך.');
           setLoading(false);
           return;
@@ -202,7 +286,8 @@ export default function ConvAnnotationEditor() {
 
         setAssignment(asgn);
 
-        if (asgn.status === 'completed') setReadOnly(true);
+        const isCompleted = asgn.status === 'completed';
+        if (isCompleted) setReadOnly(true);
 
         // Load full conversation
         const conv = await getFullConv(asgn.conversationId, currentUser.uid);
@@ -214,17 +299,152 @@ export default function ConvAnnotationEditor() {
         setGeneralComment(loadedComment);
         setLastSavedState({ feedbackPoints: loadedPoints, generalComment: loadedComment });
 
+        const serverHash = hashContent({ feedbackPoints: loadedPoints, generalComment: loadedComment });
+        const srvUpdatedAt = annotation ? (annotation.updatedAt || null) : null;
+        setServerAckHash(serverHash);
+        setServerUpdatedAt(srvUpdatedAt);
+        autosaveRef.current.markSaved(serverHash);
+
+        // Offer the local backup if it holds anything the server draft does not.
+        // Never restored automatically.
+        if (!isCompleted) {
+          const local = readLocalDraft(currentUser.uid, assignmentId);
+          if (local && (local.committedHash !== serverHash || local.modalDraft)) {
+            setRecovery({
+              record: local,
+              serverHash,
+              serverPointCount: loadedPoints.length,
+              serverChangedElsewhere: !!(
+                local.lastServerUpdatedAt && srvUpdatedAt && local.lastServerUpdatedAt !== srvUpdatedAt
+              ),
+            });
+            logEvent('local_recovery_offered', {
+              localPoints: ((local.committed && local.committed.feedbackPoints) || []).length,
+              serverPoints: loadedPoints.length,
+              hasModalDraft: !!local.modalDraft,
+            });
+          } else if (local) {
+            clearLocalDraft(currentUser.uid, assignmentId);
+          }
+        }
+
+        logEvent('load_success', { status: asgn.status, points: loadedPoints.length });
         setLoading(false);
       })
       .catch(err => {
+        logEvent('load_error', { stage: 'fetch', message: err.message });
         setLoadError(err.message);
         setLoading(false);
       });
   }, [currentUser, assignmentId]);
 
+  // ── Diagnostics: page lifecycle while the editor is mounted ─────────────────
+  useEffect(() => {
+    setDiagnosticContext({ uid: uid || null, assignmentId });
+    logEvent('editor_mount', {
+      navigationType: getNavigationType(),
+      historyLength: window.history.length,
+      referrer: document.referrer || '',
+      online: navigator.onLine,
+    });
+    flushEvents();
+
+    let hiddenAt = null;
+    const onPopState    = () => logEvent('popstate', { historyLength: window.history.length });
+    const onPageHide    = (e) => { logEvent('pagehide', { persisted: !!e.persisted }); beaconEvents(); };
+    const onWindowError = (e) => logEvent('window_error', {
+      message: String(e.message || '').slice(0, 300),
+      source: String(e.filename || '').slice(0, 200),
+      line: e.lineno,
+    });
+    const onRejection   = (e) => logEvent('unhandled_rejection', {
+      reason: String((e.reason && e.reason.message) || e.reason || '').slice(0, 300),
+    });
+    const onVisibility  = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAt = Date.now();
+        logEvent('visibility_hidden');
+      } else {
+        logEvent('visibility_visible', { hiddenMs: hiddenAt ? Date.now() - hiddenAt : null });
+        hiddenAt = null;
+      }
+    };
+
+    window.addEventListener('popstate', onPopState);
+    window.addEventListener('pagehide', onPageHide);
+    window.addEventListener('error', onWindowError);
+    window.addEventListener('unhandledrejection', onRejection);
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      logEvent('editor_unmount');
+      window.removeEventListener('popstate', onPopState);
+      window.removeEventListener('pagehide', onPageHide);
+      window.removeEventListener('error', onWindowError);
+      window.removeEventListener('unhandledrejection', onRejection);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [uid, assignmentId]);
+
+  // ── Local backup ────────────────────────────────────────────────────────────
+  // Written on every committed or modal state change. Pruned only when the whole
+  // local record is provably represented in the persisted server draft AND there
+  // is no uncommitted modal work (see isSafeToPrune).
+  useEffect(() => {
+    if (!uid || !assignmentId) return;
+    if (loading || loadError || readOnly) return;
+
+    // A pending recovery offer is preserved until the annotator decides. If they
+    // start editing instead, the offer is stale, so drop it and resume backups.
+    if (recovery) {
+      if (contentHash !== recovery.serverHash || modalDraft) {
+        logEvent('local_recovery_auto_dismissed');
+        setRecovery(null);
+      }
+      return;
+    }
+
+    const record = {
+      committed:           { feedbackPoints, generalComment },
+      committedHash:       contentHash,
+      modalDraft:          modalDraft || null,
+      serverAckHash:       serverAckHash,
+      savedAt:             new Date().toISOString(),
+      lastServerUpdatedAt: serverUpdatedAt,
+    };
+
+    if (isSafeToPrune(record)) {
+      clearLocalDraft(uid, assignmentId);
+      return;
+    }
+    if (!writeLocalDraft(uid, assignmentId, record)) {
+      logEvent('local_backup_write', { ok: false });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contentHash, modalDraft, serverAckHash, serverUpdatedAt, recovery, loading, loadError, readOnly, uid, assignmentId]);
+
+  // ── Warn before a reload/close that would drop unsaved work ─────────────────
+  useEffect(() => {
+    if (readOnly || loading || loadError) return undefined;
+    const hasUnsaved = (serverAckHash !== null && contentHash !== serverAckHash) || !!modalDraft;
+    if (!hasUnsaved) return undefined;
+
+    const handler = (e) => {
+      logEvent('beforeunload', { hasUnsaved: true });
+      beaconEvents();
+      e.preventDefault();
+      e.returnValue = '';
+      return '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [readOnly, loading, loadError, contentHash, serverAckHash, modalDraft]);
+
   // ── Editor actions ──────────────────────────────────────────────────────────
 
   const handleAddFeedback = useCallback((turn) => {
+    setModalInitialDraft(null);
+    setModalDraft(null);
     setEditingPoint(null);
     setActiveEditorTurn(turn);
   }, []);
@@ -233,6 +453,8 @@ export default function ConvAnnotationEditor() {
     if (!conversation) return;
     const turn = (conversation.turns || []).find(t => t.turnNumber === fp.turnNumber);
     if (turn) {
+      setModalInitialDraft(null);
+      setModalDraft(null);
       setEditingPoint(fp);
       setActiveEditorTurn(turn);
     }
@@ -250,6 +472,8 @@ export default function ConvAnnotationEditor() {
     });
     setActiveEditorTurn(null);
     setEditingPoint(null);
+    setModalDraft(null);
+    setModalInitialDraft(null);
     // Clear previous save status so the user knows they have unsaved changes
     setSaveSuccess(false);
   }, []);
@@ -257,14 +481,75 @@ export default function ConvAnnotationEditor() {
   const handleCancelEditor = useCallback(() => {
     setActiveEditorTurn(null);
     setEditingPoint(null);
+    setModalDraft(null);
+    setModalInitialDraft(null);
   }, []);
 
   const handleDeletePoint = useCallback((feedbackPointId) => {
     setFeedbackPoints(prev => prev.filter(p => p.feedbackPointId !== feedbackPointId));
     setActiveEditorTurn(null);
     setEditingPoint(null);
+    setModalDraft(null);
+    setModalInitialDraft(null);
     setSaveSuccess(false);
   }, []);
+
+  // Mirrors in-progress modal state into the local backup. An untouched form is
+  // treated as "no draft" so it cannot trigger a spurious recovery offer.
+  const handleModalDraftChange = useCallback((draft) => {
+    const isEmpty =
+      (!draft.selectedDimensions || draft.selectedDimensions.length === 0) &&
+      !(draft.internalNote && draft.internalNote.trim());
+
+    if (isEmpty) {
+      setModalDraft(null);
+      return;
+    }
+    setModalDraft({
+      turnNumber:      activeEditorTurn ? activeEditorTurn.turnNumber : null,
+      existingPointId: editingPoint ? editingPoint.feedbackPointId : null,
+      selectedDimensions: draft.selectedDimensions,
+      dimensionFeedback:  draft.dimensionFeedback,
+      internalNote:       draft.internalNote,
+      showNote:           draft.showNote,
+      updatedAt:          new Date().toISOString(),
+    });
+  }, [activeEditorTurn, editingPoint]);
+
+  const handleRestoreLocal = useCallback(() => {
+    if (!recovery) return;
+    const rec       = recovery.record;
+    const committed = rec.committed || { feedbackPoints: [], generalComment: '' };
+    const points    = committed.feedbackPoints || [];
+
+    setFeedbackPoints(points);
+    setGeneralComment(committed.generalComment || '');
+
+    if (rec.modalDraft && conversation) {
+      const turn = (conversation.turns || []).find(t => t.turnNumber === rec.modalDraft.turnNumber);
+      if (turn) {
+        const pt = rec.modalDraft.existingPointId
+          ? points.find(p => p.feedbackPointId === rec.modalDraft.existingPointId) || null
+          : null;
+        setModalInitialDraft(rec.modalDraft);
+        setEditingPoint(pt);
+        setActiveEditorTurn(turn);
+      }
+    }
+
+    logEvent('local_recovery_accepted', {
+      points: points.length,
+      hadModalDraft: !!rec.modalDraft,
+    });
+    setRecovery(null);
+    setSaveSuccess(false);
+  }, [recovery, conversation]);
+
+  const handleDiscardLocal = useCallback(() => {
+    logEvent('local_recovery_discarded');
+    if (uid) clearLocalDraft(uid, assignmentId);
+    setRecovery(null);
+  }, [uid, assignmentId]);
 
   // Navigate back — warns if there are unsaved changes
   function handleBackToTasks() {
@@ -292,16 +577,15 @@ export default function ConvAnnotationEditor() {
 
   const handleSaveDraft = async () => {
     if (readOnly) return;
+    // Cancel any queued autosave so the manual save is the only in-flight write.
+    autosave.cancelPending();
     setSaving(true);
     setSaveError('');
     setSaveSuccess(false);
     try {
-      await saveConvAnnotation({
-        annotatorId:    currentUser.uid,
-        assignmentId,
-        feedbackPoints,
-        generalComment,
-      });
+      // force=true keeps the existing behavior of always issuing the request,
+      // while sharing the saved-hash so no autosave follows immediately after.
+      await autosave.runSave('manual', true);
       setSaveSuccess(true);
       setLastSavedState({ feedbackPoints, generalComment });
     } catch (err) {
@@ -330,14 +614,22 @@ export default function ConvAnnotationEditor() {
 
     setSubmitting(true);
     setSubmitError('');
+    // Cancel queued autosave so a late write cannot race the submit.
+    autosave.cancelPending();
     // Save latest state first, then submit
     try {
       await saveConvAnnotation({ annotatorId: currentUser.uid, assignmentId, feedbackPoints, generalComment });
       await submitConvAnnotation(assignmentId, currentUser.uid);
       setLastSavedState({ feedbackPoints, generalComment });
+      autosave.markSaved(contentHash);
+      setServerAckHash(contentHash);
       setReadOnly(true);
       setSaveSuccess(false);
+      // Submitted work is durably persisted — the local backup can be released.
+      if (uid) clearLocalDraft(uid, assignmentId);
+      logEvent('submit_success', { points: feedbackPoints.length });
     } catch (err) {
+      logEvent('submit_failure', { message: err.message });
       setSubmitError(err.message);
     } finally {
       setSubmitting(false);
@@ -368,6 +660,19 @@ export default function ConvAnnotationEditor() {
 
   const turns = (conversation && conversation.turns) || [];
 
+  const autosaveLabel = (() => {
+    if (readOnly) return null;
+    if (autosave.status === 'saving')  return { text: 'שומר...',                 color: '#6c5ce7' };
+    if (autosave.status === 'saved')   return { text: '✓ נשמר אוטומטית',          color: '#00b894' };
+    if (autosave.status === 'unsaved') return { text: '● שינויים שלא נשמרו',      color: '#e17055' };
+    if (autosave.status === 'error')   return { text: '✕ שמירה אוטומטית נכשלה',   color: '#d63031' };
+    return null;
+  })();
+
+  const recoveryLocalPoints = recovery
+    ? ((recovery.record.committed && recovery.record.committed.feedbackPoints) || []).length
+    : 0;
+
   return (
     <div style={{ minHeight: '100vh', background: '#f8f7fc', paddingTop: '72px', paddingBottom: '100px' }}>
       <div className="container" style={{ maxWidth: '860px', direction: 'rtl' }}>
@@ -395,6 +700,42 @@ export default function ConvAnnotationEditor() {
             </div>
           )}
         </div>
+
+        {/* Local backup recovery offer — never restored automatically */}
+        {recovery && (
+          <div
+            className="alert alert-warning"
+            style={{ borderRadius: '8px', direction: 'rtl', fontSize: '0.9rem' }}
+          >
+            <div style={{ fontWeight: 700, marginBottom: '6px' }}>נמצאה עבודה שמורה בדפדפן</div>
+            <div style={{ marginBottom: '4px' }}>
+              גיבוי מקומי מהתאריך {formatLocalTime(recovery.record.savedAt)} מכיל {recoveryLocalPoints} נקודות משוב
+              {recovery.record.modalDraft ? ', כולל נקודת משוב שלא נשמרה' : ''}.
+              הגרסה השמורה בשרת מכילה {recovery.serverPointCount} נקודות משוב.
+            </div>
+            {recovery.serverChangedElsewhere && (
+              <div style={{ color: '#856404', marginBottom: '4px' }}>
+                שים לב: הטיוטה בשרת עודכנה ממכשיר או חלון אחר.
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+              <button
+                className="btn btn-sm btn-primary"
+                style={{ background: '#6c5ce7', borderColor: '#6c5ce7', borderRadius: '20px' }}
+                onClick={handleRestoreLocal}
+              >
+                שחזר את הגיבוי המקומי
+              </button>
+              <button
+                className="btn btn-sm btn-outline-secondary"
+                style={{ borderRadius: '20px' }}
+                onClick={handleDiscardLocal}
+              >
+                התעלם והמשך מהשרת
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Scenario */}
         {conversation && <ScenarioHeader conversation={conversation} />}
@@ -445,6 +786,8 @@ export default function ConvAnnotationEditor() {
                   onSave={handleSavePoint}
                   onCancel={handleCancelEditor}
                   onDelete={!readOnly && editingPoint ? handleDeletePoint : undefined}
+                  initialDraft={modalInitialDraft}
+                  onDraftChange={readOnly ? undefined : handleModalDraftChange}
                 />
               </div>
             </div>
@@ -504,6 +847,14 @@ export default function ConvAnnotationEditor() {
               ? <span style={{ color: '#6c5ce7', fontWeight: 600 }}>{feedbackPoints.length} נקודות משוב</span>
               : <span style={{ color: '#aaa' }}>טרם נוספו נקודות משוב</span>
             }
+            {autosaveLabel && (
+              <span style={{ color: autosaveLabel.color, marginRight: '12px', fontWeight: 600 }}>
+                {autosaveLabel.text}
+              </span>
+            )}
+            {autosave.status === 'error' && autosave.lastError && (
+              <span style={{ color: '#d63031', marginRight: '6px' }}>{autosave.lastError}</span>
+            )}
             {saveError    && <span style={{ color: '#d63031', marginRight: '12px' }}>{saveError}</span>}
             {submitError  && <span style={{ color: '#d63031', marginRight: '12px' }}>{submitError}</span>}
           </div>

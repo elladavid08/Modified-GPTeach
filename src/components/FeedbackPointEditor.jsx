@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { PCK_SKILLS } from '../config/testConfig';
 
 // ─── Score buttons (0 / 1 / 2) ───────────────────────────────────────────────
@@ -73,15 +73,38 @@ function initDimensionFeedback(existingPoint) {
  *   sessionId     – conversationId (stored in each feedback point for global uniqueness)
  *   onSave        – called with the validated feedback point object
  *   onCancel      – called when user cancels
+ *   initialDraft  – optional. Seeds the form from a recovered local backup.
+ *   onDraftChange – optional. Reports in-progress form state so it can be backed
+ *                   up locally. Both are inert when omitted.
  */
-export default function FeedbackPointEditor({ turn, existingPoint, sessionId, onSave, onCancel, onDelete }) {
+export default function FeedbackPointEditor({ turn, existingPoint, sessionId, onSave, onCancel, onDelete, initialDraft, onDraftChange }) {
   const [selectedDimensions, setSelectedDimensions] = useState(
-    existingPoint ? (existingPoint.selectedDimensions || []) : []
+    initialDraft
+      ? (initialDraft.selectedDimensions || [])
+      : (existingPoint ? (existingPoint.selectedDimensions || []) : [])
   );
-  const [dimensionFeedback, setDimensionFeedback] = useState(() => initDimensionFeedback(existingPoint));
-  const [internalNote,      setInternalNote]      = useState(existingPoint ? (existingPoint.internalNote || '') : '');
-  const [showNote,          setShowNote]          = useState(!!(existingPoint && existingPoint.internalNote));
+  const [dimensionFeedback, setDimensionFeedback] = useState(() => (
+    initialDraft && initialDraft.dimensionFeedback
+      ? initialDraft.dimensionFeedback
+      : initDimensionFeedback(existingPoint)
+  ));
+  const [internalNote,      setInternalNote]      = useState(
+    initialDraft ? (initialDraft.internalNote || '') : (existingPoint ? (existingPoint.internalNote || '') : '')
+  );
+  const [showNote,          setShowNote]          = useState(
+    initialDraft ? !!initialDraft.showNote : !!(existingPoint && existingPoint.internalNote)
+  );
   const [validationError,   setValidationError]   = useState('');
+
+  // Held in a ref so an inline parent callback does not retrigger the effect.
+  const onDraftChangeRef = useRef(onDraftChange);
+  onDraftChangeRef.current = onDraftChange;
+
+  useEffect(() => {
+    const report = onDraftChangeRef.current;
+    if (!report) return;
+    report({ selectedDimensions, dimensionFeedback, internalNote, showNote });
+  }, [selectedDimensions, dimensionFeedback, internalNote, showNote]);
 
   const toggleDimension = (id) => {
     setSelectedDimensions(prev => {

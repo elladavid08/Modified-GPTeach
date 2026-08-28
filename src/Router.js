@@ -26,6 +26,7 @@ import ComparisonSetsPage from "./pages/ComparisonSetsPage";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AnnotatorRoute } from "./components/AnnotatorRoute";
 import { AdminRoute } from "./components/AdminRoute";
+import AnnotationErrorBoundary from "./components/AnnotationErrorBoundary";
 
 export const Router = () => {
 	return (
@@ -81,7 +82,7 @@ export const Router = () => {
 
 	{/* Conversation annotation — annotator task list and editor */}
 	<Route path="/annotation/conv-tasks" element={<AnnotatorRoute><ConvAnnotationTasks /></AnnotatorRoute>} />
-	<Route path="/annotation/conv-tasks/:assignmentId" element={<AnnotatorRoute><ConvAnnotationEditor /></AnnotatorRoute>} />
+	<Route path="/annotation/conv-tasks/:assignmentId" element={<AnnotatorRoute><AnnotationErrorBoundary><ConvAnnotationEditor /></AnnotationErrorBoundary></AnnotatorRoute>} />
 
 	{/* Annotation comparison — annotator facing */}
 	<Route path="/annotation/comparisons" element={<AnnotatorRoute><ComparisonSetsPage /></AnnotatorRoute>} />

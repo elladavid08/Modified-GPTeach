@@ -147,6 +147,10 @@ export const updateUserProfile = async (userId, profileData) => {
 
 /**
  * Get user profile from Firestore
+ *
+ * `notFound` and `transient` are additive discriminators that let callers tell a
+ * genuinely missing profile document apart from a failed request. Existing
+ * callers that only read `{ profile }` or `{ profile, error }` are unaffected.
  */
 export const getUserProfile = async (userId) => {
   try {
@@ -154,12 +158,12 @@ export const getUserProfile = async (userId) => {
     const userSnap = await getDoc(userRef);
     
     if (userSnap.exists()) {
-      return { profile: userSnap.data(), error: null };
+      return { profile: userSnap.data(), error: null, notFound: false, transient: false };
     } else {
-      return { profile: null, error: 'Profile not found' };
+      return { profile: null, error: 'Profile not found', notFound: true, transient: false };
     }
   } catch (error) {
     console.error('Error getting user profile:', error);
-    return { profile: null, error: error.message };
+    return { profile: null, error: error.message, notFound: false, transient: true };
   }
 };

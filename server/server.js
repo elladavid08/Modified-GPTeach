@@ -1866,6 +1866,42 @@ app.post('/api/conv-annotations/:assignmentId/submit', async (req, res) => {
   }
 });
 
+// POST /api/client-events
+// Body: { events: [{ id, ts, sessionNonce, pathname, event, uid?, assignmentId?, detail? }] }
+// Diagnostic sink for the annotation editor. Writes to stdout (PM2 logs) only —
+// no Firestore collection and no Firestore writes are introduced.
+app.post('/api/client-events', (req, res) => {
+  try {
+    const { events } = req.body || {};
+    if (!Array.isArray(events)) {
+      return res.status(400).json({ success: false, error: 'events must be an array' });
+    }
+
+    // Hard cap: ignore anything beyond a sane batch size.
+    const capped = events.slice(0, 300);
+    for (const e of capped) {
+      if (!e || typeof e !== 'object') continue;
+      const line = {
+        ts: String(e.ts || '').slice(0, 40),
+        session: String(e.sessionNonce || '').slice(0, 40),
+        uid: String(e.uid || '').slice(0, 64),
+        assignmentId: String(e.assignmentId || '').slice(0, 64),
+        path: String(e.pathname || '').slice(0, 200),
+        event: String(e.event || '').slice(0, 64),
+      };
+      let detail = '';
+      if (e.detail !== undefined) {
+        try { detail = JSON.stringify(e.detail).slice(0, 1000); } catch { detail = '[unserializable]'; }
+      }
+      console.log(`[client-event] ${JSON.stringify(line)} ${detail}`);
+    }
+
+    res.json({ success: true, received: capped.length });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // ─── Agreement Analysis endpoints ───────────────────────────────────────────
 
 // GET /api/agreement-eligible?adminId=...
