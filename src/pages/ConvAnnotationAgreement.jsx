@@ -5,6 +5,7 @@ import {
   getAgreementReports,
   getAgreementReport,
   computeAgreementReport,
+  fetchComparisonSets,
 } from '../services/convAnnotationService';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -51,6 +52,16 @@ function fmtDate(iso) {
   try {
     return new Date(iso).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' });
   } catch { return iso; }
+}
+
+function fmtDateTime(iso) {
+  if (!iso) return null;
+  try {
+    return new Date(iso).toLocaleString('he-IL', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+  } catch { return null; }
 }
 
 // ─── Small reusable UI pieces ─────────────────────────────────────────────────
@@ -523,12 +534,42 @@ function ReportListView({ reports, loading, onView, onCreateNew }) {
   );
 }
 
+// ─── History badge helper ─────────────────────────────────────────────────────
+
+/** Compact, read-only badges showing prior usage of a conversation. */
+function HistoryBadges({ agreementNames, setNames }) {
+  if (!agreementNames.length && !setNames.length) return null;
+  return (
+    <div style={{ marginTop: 3, display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+      {agreementNames.map((name, i) => (
+        <span key={`a${i}`} style={{
+          fontSize: '0.70rem', background: '#ede9ff', color: '#5b4ab0',
+          border: '1px solid #d3c9ff', borderRadius: 3, padding: '1px 6px', whiteSpace: 'nowrap',
+        }}>
+          הסכמה: {name}
+        </span>
+      ))}
+      {setNames.map((name, i) => (
+        <span key={`s${i}`} style={{
+          fontSize: '0.70rem', background: '#e8f5e9', color: '#2e7d32',
+          border: '1px solid #c8e6c9', borderRadius: 3, padding: '1px 6px', whiteSpace: 'nowrap',
+        }}>
+          סט השוואה: {name}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 // ─── Create report view ───────────────────────────────────────────────────────
 
-function CreateReportView({ adminId, onBack, onReportCreated }) {
+function CreateReportView({ adminId, reports, onBack, onReportCreated }) {
   const [loadingEligible, setLoadingEligible] = useState(true);
   const [eligibleConvs, setEligibleConvs]     = useState([]);
   const [eligibleError, setEligibleError]     = useState(null);
+  // History state — non-critical, fetched in parallel
+  const [comparisonSets, setComparisonSets]       = useState([]);
+  const [comparisonSetsError, setComparisonSetsError] = useState(null);
 
   const [selectedConvIds, setSelectedConvIds] = useState(new Set());
   const [selectedAnnotators, setSelectedAnnotators] = useState([]); // max 2 UIDs
@@ -542,7 +583,35 @@ function CreateReportView({ adminId, onBack, onReportCreated }) {
       .then(convs => setEligibleConvs(convs))
       .catch(e => setEligibleError(e.message))
       .finally(() => setLoadingEligible(false));
+    // Fetch comparison sets in parallel for history badges; on failure show a visible warning
+    fetchComparisonSets(adminId, true)
+      .then(sets => setComparisonSets(sets))
+      .catch(() => setComparisonSetsError(true));
   }, [adminId]);
+
+  // ── In-memory history maps (convId → name list) ───────────────────────────
+  const convToAgreementReports = useMemo(() => {
+    const map = {};
+    (reports || []).forEach(r => {
+      const name = r.reportName && r.reportName !== '—' ? r.reportName : fmtDate(r.createdAt);
+      (r.conversationIds || []).forEach(convId => {
+        if (!map[convId]) map[convId] = [];
+        map[convId].push(name);
+      });
+    });
+    return map;
+  }, [reports]);
+
+  const convToComparisonSets = useMemo(() => {
+    const map = {};
+    comparisonSets.forEach(s => {
+      (s.conversationIds || []).forEach(convId => {
+        if (!map[convId]) map[convId] = [];
+        map[convId].push(s.title || '—');
+      });
+    });
+    return map;
+  }, [comparisonSets]);
 
   // All unique annotators from selected conversations
   const availableAnnotators = useMemo(() => {
@@ -679,6 +748,12 @@ function CreateReportView({ adminId, onBack, onReportCreated }) {
           )}
         </div>
 
+        {comparisonSetsError && (
+          <div style={{ fontSize: '0.78rem', color: '#856404', background: '#fff3cd', border: '1px solid #ffc107', borderRadius: 4, padding: '4px 10px', marginBottom: 6 }}>
+            ⚠ לא ניתן לטעון היסטוריית סטי ההשוואה — ייתכן שסימוני שימוש קודם אינם מלאים.
+          </div>
+        )}
+
         {eligibleConvs.length === 0 ? (
           <div className="alert alert-warning" style={{ fontSize: '0.9rem' }}>
             לא נמצאו שיחות מתאימות לניתוח הסכמה. כדי שיחה תהיה מזכה, עליה לכלול לפחות שיבוץ אחד מסוג "בדיקת הסכמה" ולפחות שני מעריכים שסיימו לתייגה (מכל סוג שיבוץ).
@@ -699,6 +774,17 @@ function CreateReportView({ adminId, onBack, onReportCreated }) {
                     ? conv.convMeta.scenario.text.slice(0, 70)
                     : conv.conversationId.slice(0, 14);
                   const annotatorList = (conv.completedBy || []).map(a => a.annotatorName).join(', ');
+                  // ── additional identity metadata ──
+                  const participant = (conv.convMeta && conv.convMeta.userSnapshot && conv.convMeta.userSnapshot.fullName)
+                    || (conv.convMeta && conv.convMeta.userId ? conv.convMeta.userId.slice(0, 8) : null);
+                  const rawConvDate = conv.convMeta && (conv.convMeta.startedAt || conv.convMeta.startTime);
+                  const convDateStr = fmtDateTime(rawConvDate);
+                  const completedAts = (conv.completedBy || []).map(a => a.completedAt).filter(Boolean).sort();
+                  const lastAnnotStr = completedAts.length > 0
+                    ? fmtDateTime(completedAts[completedAts.length - 1]) : null;
+                  // History badges
+                  const agreementNames = convToAgreementReports[conv.conversationId] || [];
+                  const setNames       = convToComparisonSets[conv.conversationId] || [];
                   return (
                     <tr
                       key={conv.conversationId}
@@ -712,7 +798,17 @@ function CreateReportView({ adminId, onBack, onReportCreated }) {
                           onChange={() => toggleConv(conv.conversationId)}
                         />
                       </td>
-                      <td>{title}</td>
+                      <td>
+                        <div style={{ fontWeight: 500, fontSize: '0.88rem', color: '#333' }}>{title}</div>
+                        <div style={{ fontSize: '0.76rem', color: '#888', marginTop: 2, lineHeight: 1.6 }}>
+                          <span>משתתף: {participant || 'לא זמין'}</span>
+                          <span style={{ margin: '0 4px', color: '#ccc' }}>·</span>
+                          <span>שיחה: {convDateStr || 'לא זמין'}</span>
+                          <span style={{ margin: '0 4px', color: '#ccc' }}>·</span>
+                          <span>אנוטציה אחרונה: {lastAnnotStr || 'לא זמין'}</span>
+                        </div>
+                        <HistoryBadges agreementNames={agreementNames} setNames={setNames} />
+                      </td>
                       <td style={{ fontSize: '0.82rem', color: '#555' }}>{annotatorList}</td>
                     </tr>
                   );
@@ -859,6 +955,7 @@ export default function ConvAnnotationAgreement() {
     return (
       <CreateReportView
         adminId={adminId}
+        reports={reports}
         onBack={() => setView('list')}
         onReportCreated={handleReportCreated}
       />

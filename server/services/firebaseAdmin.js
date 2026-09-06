@@ -1658,6 +1658,9 @@ async function getComparisonSets(isAdmin) {
           visibleToAnnotators: !!d.visibleToAnnotators,
           createdAt: tsToStr(d.createdAt),
           itemCount: (d.items || []).length,
+          // Expose conversation IDs so the UI can build a history map without
+          // needing per-set detail fetches (purely additive, existing clients ignore it).
+          conversationIds: (d.items || []).map(item => item.conversationId).filter(Boolean),
           _createdAtRaw: d.createdAt && d.createdAt.toMillis ? d.createdAt.toMillis() : 0,
         };
       })

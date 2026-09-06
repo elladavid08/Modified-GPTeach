@@ -6,6 +6,7 @@ import {
   saveComparisonSet,
   patchComparisonSet,
   removeComparisonSet,
+  getAgreementReports,
 } from '../services/convAnnotationService';
 
 const TYPE_LABELS_MAP = {
@@ -18,6 +19,16 @@ function fmtDate(iso) {
   if (!iso) return '—';
   try { return new Date(iso).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' }); }
   catch { return iso; }
+}
+
+function fmtDateTime(iso) {
+  if (!iso) return null;
+  try {
+    return new Date(iso).toLocaleString('he-IL', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+  } catch { return null; }
 }
 
 // ─── Scenario title from convMeta ────────────────────────────────────────────
@@ -52,6 +63,33 @@ function ConvIdentityLabel({ convMeta, conversationId }) {
   );
 }
 
+// ─── History badge helper ─────────────────────────────────────────────────────
+
+/** Compact, read-only badges showing prior usage of a conversation. */
+function HistoryBadges({ agreementNames, setNames }) {
+  if (!agreementNames.length && !setNames.length) return null;
+  return (
+    <div style={{ marginTop: 3, display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+      {agreementNames.map((name, i) => (
+        <span key={`a${i}`} style={{
+          fontSize: '0.70rem', background: '#ede9ff', color: '#5b4ab0',
+          border: '1px solid #d3c9ff', borderRadius: 3, padding: '1px 6px', whiteSpace: 'nowrap',
+        }}>
+          הסכמה: {name}
+        </span>
+      ))}
+      {setNames.map((name, i) => (
+        <span key={`s${i}`} style={{
+          fontSize: '0.70rem', background: '#e8f5e9', color: '#2e7d32',
+          border: '1px solid #c8e6c9', borderRadius: 3, padding: '1px 6px', whiteSpace: 'nowrap',
+        }}>
+          סט השוואה: {name}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 // ─── Create / Edit form ───────────────────────────────────────────────────────
 
 function ComparisonSetForm({ adminId, existingSet, onSaved, onCancel }) {
@@ -65,13 +103,49 @@ function ComparisonSetForm({ adminId, existingSet, onSaved, onCancel }) {
   const [eligibleError, setEligibleError] = useState(null);
   const [saving, setSaving]               = useState(false);
   const [saveError, setSaveError]         = useState(null);
+  // History state — non-critical, fetched in parallel
+  const [historyReports, setHistoryReports]         = useState([]);
+  const [historySets, setHistorySets]               = useState([]);
+  const [historyReportsError, setHistoryReportsError] = useState(null);
+  const [historySetsError, setHistorySetsError]       = useState(null);
 
   useEffect(() => {
     fetchComparisonEligible(adminId)
       .then(convs => setEligibleConvs(convs))
       .catch(e => setEligibleError(e.message))
       .finally(() => setEligibleLoading(false));
+    // Fetch agreement reports and comparison sets in parallel for history badges; show visible warnings on failure
+    getAgreementReports(adminId)
+      .then(reports => setHistoryReports(reports))
+      .catch(() => setHistoryReportsError(true));
+    fetchComparisonSets(adminId, true)
+      .then(sets => setHistorySets(sets))
+      .catch(() => setHistorySetsError(true));
   }, [adminId]);
+
+  // ── In-memory history maps (convId → name list) ───────────────────────────
+  const convToAgreementReports = useMemo(() => {
+    const map = {};
+    historyReports.forEach(r => {
+      const name = r.reportName && r.reportName !== '—' ? r.reportName : fmtDate(r.createdAt);
+      (r.conversationIds || []).forEach(convId => {
+        if (!map[convId]) map[convId] = [];
+        map[convId].push(name);
+      });
+    });
+    return map;
+  }, [historyReports]);
+
+  const convToComparisonSets = useMemo(() => {
+    const map = {};
+    historySets.forEach(s => {
+      (s.conversationIds || []).forEach(convId => {
+        if (!map[convId]) map[convId] = [];
+        map[convId].push(s.title || '—');
+      });
+    });
+    return map;
+  }, [historySets]);
 
   // Which conversationIds are already in items
   const includedConvIds = useMemo(() => new Set(items.map(i => i.conversationId)), [items]);
@@ -177,6 +251,19 @@ function ComparisonSetForm({ adminId, existingSet, onSaved, onCancel }) {
         {eligibleLoading && <div className="text-muted">טוען שיחות...</div>}
         {eligibleError  && <div className="alert alert-danger">{eligibleError}</div>}
 
+        {(historyReportsError || historySetsError) && (
+          <div style={{ fontSize: '0.78rem', color: '#856404', background: '#fff3cd', border: '1px solid #ffc107', borderRadius: 4, padding: '4px 10px', marginBottom: 6 }}>
+            ⚠{' '}
+            {historyReportsError && historySetsError
+              ? 'לא ניתן לטעון את היסטוריית השימוש הקודם'
+              : historyReportsError
+              ? 'לא ניתן לטעון היסטוריית דוחות ההסכמה'
+              : 'לא ניתן לטעון היסטוריית סטי ההשוואה'
+            }
+            {' '}— ייתכן שסימוני שימוש קודם אינם מלאים.
+          </div>
+        )}
+
         {!eligibleLoading && eligibleConvs.length === 0 && (
           <div className="alert alert-warning" style={{ fontSize: '0.9rem' }}>
             לא נמצאו שיחות עם שתי הערכות מושלמות.
@@ -191,6 +278,15 @@ function ComparisonSetForm({ adminId, existingSet, onSaved, onCancel }) {
               const selectedAssignmentIds = item ? (item.assignmentIds || []) : [];
               const title = getScenarioTitle(conv.convMeta) || conv.conversationId.slice(0, 14);
               const userName = getUserName(conv.convMeta);
+              // ── additional identity metadata ──
+              const rawConvDate = conv.convMeta && (conv.convMeta.startedAt || conv.convMeta.startTime);
+              const convDateStr = fmtDateTime(rawConvDate);
+              const completedAts = (conv.completedAssignments || []).map(a => a.completedAt).filter(Boolean).sort();
+              const lastAnnotStr = completedAts.length > 0
+                ? fmtDateTime(completedAts[completedAts.length - 1]) : null;
+              // History badges
+              const agreementNames = convToAgreementReports[conv.conversationId] || [];
+              const setNames       = convToComparisonSets[conv.conversationId] || [];
 
               return (
                 <div key={conv.conversationId} style={{ borderBottom: '1px solid #f0f0f0', padding: '10px 14px', background: included ? '#f0edff' : '#fff' }}>
@@ -201,9 +297,16 @@ function ComparisonSetForm({ adminId, existingSet, onSaved, onCancel }) {
                     onClick={() => handleToggleConv(conv)}
                   >
                     <input type="checkbox" checked={included} onChange={() => {}} onClick={e => e.stopPropagation()} />
-                    <div style={{ flex: 1 }}>
+                      <div style={{ flex: 1 }}>
                       <div style={{ fontWeight: 500, fontSize: '0.88rem' }}>{title}</div>
-                      {userName && <div style={{ fontSize: '0.76rem', color: '#888' }}>{userName}</div>}
+                      <div style={{ fontSize: '0.76rem', color: '#888', marginTop: 2, lineHeight: 1.6 }}>
+                        <span>משתתף: {userName || 'לא זמין'}</span>
+                        <span style={{ margin: '0 4px', color: '#ccc' }}>·</span>
+                        <span>שיחה: {convDateStr || 'לא זמין'}</span>
+                        <span style={{ margin: '0 4px', color: '#ccc' }}>·</span>
+                        <span>אנוטציה אחרונה: {lastAnnotStr || 'לא זמין'}</span>
+                      </div>
+                      <HistoryBadges agreementNames={agreementNames} setNames={setNames} />
                     </div>
                     <span className="badge badge-light" style={{ fontSize: '0.75rem' }}>
                       {conv.completedAssignments.length} שיבוצים
