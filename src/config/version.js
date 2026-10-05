@@ -13,10 +13,20 @@
  * - Z: Patch version (bug fixes, minor improvements)
  */
 
-export const SYSTEM_VERSION = "1.3.3";
+export const SYSTEM_VERSION = "1.3.4";
 
 /**
  * Version History:
+ * 
+ * 1.3.4 (2026-10-05):
+ * - Real-time PCK feedback output is now structurally reliable (C10): the PCK model call
+ *   uses Gemini JSON mode with an explicit response schema, and the server validates every
+ *   analysis (required fields, types, allowed values, skill ids, scores 0/1/2) before using
+ *   it. Valid analyses are returned unchanged.
+ * - Malformed or invalid PCK output is no longer silently default-filled into a "successful"
+ *   analysis and the placeholder feedback message is removed; it is reported as a PCK
+ *   failure instead (shown to the teacher and recorded in failedAttempts, as in 1.3.2).
+ *   Prompt, model and temperature are unchanged.
  * 
  * 1.3.3 (2026-10-05):
  * - Image-only teacher turns (a drawing explicitly included, no text) no longer call the

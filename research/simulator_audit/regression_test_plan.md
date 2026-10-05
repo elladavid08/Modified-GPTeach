@@ -36,7 +36,7 @@ Both suites are fully offline:
 
 `package.json` gained only scripts (`test`, `test:server`, `test:all`). No dependencies were added.
 
-### 0.3 Tests implemented (148 total: 119 frontend, 29 backend)
+### 0.3 Tests implemented (217 total: 120 frontend, 97 backend)
 
 | file | tests | protects |
 |---|---:|---|
@@ -46,17 +46,18 @@ Both suites are fully offline:
 | `src/__tests__/studentAgent.test.js` | 13 | B3 / B4 inputs. One system prompt + history in order; personas, topic and Hebrew requirement in the prompt; PCK impact block present iff provided (B1); `{student, message}` → assistant `ChatMessage`s in order, trimmed; no fabricated messages on backend failure; `ChatMessage.toAIformat` text and image forms.; `callAI` returns a promise that settles after `onResponse` and rejects when the request cannot be built (the completion signal for the turn lock).; **C7**: request failure rejects with the tagged error and calls no `onResponse`; invalid JSON / missing `responses` reject as `stage: parse` with the raw output and **no fallback message**; `responses: []` is still a normal empty reply. |
 | `src/__tests__/pckSkillsDisplay.test.js` | 12 | A5, B11. The duplicated skill-name maps (sidebar, Excel export, ConversationLogs, AdminConversationLogs, server prompt) equal the contract; score labels; the sidebar shows nothing without feedback (exact placeholder text not asserted, B10), legend, per-score text, irrelevant skills hidden, and legacy fallback.; failure notice (`errorMessage`, role=alert) replaces skills. |
 | `src/__tests__/configContracts.test.js` | 7 | A6 (semver + the DECIDED process rule: a changelog entry in `version.js` for the current version), A7 (persona id/version/uniqueness), A15 DECIDED (`participation.baseline ∈ {low, medium, high}`), B5 (≥3 personas, NUM_STUDENTS ≥ 3), A8 (unique non-empty scenario titles; title stability A9 not asserted; snapshotted fields present), B20 (all teacher-initiated). |
-| `src/__tests__/turnDiagnostics.test.js` | 7 | A16 / C7. `buildFailedAttempt`: PCK http (endpoint, status, timestamp); the server's PCK JSON-parse error → `parse`; network; student parse with bounded raw excerpt; untagged → `client`; no teacher text, image, stack or `undefined` values, and no `turnNumber`; missing inputs handled. |
+| `src/__tests__/turnDiagnostics.test.js` | 8 | A16 / C7. `buildFailedAttempt`: PCK http (endpoint, status, timestamp); the server's PCK JSON-parse error → `parse`; network; student parse with bounded raw excerpt; untagged → `client`; no teacher text, image, stack or `undefined` values, and no `turnNumber`; missing inputs handled.; the C10 validation error is classified as `parse`. |
 | `src/__tests__/genaiErrors.test.js` | 4 | C7. `getPCKFeedback` / `generateWithGenAI` errors carry `stage` (`http` / `network`), `status`, `endpoint`, `serverError` (fetch mocked). |
 | `server/test/pck_skills.test.mjs` | 7 | A5. Exactly the 5 contract ids as a set (order not protected); Hebrew names; 0/1/2 bands only; unknown id → null; prompt formatter covers all ids and bands; history format `מורה:` / `<name>:`; empty-history marker. |
+| `server/test/pck_feedback_contract.test.mjs` | 34 | B23 / C10. The schema covers the production contract (required fields, skill-id enum = contract, integer score, nullable trigger); valid analyses parse and validate unchanged; a whole-output fence is accepted; optional per-skill text may be omitted or null; each of 30 B200-based malformed fixtures fails parsing or validation (`server/test-support/pckFixtures.mjs`). |
 | `server/test/api_generate.test.mjs` | 7 | B3. Model text returned verbatim as `{success, text}`; JSON mode + `responses[{student, message}]` schema requested; system and teacher text reach the model; user/model roles; a teacher drawing is forwarded as inline PNG; 400 on bad input; model failure is never a successful reply. |
-| `server/test/api_pck_feedback.test.mjs` | 6 | A5, B7. A valid analysis passes through intact (skills, scores, decision, student-impact hints); a ```json fence is parsed; a no-feedback decision stays no-feedback with an empty message; the prompt contains the teacher message, scenario context, **named** history and all skill ids; the prompt contains Gate 0 exclusions; 400 on bad input. |
+| `server/test/api_pck_feedback.test.mjs` | 40 | A5, B7. A valid analysis passes through intact (skills, scores, decision, student-impact hints); a ```json fence is parsed; a no-feedback decision stays no-feedback with an empty message; the prompt contains the teacher message, scenario context, **named** history and all skill ids; the prompt contains Gate 0 exclusions; 400 on bad input.; **C10 (34 tests)**: JSON mode + response schema requested (temperature / max tokens unchanged); a valid analysis passes through unchanged; `should_provide_feedback: true` with an empty message gets no placeholder; fixture sanity; each of 30 malformed outputs → `500`, `success: false`, no `analysis`, error prefixed `Failed to parse AI response`, the right `errorKind`, no placeholder. |
 | `server/test/api_pck_summary.test.mjs` | 9 | A12. `{success, summary (trimmed string), analyzed_turns, session_id}`; the prompt contains every logged teacher message and named student reply plus scenario context; 400 without turns.; **C1 (6 tests)**: a logged `pckFeedback` without `should_provide_feedback` is a moment; the moment carries skill name/id, score label + number, evidence, suggestion and stored feedback text (no `undefined`, irrelevant skills omitted); `pckFeedback: null` turns are not moments; multiple moments in turn order; legacy feedback without `skills_assessment` is passed without invented scores; no displayed feedback keeps the no-moments path. |
 
 ### 0.4 Deliberately not protected
 
 Each test file's header lists what it intentionally does **not** assert. In short:
-- No test preserves any §C behaviour of `invariants.md`: C5 newline stripping, C8 dropped names, C9 `thinking` vs schema, C10 PCK parse/default behaviour, C12 hard-coded tiers.
+- No test preserves any §C behaviour of `invariants.md`: C5 newline stripping, C8 dropped names, C9 `thinking` vs schema, C12 hard-coded tiers.
 - Nothing preserves B12 (hidden score-1 suggestion).
 - Nothing asserts the B8 row cap.
 - **Invariants alignment pass (2026-10-05):** the baseline protects only PROTECT / DECIDED items. The following REVIEW items are deliberately untested:
@@ -117,7 +118,7 @@ Whether the live model *follows* Gate 0 belongs in the behavioural suite (§5). 
 | ~~C7 silent failures; failed turns unlogged~~ | **Phase 1 done (§0.12).** Still to add with phase 2: retry / timeout tests, the B2-decided behaviour, and server-side diagnostics (model, `finishReason`, PCK raw output). |
 | **C8 speaker names dropped from student history** | `api_generate`: prior student turns reach the model with speaker attribution (per the chosen format); the parser strips any name prefix the model echoes back. Behavioural replay (§5.1) for repetition. |
 | **C9 `thinking` required by prompt but excluded by schema** | `api_generate`: schema and prompt agree (either `thinking` is in the schema with a raised `maxOutputTokens`, or the prompt no longer asks for it). |
-| **C10 PCK JSON mode / parser / validation (fix 0.5)** | `api_pck_feedback`: `generationConfig.responseMimeType === 'application/json'` (+ schema); malformed fixtures from B200 (unescaped `"` in Hebrew, trailing comma, `feedback_text` as an object, truncated, leading prose) → the defined safe result (never a 500 that silently drops feedback); coercions recorded; decision == any(relevant); scores ∈ {0,1,2}; known skill ids. |
+| ~~C10 PCK JSON mode / parser / validation (fix 0.5)~~ | **Done (§0.15).** Still open: re-ask on parse failure (§0.13), and B200's consistency checks (decision == any(relevant), etc.), which need a semantic decision first. |
 | **B8 cap on displayed skills** | sidebar / server: at most N rows for an input with 5 relevant skills; selection rule per spec. |
 | **B12 score-1 shows evidence and suggestion** | `pckSkillsDisplay`: score-1 row shows both `evidence` and `what_could_be_better` (the format per spec); the Excel export likewise if changed. |
 | **C11/C12 prompt contradictions, hard-coded tiers** | Prompt snapshot (after §2); persona tiers in the prompt derived from `participation.baseline` (`studentAgent`: every cast member's baseline appears; no persona outside the cast is named). |
@@ -371,7 +372,7 @@ Recommended (additive, decision 2): the client generates a `submissionId` per te
 4. **Recovered retries:** whether to record them at all, and where (turn-level additive field vs server logs only).
 5. **"Still working" UX:** whether to show a hint during long turns or retries.
 6. **Schema additions:** `submissionId` on turns and failed attempts, and the extra `failedAttempts` fields (`attempts`, `errorKind`, `latencyMs`, `model`, `finishReason`). Each extends A16 / A2 additively and needs explicit approval.
-7. **Ordering with fix 0.5 (PCK JSON mode):** recommended to implement JSON mode + validation **before** or together with the PCK parse re-ask, so the retry does not mask a fixable formatting problem.
+7. **Ordering with fix 0.5 (PCK JSON mode):** JSON mode + validation is **done in 1.3.4 (§0.15)**, so the re-ask can now be built on it. Originally recommended to implement JSON mode + validation **before** or together with the PCK parse re-ask, so the retry does not mask a fixable formatting problem.
 
 #### 0.13.8 Tests to add when implementing
 
@@ -409,6 +410,61 @@ Notes:
 - Image-only turns also do not add an entry to the in-memory `feedbackHistory`, since there was no analysis.
 - The B2 policy (what follows a real PCK failure) is unaffected.
 - **Still future work:** multimodal PCK (B17), and drawing markers in exports and transcripts (E1).
+
+### 0.15 Fixed: C10 real-time PCK output structurally reliable (2026-10-05, version 1.3.4)
+
+**Before:**
+- No JSON mode.
+- Loose fence stripping, so prose before a fence was accepted.
+- 500 only on JSON syntax errors.
+- Everything else was default-filled into a "successful" analysis, with the placeholder `'המורה התקדם בשיעור'`.
+
+Replaying the 30 fixtures through the old logic, **24 masqueraded as successful analyses**. Only the six syntax-level ones were rejected: trailing comma, unescaped quote, truncated, 8-token stub, prose before raw JSON, empty.
+
+**Now** (`server/pck_feedback_contract.js`, used by `/api/pck-feedback`):
+
+1. **At the model call:** `responseMimeType: "application/json"` + `responseSchema: PCK_RESPONSE_SCHEMA`. This is the same pattern as the student agent's `/api/generate`. Temperature (0.7), `maxOutputTokens` (2000), the model and the prompt are unchanged.
+2. **Parse:** strict `JSON.parse`. The only accepted wrapper is a single code fence enclosing the whole output (lossless). Prose, truncation, syntax errors and empty output → `errorKind: 'parse'`.
+3. **Validate (structure only):**
+   - **object** at the top level;
+   - `pedagogical_quality` ∈ {positive, neutral, problematic};
+   - `predicted_student_state` object with:
+     - `understanding_level` ∈ {improved, same, confused, more_confused, misconception_reinforced};
+     - `response_tone` ∈ {confident, hesitant, confused, frustrated, thoughtful};
+     - `student_reaction_hints` array of `{student: non-empty string, likelihood ∈ {high, medium, low}, reaction_type ∈ {6 values}, reason: string}`;
+   - `addressed_misconception` boolean; `how_addressed` string; `misconception_risk` ∈ {high, medium, low};
+   - `demonstrated_skills` array of `{skill_id ∈ 5 ids, evidence: string}`;
+   - `missed_opportunities` array of `{skill_id ∈ 5 ids, what_could_have_been_done: string}`;
+   - `should_provide_feedback` boolean;
+   - `feedback_trigger` present, and null or ∈ {5 values};
+   - `skills_assessment` array of `{skill_id ∈ 5 ids, is_relevant: boolean, score: integer ∈ {0,1,2}` (**required if relevant**; if present it must be in {0,1,2}), `evidence` / `what_could_be_better` / `reason_not_relevant`: string, null or absent`}`;
+   - `feedback_message_hebrew` string (may be empty).
+
+   Extra fields are allowed and passed through. Problems → `errorKind: 'schema'`, with up to 10 `problems` in the response.
+4. **Failure response:** `500 {success: false, error, errorKind, problems?, finishReason}`. The `error` text starts with `Failed to parse AI response`, so the existing C7 client classifies it as `stage: parse`, shows the PCK notice and records `failedAttempts`. No client change was needed.
+5. **Removed:** all default-filling (`pedagogical_quality → neutral`, `predicted_student_state` defaults, `should_provide_feedback → false`, `skills_assessment → []`, derived `demonstrated_skills` / `missed_opportunities`, `misconception_risk → medium`, …) and the placeholder message.
+6. **Retained normalisation:** `should_provide_feedback: false` → `feedback_message_hebrew = ''`. This follows the prompt's contract and keeps `feedbackHistory` from claiming feedback was given.
+
+**Malformed fixture outcomes** (all → 500, no analysis):
+
+| `errorKind` | fixtures |
+|---|---|
+| `parse` | trailing comma; unescaped `"` in Hebrew; truncated JSON; 8-token stub; prose before raw JSON; prose before a fenced block; empty output |
+| `schema` | JSON array; feedback text as object; evidence as object; missing `should_provide_feedback` / `skills_assessment` / `predicted_student_state` / `pedagogical_quality` / `feedback_message_hebrew`; invalid skill id (in `skills_assessment` and in `demonstrated_skills`); score 3 / −1 / 1.5; relevant skill without a score; `should_provide_feedback` / `is_relevant` / `score` as strings; `skills_assessment` as object; unknown `pedagogical_quality` / `understanding_level` / `reaction_type` / `feedback_trigger`; `student_reaction_hints` not an array |
+
+**Deliberately not validated** (ambiguous, so not invented; listed in `invariants.md` C10):
+- `should_provide_feedback` ↔ relevance;
+- the max-2-relevant rule (B8);
+- an empty message when feedback is given;
+- score/text on irrelevant skills;
+- duplicate skill ids;
+- consistency of the derived arrays with `skills_assessment`;
+- `pedagogical_quality` ↔ `feedback_trigger`;
+- reaction-hint names vs the cast.
+
+**Behavioural effect to watch:**
+- Outputs that used to be default-filled now become visible PCK failures: the notice is shown, students run unsteered (B2), and the attempt is recorded. JSON mode should make these rare, but the rate is unmeasured; `failedAttempts` (`stage: parse`) now records it.
+- `finishReason` is returned in the failure body but not yet captured by the client (§0.12).
 
 ## Original proposal (kept for reference; see §0.6 for what is still open)
 

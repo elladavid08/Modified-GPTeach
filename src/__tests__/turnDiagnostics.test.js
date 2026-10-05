@@ -54,6 +54,20 @@ describe("buildFailedAttempt", () => {
 		expect(a.httpStatus).toBe(500);
 	});
 
+	it("classifies the server's PCK validation failure (C10) as a parse failure", () => {
+		const a = buildFailedAttempt({
+			agent: "pck",
+			error: tagged("Backend error (500): Failed to parse AI response: invalid PCK analysis (2 problems)", {
+				stage: "http",
+				status: 500,
+				endpoint: "/api/pck-feedback",
+				serverError: "Failed to parse AI response: invalid PCK analysis (2 problems)",
+			}),
+			now: NOW,
+		});
+		expect(a.stage).toBe("parse");
+	});
+
 	it("records a network failure (no HTTP response)", () => {
 		const a = buildFailedAttempt({
 			agent: "student",

@@ -12,6 +12,7 @@ import { fileURLToPath } from 'url';
 import { VertexAI } from '@google-cloud/vertexai';
 import { GoogleAuth } from 'google-auth-library';
 import { formatSkillsForPrompt, formatConversationHistory, getPCKSkillById } from './universal_pck_skills.js';
+import { PCK_RESPONSE_SCHEMA, PCK_PARSE_ERROR, PCK_INVALID_ERROR, parsePckModelText, validatePckAnalysis } from './pck_feedback_contract.js';
 import { saveConversation, saveMessage, createUserProfile, getUserProfile, saveTestSubmission, checkTestSubmission, verifyAnnotator, verifyAdmin, getTestSubmissions, getTestSubmission, saveTestAnnotation, getTestAnnotation, getAllAnnotationsForSubmission, getAllUsersAdmin, getResearchParticipantsAdmin, updateUserResearchStatusAdmin, getConversationsByUserAdmin, getConversationsMeta, getFullConversationForAnnotation, createAnnotationAssignments, getAnnotationAssignments, getAnnotatorAssignments, getConvAnnotation, saveConvAnnotation, submitConvAnnotation, exportConvAnnotations, cancelAnnotationAssignment, getEligibleAgreementConversations, getAgreementReports, getAgreementReport, computeAndSaveAgreementReport, getConversationsWithCompletedPairs, createComparisonSet, updateComparisonSet, deleteComparisonSet, getComparisonSets, getComparisonSetDetail, getComparisonData, getConsensusAnnotation, saveConsensusAnnotation, submitConsensusAnnotation } from './services/firebaseAdmin.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -783,7 +784,10 @@ Return JSON only, no additional text:`;
     const generationConfig = {
       maxOutputTokens: 2000,
       temperature: 0.7,
-      topP: 1
+      topP: 1,
+      // Structured output (C10): JSON mode constrained by the PCK response contract
+      responseMimeType: "application/json",
+      responseSchema: PCK_RESPONSE_SCHEMA
     };
 
     console.log('📤 Calling Vertex AI for comprehensive PCK analysis...');
@@ -807,91 +811,41 @@ Return JSON only, no additional text:`;
       throw new Error('Invalid response structure from model');
     }
 
-    let responseText = candidate.content.parts[0].text.trim();
+    const responseText = candidate.content.parts[0].text;
     console.log('✅ Raw PCK analysis received:', responseText.substring(0, 200) + '...');
+    const finishReason = candidate.finishReason || null;
     
-    // Extract JSON from markdown code blocks if present
-    if (responseText.includes('```json')) {
-      const match = responseText.match(/```json\s*([\s\S]*?)\s*```/);
-      if (match && match[1]) {
-        responseText = match[1].trim();
-      }
-    } else if (responseText.includes('```')) {
-      const match = responseText.match(/```\s*([\s\S]*?)\s*```/);
-      if (match && match[1]) {
-        responseText = match[1].trim();
-      }
-    }
-    
-    // Parse the JSON response
-    let analysis;
-    try {
-      analysis = JSON.parse(responseText);
-      console.log('✅ PCK analysis parsed successfully');
-    } catch (parseError) {
-      console.error('❌ Failed to parse JSON response:', parseError);
+    // Parse and validate the model output (C10): invalid output is rejected, never default-filled
+    const parsed = parsePckModelText(responseText);
+    if (!parsed.ok) {
+      console.error('❌ Failed to parse PCK analysis JSON:', parsed.error, '| finishReason:', finishReason);
       console.error('Response text:', responseText);
-      throw new Error('Failed to parse AI response as JSON');
+      return res.status(500).json({
+        success: false,
+        error: PCK_PARSE_ERROR,
+        errorKind: 'parse',
+        finishReason
+      });
     }
     
-    // Validate and fill defaults for new structure
-    if (!analysis.pedagogical_quality || !analysis.predicted_student_state) {
-      console.warn('⚠️ Incomplete analysis structure, filling in defaults');
-      analysis.pedagogical_quality = analysis.pedagogical_quality || 'neutral';
-      analysis.predicted_student_state = analysis.predicted_student_state || {
-        understanding_level: 'same',
-        response_tone: 'thoughtful',
-        student_reaction_hints: []
-      };
-    }
-
-    if (!analysis.predicted_student_state.response_tone) {
-      analysis.predicted_student_state.response_tone = 'thoughtful';
-    }
-
-    if (!Array.isArray(analysis.predicted_student_state.student_reaction_hints)) {
-      analysis.predicted_student_state.student_reaction_hints = [];
+    const problems = validatePckAnalysis(parsed.value);
+    if (problems.length > 0) {
+      console.error('❌ Invalid PCK analysis:', problems, '| finishReason:', finishReason);
+      console.error('Response text:', responseText);
+      return res.status(500).json({
+        success: false,
+        error: `${PCK_INVALID_ERROR} (${problems.length} problem${problems.length === 1 ? '' : 's'})`,
+        errorKind: 'schema',
+        problems: problems.slice(0, 10),
+        finishReason
+      });
     }
     
-    // Ensure new fields have defaults
-    if (analysis.should_provide_feedback === undefined) {
-      analysis.should_provide_feedback = false;
-    }
+    const analysis = parsed.value;
+    console.log('✅ PCK analysis parsed and validated');
     
-    if (!analysis.skills_assessment) {
-      analysis.skills_assessment = [];
-    }
-
-    // Defaults for new fields
-    if (analysis.addressed_misconception === undefined) {
-      analysis.addressed_misconception = false;
-    }
-    if (!analysis.how_addressed) {
-      analysis.how_addressed = '';
-    }
-    if (!analysis.misconception_risk) {
-      analysis.misconception_risk = 'medium';
-    }
-    if (!Array.isArray(analysis.demonstrated_skills)) {
-      // Derive from skills_assessment as fallback
-      analysis.demonstrated_skills = analysis.skills_assessment
-        .filter(s => s.is_relevant && s.score >= 1)
-        .map(s => ({ skill_id: s.skill_id, evidence: s.evidence || '' }));
-    }
-    if (!Array.isArray(analysis.missed_opportunities)) {
-      // Derive from skills_assessment as fallback
-      analysis.missed_opportunities = analysis.skills_assessment
-        .filter(s => s.is_relevant && s.score === 0)
-        .map(s => ({ skill_id: s.skill_id, what_could_have_been_done: s.what_could_be_better || '' }));
-    }
-    
-    // Set feedback message based on should_provide_feedback
-    if (analysis.should_provide_feedback) {
-      if (!analysis.feedback_message_hebrew) {
-        analysis.feedback_message_hebrew = 'המורה התקדם בשיעור';
-      }
-    } else {
-      // If no feedback should be provided, ensure message is empty
+    // No feedback decided: the message is not shown and must not be recorded as "given" (prompt contract)
+    if (!analysis.should_provide_feedback) {
       analysis.feedback_message_hebrew = '';
     }
     

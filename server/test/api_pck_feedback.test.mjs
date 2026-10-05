@@ -2,13 +2,14 @@
 // B7 (Gate 0 rules are part of the prompt; a no-feedback decision stays a no-feedback decision),
 // and the request/response interface the client depends on.
 //
-// Deliberately NOT asserted (defects, invariants.md §C10): no-JSON-mode config, throwing on parse
-// errors, silent default-filling, or the 'המורה התקדם בשיעור' placeholder. Those are expected to change.
+// C10 (fixed): JSON mode + response schema at the model call; malformed or invalid model output is
+// rejected with a clear failure (never default-filled, never the 'המורה התקדם בשיעור' placeholder).
 import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { startServer, postJson, promptText } from '../test-support/startServer.mjs';
 import { textResult } from '../test-support/fakes/vertexai.mjs';
+import { VALID_ANALYSIS, MALFORMED_OUTPUTS } from '../test-support/pckFixtures.mjs';
 
 const contract = JSON.parse(
   readFileSync(new URL('../../src/testUtils/contracts/pckSkillsContract.json', import.meta.url), 'utf8'),
@@ -141,3 +142,52 @@ test('400 when teacherMessage is missing', async () => {
   assert.equal(res.body.success, false);
   assert.equal(srv.fakeModel.calls.length, 0);
 });
+
+// ─── C10: structured output and validation ───────────────────────────────────
+
+test('C10: the model call uses JSON mode with the PCK response schema', async () => {
+  srv.fakeModel.respond = () => textResult(JSON.stringify(VALID_ANALYSIS));
+  await request();
+  const { generationConfig } = srv.fakeModel.calls[0];
+  assert.equal(generationConfig.responseMimeType, 'application/json');
+  assert.equal(generationConfig.responseSchema.type, 'object');
+  assert.ok(generationConfig.responseSchema.properties.skills_assessment);
+  // Unchanged generation settings (model / temperature are out of scope)
+  assert.equal(generationConfig.temperature, 0.7);
+  assert.equal(generationConfig.maxOutputTokens, 2000);
+});
+
+test('C10: a valid current-format analysis passes through unchanged', async () => {
+  srv.fakeModel.respond = () => textResult(JSON.stringify(VALID_ANALYSIS));
+  const res = await request();
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body, { success: true, analysis: VALID_ANALYSIS });
+});
+
+test('C10: should_provide_feedback true with an empty message is not given a placeholder', async () => {
+  srv.fakeModel.respond = () => textResult(JSON.stringify({ ...VALID_ANALYSIS, feedback_message_hebrew: '' }));
+  const res = await request();
+  assert.equal(res.status, 200);
+  assert.equal(res.body.analysis.feedback_message_hebrew, '');
+  assert.ok(!JSON.stringify(res.body).includes('המורה התקדם בשיעור'));
+});
+
+test('C10 fixture sanity: every malformed fixture differs from the valid output', () => {
+  const valid = JSON.stringify(VALID_ANALYSIS, null, 2);
+  for (const [label, raw] of MALFORMED_OUTPUTS) assert.notEqual(raw, valid, label);
+});
+
+for (const [label, raw, kind] of MALFORMED_OUTPUTS) {
+  test(`C10: malformed model output is a clear failure, not an analysis: ${label}`, async () => {
+    srv.fakeModel.respond = () => textResult(raw);
+    const res = await request();
+    assert.equal(res.status, 500);
+    assert.equal(res.body.success, false);
+    assert.equal(res.body.analysis, undefined, 'no analysis returned');
+    // Stable prefix the C7 client classifier maps to stage "parse"
+    assert.match(res.body.error, /^Failed to parse AI response/);
+    assert.equal(res.body.errorKind, kind);
+    assert.ok(!JSON.stringify(res.body).includes('המורה התקדם בשיעור'));
+  });
+}
+
