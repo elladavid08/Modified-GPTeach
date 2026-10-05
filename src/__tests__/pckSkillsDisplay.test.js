@@ -69,6 +69,13 @@ describe("PCKFeedbackSidebar", () => {
 		for (const label of Object.values(contract.score_labels_he)) expect(view.container.textContent).not.toContain(label);
 	});
 
+	it("shows a failure notice instead of skills when errorMessage is set (C7)", () => {
+		view = render(<PCKFeedbackSidebar feedback={null} isVisible={true} errorMessage="FAILURE-NOTICE" />);
+		const alert = view.container.querySelector('[role="alert"]');
+		expect(alert.textContent).toBe("FAILURE-NOTICE");
+		for (const { he } of contract.skills) expect(view.container.textContent).not.toContain(he);
+	});
+
 	it("shows the 2/1/0 legend with the contract labels", () => {
 		view = render(<PCKFeedbackSidebar feedback={feedback} isVisible={true} />);
 		for (const label of Object.values(contract.score_labels_he)) expect(view.container.textContent).toContain(label);

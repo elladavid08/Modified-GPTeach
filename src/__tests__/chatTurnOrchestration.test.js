@@ -14,8 +14,10 @@
 // All services are mocked: no LLM, no Firestore, no auth.
 //   C4 (fixed) a submit with no text (empty / whitespace) and no included drawing starts nothing
 //
-// Deliberately NOT asserted (defects, invariants.md §C): newline handling (C5) and how failures
-// are surfaced to the teacher (C7).
+//   C7 phase 1 (fixed) PCK / student failures are shown to the teacher (concise Hebrew, no
+//       technical detail), recorded as failedAttempts diagnostics (A16), never logged as turns
+//
+// Deliberately NOT asserted (defects, invariants.md §C): newline handling (C5).
 //   B22 (DECIDED) an image-only submit (opt-in ticked + a real drawing, no text) is a valid turn.
 //       How the PCK/summary agents handle such turns is NOT asserted (E1 / B17, future design).
 // Also NOT asserted (REVIEW, undecided): what happens to students when the PCK call fails (B2),
@@ -30,6 +32,7 @@ import callAI from "../utils/ai.js";
 import { getPCKFeedback } from "../services/genai.js";
 import { ConversationLog } from "../services/conversationLogger";
 import { SYSTEM_VERSION } from "../config/version";
+import { FAILURE_MESSAGES_HE } from "../services/turnDiagnostics";
 import personas from "../config/students/personas";
 import scenarios from "../config/scenarios/geometry_scenarios";
 import { render, flush, click, typeInto, submit, findButtonByText, deferred } from "../testUtils/dom";
@@ -47,6 +50,7 @@ jest.mock("../services/conversationLogger", () => {
 		this.turns = [];
 		this.stats = {};
 		this.addTurn = jest.fn(async () => {});
+		this.addFailedAttempt = jest.fn(async () => {});
 		this.endSession = jest.fn();
 		this.saveToLocalStorage = jest.fn();
 		this.addSummaryFeedback = jest.fn();
@@ -571,6 +575,132 @@ describe("empty teacher messages (C4)", () => {
 		await startLesson();
 		await sendTeacherMessage("  שאלה  ");
 		expect(getPCKFeedback.mock.calls[0][0]).toBe("  שאלה  ");
+	});
+});
+
+// ─── C7 phase 1: visible, diagnosable failures ───────────────────────────────
+
+describe("failure visibility and diagnostics (C7 phase 1)", () => {
+	const studentError = () => view.container.querySelector('[data-testid="turn-error"]');
+	const pckError = () => view.container.querySelector('[data-testid="pck-error"]');
+	let errorSpy;
+	beforeEach(() => {
+		errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+	});
+	afterEach(() => errorSpy.mockRestore());
+
+	const httpError = (endpoint, serverError) =>
+		Object.assign(new Error(`Backend error (500): ${serverError}`), { stage: "http", status: 500, endpoint, serverError });
+
+	// B2 (what follows a PCK failure) is REVIEW: these tests deliberately do not assert whether
+	// students are generated afterwards, only that the failure is visible, recorded, and the turn
+	// settles without crashing.
+	it("PCK failure: visible notice, failure recorded, lock released, turn settles without crashing", async () => {
+		getPCKFeedback.mockRejectedValueOnce(httpError("/api/pck-feedback", "Failed to parse AI response as JSON"));
+		await startLesson();
+		await sendTeacherMessage("מה ההגדרה של מלבן?");
+
+		expect(pckError().textContent).toBe(FAILURE_MESSAGES_HE.pck);
+		expect(pckError().getAttribute("role")).toBe("alert");
+		expect(isUnlocked()).toBe(true);
+
+		const pckAttempts = logger().addFailedAttempt.mock.calls.map((c) => c[0]).filter((a) => a.agent === "pck");
+		expect(pckAttempts).toHaveLength(1);
+		expect(pckAttempts[0]).toEqual(
+			expect.objectContaining({ agent: "pck", stage: "parse", endpoint: "/api/pck-feedback", httpStatus: 500, pckFeedbackDisplayed: false })
+		);
+		// If a turn is logged after a PCK failure, it carries no displayed feedback (A4).
+		logger().addTurn.mock.calls.forEach((call) => expect(call[2]).toBeNull());
+
+		// The session keeps working: a following message starts a new turn.
+		getPCKFeedback.mockResolvedValue(NO_FEEDBACK_ANALYSIS);
+		await sendTeacherMessage("שאלה שנייה");
+		expect(getPCKFeedback).toHaveBeenCalledTimes(2);
+		expect(isUnlocked()).toBe(true);
+	});
+
+	it("student request failure: visible error, nothing logged as a turn, lock released, failure recorded", async () => {
+		getPCKFeedback.mockResolvedValue(FEEDBACK_ANALYSIS);
+		callAI.mockImplementationOnce(() => Promise.reject(httpError("/api/generate", "No candidates in response")));
+		await startLesson();
+		await sendTeacherMessage("מה ההגדרה של מלבן?");
+
+		expect(studentError().textContent).toBe(FAILURE_MESSAGES_HE.student);
+		expect(studentError().getAttribute("role")).toBe("alert");
+		expect(isUnlocked()).toBe(true);
+		expect(logger().addTurn).not.toHaveBeenCalled();
+		expect(logger().addFailedAttempt).toHaveBeenCalledTimes(1);
+		const recorded = logger().addFailedAttempt.mock.calls[0][0];
+		expect(recorded).toEqual(
+			expect.objectContaining({ agent: "student", stage: "http", endpoint: "/api/generate", httpStatus: 500, pckFeedbackDisplayed: true })
+		);
+		expect(typeof recorded.timestamp).toBe("string");
+	});
+
+	it("student parse failure: no fallback or fake reply is persisted; raw output excerpt recorded", async () => {
+		getPCKFeedback.mockResolvedValue(NO_FEEDBACK_ANALYSIS);
+		callAI.mockImplementationOnce(() =>
+			Promise.reject(Object.assign(new Error("Invalid student agent output"), { stage: "parse", endpoint: "/api/generate", rawOutput: "{\"responses\": [" }))
+		);
+		await startLesson();
+		await sendTeacherMessage("מה ההגדרה של מלבן?");
+
+		expect(studentError()).not.toBeNull();
+		expect(logger().addTurn).not.toHaveBeenCalled();
+		expect(view.container.textContent).not.toContain("אני צריך רגע לחשוב על זה");
+		expect(logger().addFailedAttempt.mock.calls[0][0]).toEqual(
+			expect.objectContaining({ agent: "student", stage: "parse", rawOutputExcerpt: "{\"responses\": [", rawOutputChars: 15 })
+		);
+	});
+
+	it("the PCK failure notice contains no technical details", async () => {
+		getPCKFeedback.mockRejectedValueOnce(httpError("/api/pck-feedback", "SECRET-PCK-DETAIL"));
+		await startLesson();
+		await sendTeacherMessage("שאלה");
+		expect(pckError()).not.toBeNull();
+		expect(view.container.textContent).not.toMatch(/SECRET-|Backend error|500|\/api\/|Error/);
+	});
+
+	it("the student failure notice contains no technical details", async () => {
+		getPCKFeedback.mockResolvedValue(NO_FEEDBACK_ANALYSIS);
+		callAI.mockImplementationOnce(() => Promise.reject(httpError("/api/generate", "SECRET-STUDENT-DETAIL")));
+		await startLesson();
+		await sendTeacherMessage("שאלה");
+		expect(studentError()).not.toBeNull();
+		expect(view.container.textContent).not.toMatch(/SECRET-|Backend error|500|\/api\/|Error/);
+	});
+
+	it("a later successful turn clears stale errors and works normally; failures do not shift turn numbering", async () => {
+		getPCKFeedback.mockResolvedValue(FEEDBACK_ANALYSIS);
+		await startLesson();
+		await sendTeacherMessage("TURN-1");
+
+		// A student failure (PCK succeeded), then a PCK failure on the next attempt.
+		callAI.mockImplementationOnce(() => Promise.reject(httpError("/api/generate", "y")));
+		await sendTeacherMessage("FAILED-STUDENTS");
+		expect(studentError()).not.toBeNull();
+		getPCKFeedback.mockRejectedValueOnce(httpError("/api/pck-feedback", "x"));
+		await sendTeacherMessage("FAILED-PCK");
+		expect(pckError()).not.toBeNull();
+		expect(studentError()).toBeNull(); // replaced when the new turn started
+
+		await sendTeacherMessage("TURN-2");
+		expect(studentError()).toBeNull();
+		expect(pckError()).toBeNull();
+		expect(sidebarText()).toContain("SIDEBAR-EVIDENCE");
+		expect(view.container.textContent).toContain("STUDENT-REPLY");
+
+		const { addTurn, addFailedAttempt } = logger();
+		const logged = addTurn.mock.calls.map((c) => c[0]);
+		expect(logged[0]).toBe("TURN-1");
+		expect(logged[logged.length - 1]).toBe("TURN-2");
+		expect(logged).not.toContain("FAILED-STUDENTS");
+		const agents = addFailedAttempt.mock.calls.map((c) => c[0].agent);
+		expect(agents.slice(0, 2)).toEqual(["student", "pck"]);
+		// Order on the log queue: turn 1, then the failures, then turn 2.
+		const turn2Order = addTurn.mock.invocationCallOrder[addTurn.mock.calls.length - 1];
+		expect(addTurn.mock.invocationCallOrder[0]).toBeLessThan(addFailedAttempt.mock.invocationCallOrder[0]);
+		expect(addFailedAttempt.mock.invocationCallOrder[1]).toBeLessThan(turn2Order);
 	});
 });
 

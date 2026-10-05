@@ -13,10 +13,26 @@
  * - Z: Patch version (bug fixes, minor improvements)
  */
 
-export const SYSTEM_VERSION = "1.3.1";
+export const SYSTEM_VERSION = "1.3.2";
 
 /**
  * Version History:
+ * 
+ * 1.3.2 (2026-10-05):
+ * - Visible failures (C7 phase 1): when the PCK feedback call fails, the feedback sidebar
+ *   shows a short Hebrew notice; when student generation fails, a short Hebrew banner
+ *   appears above the chat. No technical details are shown; notices clear when the next
+ *   turn starts. Behaviour after a PCK failure is otherwise unchanged.
+ * - Failure diagnostics: failed PCK / student-agent attempts are recorded in a new,
+ *   additive `failedAttempts` list on the conversation document (agent, stage, endpoint,
+ *   HTTP status, truncated error message, timestamp, position relative to logged turns).
+ *   No teacher text, drawings, history, credentials or stack traces are stored; at most
+ *   50 entries are kept.
+ * - Failed attempts never become normal turns: they are not added to `turns[]`, never
+ *   receive a `turnNumber`, and do not change turn numbering.
+ * - Student parse failures: the fake fallback student reply ("אני צריך רגע לחשוב על זה...")
+ *   is no longer produced or saved in the chat path; an unparseable student-agent output is
+ *   reported as a failure instead.
  * 
  * 1.3.1 (2026-10-05):
  * - Turn lock (C2/C3): only one simulation turn (PCK analysis + student responses) can

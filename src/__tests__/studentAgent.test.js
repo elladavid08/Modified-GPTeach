@@ -1,8 +1,11 @@
 // Invariant B3 (student response interface) and B4 inputs: what the client sends to the student
 // model and how a well-formed model reply becomes chat messages. The backend call is mocked.
 //
-// Deliberately NOT asserted (defects, invariants.md §C): the fixed fallback text on malformed
-// output (C6), newline stripping (C5), missing duplicate detection, the hard-coded persona
+// C7 phase 1 (fixed): failures reject callAI with a tagged error (request vs parse) instead of
+// silently replying [] or persisting the fixed fallback text (C6 fallback removed for parse
+// failures). Genuine silence (`responses: []`) is still a normal empty reply.
+//
+// Deliberately NOT asserted (defects, invariants.md §C): newline stripping (C5), missing duplicate detection, the hard-coded persona
 // tiers in the prompt (C12), or how malformed entries (missing student/message) are handled
 // (may become validation/retry logic). Those are expected to change.
 import callAI from "../utils/ai.js";
@@ -99,13 +102,48 @@ describe("student agent response interface", () => {
 	});
 
 
-	it("never invents student messages when the backend call fails", async () => {
-		const errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
-		generateWithGenAI.mockRejectedValue(new Error("backend down"));
-		const { msgs } = await runCallAI();
-		// Only "no fabricated messages" is protected; how the failure is surfaced may change (C7).
-		expect(msgs || []).toHaveLength(0);
-		errorSpy.mockRestore();
+});
+
+describe("student agent failures (C7 phase 1)", () => {
+	let errorSpy;
+	beforeEach(() => {
+		errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+	});
+	afterEach(() => errorSpy.mockRestore());
+
+	function callExpectingFailure() {
+		const onResponse = jest.fn();
+		return callAI(historyOf([]), students, scenario, "", null, onResponse).then(
+			() => ({ error: null, onResponse }),
+			(error) => ({ error, onResponse })
+		);
+	}
+
+	it("a backend/request failure rejects with the request error and invents no messages", async () => {
+		generateWithGenAI.mockRejectedValue(
+			Object.assign(new Error("Backend error (500): x"), { stage: "http", status: 500, endpoint: "/api/generate" })
+		);
+		const { error, onResponse } = await callExpectingFailure();
+		expect(error).toEqual(expect.objectContaining({ stage: "http", status: 500, endpoint: "/api/generate" }));
+		expect(onResponse).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		["invalid JSON", "{\"responses\": [{\"student\": \"נועה\", \"message\": \"אני"],
+		["JSON without responses", JSON.stringify({ thinking: {} })],
+	])("%s rejects as a parse failure with the raw output, and no fallback message is produced", async (_label, raw) => {
+		generateWithGenAI.mockResolvedValue(raw);
+		const { error, onResponse } = await callExpectingFailure();
+		expect(error).toEqual(expect.objectContaining({ stage: "parse", endpoint: "/api/generate", rawOutput: raw }));
+		expect(onResponse).not.toHaveBeenCalled();
+	});
+
+	it("genuine silence (responses: []) is still a normal empty reply, not a failure", async () => {
+		generateWithGenAI.mockResolvedValue(JSON.stringify({ responses: [] }));
+		const { error, onResponse } = await callExpectingFailure();
+		expect(error).toBeNull();
+		expect(onResponse).toHaveBeenCalledTimes(1);
+		expect(onResponse.mock.calls[0][0]).toEqual([]);
 	});
 });
 

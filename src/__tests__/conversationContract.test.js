@@ -24,6 +24,25 @@ describe("conversation document contract validator", () => {
 		expect(validateConversationDoc(doc)).toEqual([]);
 	});
 
+	it("accepts an additive failedAttempts list (A16) and documents without it (legacy)", () => {
+		const doc = currentFormatConversation();
+		doc.failedAttempts = [
+			{ agent: "pck", stage: "parse", timestamp: "2026-01-01T10:03:00.000Z", precedingTurnNumber: 2, attemptNumber: 1 },
+		];
+		expect(validateConversationDoc(doc)).toEqual([]);
+	});
+
+	it.each([
+		["failed attempt with a turnNumber", (d) => { d.failedAttempts = [{ agent: "pck", stage: "http", timestamp: "t", precedingTurnNumber: 0, turnNumber: 1 }]; }],
+		["failed attempt with an unknown agent", (d) => { d.failedAttempts = [{ agent: "other", stage: "http", timestamp: "t", precedingTurnNumber: 0 }]; }],
+		["failed attempt with an unknown stage", (d) => { d.failedAttempts = [{ agent: "pck", stage: "weird", timestamp: "t", precedingTurnNumber: 0 }]; }],
+		["failedAttempts not an array", (d) => { d.failedAttempts = {}; }],
+	])("rejects %s", (_label, mutate) => {
+		const doc = currentFormatConversation();
+		mutate(doc);
+		expect(validateConversationDoc(doc).length).toBeGreaterThan(0);
+	});
+
 	it.each([
 		["non-sequential turnNumber", (d) => { d.turns[1].turnNumber = 3; }],
 		["missing teacher.message", (d) => { delete d.turns[0].teacher.message; }],

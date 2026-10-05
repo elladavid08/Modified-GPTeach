@@ -37,6 +37,9 @@ async function compressImageBase64(base64, maxWidth = 600) {
 	});
 }
 
+// Upper bound on stored failed-attempt diagnostics per conversation (Firestore 1 MB document limit)
+const MAX_FAILED_ATTEMPTS = 50;
+
 export class ConversationLog {
 	constructor(scenario, students, userId, userProfile, systemVersion = "1.0") {
 		this.sessionId = this.generateSessionId();
@@ -72,6 +75,10 @@ export class ConversationLog {
 		
 		// Conversation turns (teacher message + student responses + PCK feedback)
 		this.turns = [];
+		
+		// Failed PCK / student-agent attempts (diagnostics only; never part of turns[], A16)
+		this.failedAttempts = [];
+		this.failedAttemptCount = 0;
 		
 		// Summary statistics
 		this.stats = {
@@ -187,6 +194,28 @@ export class ConversationLog {
 	}
   
 	/**
+	 * Record a failed PCK / student-agent attempt (see services/turnDiagnostics.js).
+	 * Stored separately from turns[] so turn numbering is unaffected. Before the first logged
+	 * turn the conversation is not saved yet (lazy init); pending failures are saved with it.
+	 */
+	async addFailedAttempt(attempt) {
+		this.failedAttemptCount++;
+		this.failedAttempts.push({
+			...attempt,
+			sessionId: this.sessionId,
+			attemptNumber: this.failedAttemptCount,
+			precedingTurnNumber: this.turns.length,
+		});
+		// Keep the most recent entries only, to bound the document size
+		if (this.failedAttempts.length > MAX_FAILED_ATTEMPTS) {
+			this.failedAttempts = this.failedAttempts.slice(-MAX_FAILED_ATTEMPTS);
+		}
+		if (this.firestoreInitialized) {
+			await this.saveToFirestore();
+		}
+	}
+  
+	/**
 	 * End the conversation session
 	 */
 	async endSession() {
@@ -232,6 +261,7 @@ export class ConversationLog {
 			scenario: this.scenario,
 			studentRefs: this.studentRefs,  // Use references instead of full data
 			turns: this.turns,
+			failedAttempts: this.failedAttempts,
 			stats: this.stats,
 			summaryFeedback: this.summaryFeedback || null
 		};

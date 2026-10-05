@@ -232,9 +232,8 @@ async function callChatModel(
 		}
 	} catch (err) {
 		console.error(`❌ Error from ${Constants.PROVIDER === "google" ? "GenAI" : "AI"}:`, err);
-		// Call onResponse with empty array to unblock the UI
-		onResponse([], null);
-		return;
+		// Reject so the caller can show the failure and record it (C7); failures are not empty replies
+		throw err;
 	}
 }
 
@@ -327,13 +326,12 @@ function convertResponseToMessages(aiResponse, fromCode, students) {
 		console.error("Error parsing JSON response:", error);
 		console.error("Raw response:", aiResponse);
 		
-		const randomStudent = students[Math.floor(Math.random() * students.length)];
-		newMessages.push(new ChatMessage(
-			randomStudent.name, 
-			"אני צריך רגע לחשוב על זה...", 
-			"assistant"
-		));
-		return newMessages;
+		// Report a parse failure instead of inventing a student reply (C7)
+		const parseError = new Error(`Invalid student agent output: ${error.message}`);
+		parseError.stage = "parse";
+		parseError.endpoint = "/api/generate";
+		parseError.rawOutput = aiResponse;
+		throw parseError;
 	}
 }
 

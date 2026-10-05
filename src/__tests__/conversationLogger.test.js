@@ -181,4 +181,72 @@ describe("ConversationLog", () => {
 		await log.addSummaryFeedback("### סיכום\nטקסט");
 		expect(lastSavedDoc().summaryFeedback).toBe("### סיכום\nטקסט");
 	});
+
+	describe("failed attempts (C7 phase 1, A16)", () => {
+		const attempt = (agent, extra = {}) => ({
+			agent,
+			stage: "http",
+			endpoint: agent === "pck" ? "/api/pck-feedback" : "/api/generate",
+			httpStatus: 500,
+			errorName: "Error",
+			errorMessage: "Backend error (500)",
+			timestamp: "2026-10-05T12:00:00.000Z",
+			teacherMessageChars: 5,
+			teacherHasDrawing: false,
+			pckFeedbackDisplayed: false,
+			rawOutputExcerpt: null,
+			rawOutputChars: null,
+			...extra,
+		});
+
+		it("keeps failures out of turns[] and does not affect turnNumber sequencing (A3)", async () => {
+			const log = new ConversationLog(scenario, students, "u1", profile, "9.9.9");
+			await log.addTurn("t1", [{ name: "נועה", text: "s1" }], null);
+			await log.addFailedAttempt(attempt("student"));
+			await log.addTurn("t2", [{ name: "נועה", text: "s2" }], null);
+			const doc = lastSavedDoc();
+			expect(doc.turns.map((t) => [t.turnNumber, t.teacher.message])).toEqual([[1, "t1"], [2, "t2"]]);
+			expect(doc.failedAttempts).toHaveLength(1);
+			expect(doc.failedAttempts[0]).toEqual(
+				expect.objectContaining({ agent: "student", attemptNumber: 1, precedingTurnNumber: 1, sessionId: log.sessionId })
+			);
+			expect(doc.failedAttempts[0]).not.toHaveProperty("turnNumber");
+			expect(validateConversationDoc(doc)).toEqual([]);
+		});
+
+		it("saves a failure immediately once the conversation exists", async () => {
+			const log = new ConversationLog(scenario, students, "u1", profile, "9.9.9");
+			await log.addTurn("t1", [{ name: "נועה", text: "s1" }], null);
+			const saves = saveConversation.mock.calls.length;
+			await log.addFailedAttempt(attempt("pck"));
+			expect(saveConversation.mock.calls.length).toBe(saves + 1);
+			expect(lastSavedDoc().failedAttempts[0].agent).toBe("pck");
+		});
+
+		it("does not create a conversation for failures alone; they are saved with the first logged turn (A11)", async () => {
+			const log = new ConversationLog(scenario, students, "u1", profile, "9.9.9");
+			await log.addFailedAttempt(attempt("student"));
+			expect(saveConversation).not.toHaveBeenCalled();
+			await log.addTurn("t1", [{ name: "נועה", text: "s1" }], null);
+			const doc = lastSavedDoc();
+			expect(doc.turns).toHaveLength(1);
+			expect(doc.failedAttempts).toEqual([expect.objectContaining({ agent: "student", precedingTurnNumber: 0 })]);
+		});
+
+		it("bounds the number of stored failures", async () => {
+			const log = new ConversationLog(scenario, students, "u1", profile, "9.9.9");
+			await log.addTurn("t1", [{ name: "נועה", text: "s1" }], null);
+			for (let i = 0; i < 60; i++) await log.addFailedAttempt(attempt("student"));
+			const stored = lastSavedDoc().failedAttempts;
+			expect(stored).toHaveLength(50);
+			expect(stored[stored.length - 1].attemptNumber).toBe(60); // most recent kept
+		});
+
+		it("new conversations carry an empty failedAttempts list (additive field)", async () => {
+			const log = new ConversationLog(scenario, students, "u1", profile, "9.9.9");
+			await log.addTurn("t1", [{ name: "נועה", text: "s1" }], null);
+			expect(lastSavedDoc().failedAttempts).toEqual([]);
+		});
+	});
 });
+

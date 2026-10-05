@@ -57,6 +57,20 @@ export function validateConversationDoc(doc, { legacy = false } = {}) {
 		errors.push("studentRefs missing or malformed (expected v<version>_<id>)");
 	}
 
+	// failedAttempts (A16): optional additive list; never part of turns[], never a turnNumber.
+	if ("failedAttempts" in doc) {
+		if (!Array.isArray(doc.failedAttempts)) errors.push("failedAttempts must be an array");
+		else
+			doc.failedAttempts.forEach((a, i) => {
+				const where = `failedAttempts[${i}]`;
+				if (!["pck", "student"].includes(a.agent)) errors.push(`${where}: unknown agent ${a.agent}`);
+				if (!["network", "http", "parse", "client"].includes(a.stage)) errors.push(`${where}: unknown stage ${a.stage}`);
+				if (!isStr(a.timestamp)) errors.push(`${where}: timestamp missing`);
+				if (!Number.isInteger(a.precedingTurnNumber) || a.precedingTurnNumber < 0) errors.push(`${where}: precedingTurnNumber invalid`);
+				if ("turnNumber" in a) errors.push(`${where}: must not carry a turnNumber`);
+			});
+	}
+
 	if (!Array.isArray(doc.turns)) {
 		errors.push("turns must be an array");
 		return errors;

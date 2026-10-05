@@ -11,6 +11,7 @@ import { HistoryContext } from "../objects/ChatHistory";
 import { AppContext } from "../objects/AppContext";
 import { ScenarioSelector } from "../components/ScenarioSelector";
 import { ConversationLog } from "../services/conversationLogger";
+import { buildFailedAttempt, FAILURE_MESSAGES_HE } from "../services/turnDiagnostics";
 import { useAuth } from "../contexts/AuthContext";
 import ChatMessage from "../objects/ChatMessage";
 import "../style/ChatOnly.css";
@@ -57,6 +58,22 @@ export const Chat = () => {
 		setIsTurnInProgress(false);
 	}
 	
+	// Teacher-facing failure notices for the current turn (cleared when the next turn starts)
+	const [pckError, setPckError] = useState(null);
+	const [turnError, setTurnError] = useState(null);
+	
+	/** Record a failed PCK / student-agent attempt as diagnostics (not as a turn), in log order */
+	function recordFailedAttempt(agent, error, teacherMessage, pckFeedbackDisplayed = false) {
+		const logger = conversationLoggerRef.current;
+		if (!logger) {
+			return;
+		}
+		const attempt = buildFailedAttempt({ agent, error, teacherMessage, pckFeedbackDisplayed });
+		turnLogQueueRef.current = turnLogQueueRef.current
+			.then(() => logger.addFailedAttempt(attempt))
+			.catch((logError) => console.error("❌ Error recording failed attempt:", logError));
+	}
+	
 	// Scenario is set by the ScenarioSelector — no random pre-selection
 	
 	const students = appData.students ? appData.students.slice(0, Constants.NUM_STUDENTS) : [];
@@ -90,6 +107,8 @@ export const Chat = () => {
 		if (!beginTurn()) {
 			return;
 		}
+		setPckError(null);
+		setTurnError(null);
 
 		// Clear any previous feedback immediately so it doesn't persist into the next turn
 		setPckFeedback(null);
@@ -278,8 +297,11 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 			}
 			} catch (error) {
 				console.error("❌ Error getting PCK feedback:", error);
-				// Continue even if PCK feedback fails, but log it
+				// Continue even if PCK feedback fails, but show and record it
 				impact_analysis = null;
+				setPckError(FAILURE_MESSAGES_HE.pck);
+				const teacherMessages = history.getMessages().filter(msg => msg.role === "user");
+				recordFailedAttempt("pck", error, teacherMessages[teacherMessages.length - 1] || null);
 			}
 			
 			// Step 2: Generate student responses WITH the impact analysis
@@ -333,6 +355,9 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 			);
 			} catch (error) {
 				console.error("❌ Error generating student responses:", error);
+				setTurnError(FAILURE_MESSAGES_HE.student);
+				const teacherMessages = history.getMessages().filter(msg => msg.role === "user");
+				recordFailedAttempt("student", error, teacherMessages[teacherMessages.length - 1] || null, Boolean(feedbackForLog));
 				endTurn();
 			}
 		})();
@@ -573,6 +598,16 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 			</div>
 			)}
 
+				{turnError && (
+					<div
+						role="alert"
+						data-testid="turn-error"
+						style={{ margin: "8px 15px 0 15px", padding: "8px 12px", backgroundColor: "#fff3cd", color: "#856404", border: "1px solid #ffeeba", borderRadius: "6px", direction: "rtl", fontSize: "14px", flex: "0 0 auto" }}
+					>
+						{turnError}
+					</div>
+				)}
+
 				<div style={{ flex: "1 1 auto", overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
 				<Messages
 					isWaitingOnStudent={isQuerying || isTurnInProgress}
@@ -588,6 +623,7 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 			<PCKFeedbackSidebar 
 				feedback={pckFeedback} 
 				isVisible={true}
+				errorMessage={pckError}
 			/>
 			
 			{/* PCK Summary Modal */}

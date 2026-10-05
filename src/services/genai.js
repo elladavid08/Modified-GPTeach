@@ -34,6 +34,14 @@ async function fetchWithRetry(fetchFn, maxRetries = 2, baseDelayMs = 3000) {
 }
 
 /**
+ * Attach diagnostic fields to a backend-call error (C7): stage ('network' | 'http'),
+ * endpoint, HTTP status and the backend's error text. Message text is unchanged.
+ */
+function tagError(error, fields) {
+  return Object.assign(error, fields);
+}
+
+/**
  * Generate content using backend with Google's Vertex AI
  * @param {Array} messages - OpenAI format messages
  * @param {Object} options - Additional options like stop sequences
@@ -61,7 +69,9 @@ export async function generateWithGenAI(messages, options = {}) {
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
       console.error('❌ Backend error:', errorData);
-      throw new Error(`Backend error (${response.status}): ${errorData.error || 'Unknown error'}`);
+      throw tagError(new Error(`Backend error (${response.status}): ${errorData.error || 'Unknown error'}`), {
+        stage: 'http', status: response.status, endpoint: '/api/generate', serverError: errorData.error || null
+      });
     }
 
     const result = await response.json();
@@ -73,13 +83,17 @@ export async function generateWithGenAI(messages, options = {}) {
       return result.text;
     } else {
       console.error('❌ Backend returned error:', result.error);
-      throw new Error(result.error || 'Backend returned unsuccessful response');
+      throw tagError(new Error(result.error || 'Backend returned unsuccessful response'), {
+        stage: 'http', status: response.status, endpoint: '/api/generate', serverError: result.error || null
+      });
     }
   } catch (error) {
     if (error.name === 'TypeError' && error.message.includes('fetch')) {
       console.error('❌ Network error - is the backend running on', API_BASE_URL + '?');
       console.error('❌ Make sure to start the backend server with: cd server && npm start');
-      throw new Error('Backend server not available. Please start the backend server.');
+      throw tagError(new Error('Backend server not available. Please start the backend server.'), {
+        stage: 'network', endpoint: '/api/generate'
+      });
     }
     
     console.error('❌ Error calling backend API:', error);
@@ -172,7 +186,9 @@ export async function getPCKFeedback(teacherMessage, conversationHistory = [], s
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
       console.error('❌ PCK feedback error:', errorData);
-      throw new Error(`Backend error (${response.status}): ${errorData.error || 'Unknown error'}`);
+      throw tagError(new Error(`Backend error (${response.status}): ${errorData.error || 'Unknown error'}`), {
+        stage: 'http', status: response.status, endpoint: '/api/pck-feedback', serverError: errorData.error || null
+      });
     }
 
     const result = await response.json();
@@ -186,12 +202,16 @@ export async function getPCKFeedback(teacherMessage, conversationHistory = [], s
       return result.analysis;
     } else {
       console.error('❌ PCK feedback returned error:', result.error);
-      throw new Error(result.error || 'PCK feedback returned unsuccessful response');
+      throw tagError(new Error(result.error || 'PCK feedback returned unsuccessful response'), {
+        stage: 'http', status: response.status, endpoint: '/api/pck-feedback', serverError: result.error || null
+      });
     }
   } catch (error) {
     if (error.name === 'TypeError' && error.message.includes('fetch')) {
       console.error('❌ Network error - is the backend running on', API_BASE_URL + '?');
-      throw new Error('Backend server not available. Please start the backend server.');
+      throw tagError(new Error('Backend server not available. Please start the backend server.'), {
+        stage: 'network', endpoint: '/api/pck-feedback'
+      });
     }
     
     console.error('❌ Error calling PCK feedback API:', error);

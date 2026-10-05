@@ -95,7 +95,7 @@ const SIDEBAR_STYLE = {
   zIndex: 100,
 };
 
-export const PCKFeedbackSidebar = ({ feedback, isVisible }) => {
+export const PCKFeedbackSidebar = ({ feedback, isVisible, errorMessage }) => {
   if (!isVisible || !feedback) {
     return (
       <div style={{
@@ -116,7 +116,13 @@ export const PCKFeedbackSidebar = ({ feedback, isVisible }) => {
       }}>
         <div>
           <h5>💡 משוב מומחה PCK</h5>
-          <p className="text-muted">בהמתנה לתגובת המורה...</p>
+          {errorMessage ? (
+            <p role="alert" data-testid="pck-error" style={{ color: '#856404', backgroundColor: '#fff3cd', borderRadius: '6px', padding: '8px 10px' }}>
+              {errorMessage}
+            </p>
+          ) : (
+            <p className="text-muted">בהמתנה לתגובת המורה...</p>
+          )}
         </div>
       </div>
     );
