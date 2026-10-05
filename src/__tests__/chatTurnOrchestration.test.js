@@ -19,7 +19,8 @@
 //
 // Deliberately NOT asserted (defects, invariants.md §C): newline handling (C5).
 //   B22 (DECIDED) an image-only submit (opt-in ticked + a real drawing, no text) is a valid turn.
-//       How the PCK/summary agents handle such turns is NOT asserted (E1 / B17, future design).
+//       Until the PCK agent is multimodal, image-only turns skip the PCK call silently (E1).
+//       Summary handling of drawings is NOT asserted (B17, future design).
 // Also NOT asserted (REVIEW, undecided): what happens to students when the PCK call fails (B2),
 // how the cast is selected beyond "3 distinct personas" (B5 mechanism), the exact sidebar
 // placeholder text (B10), and whether the drawing opt-in resets after a send (B15).
@@ -701,6 +702,85 @@ describe("failure visibility and diagnostics (C7 phase 1)", () => {
 		const turn2Order = addTurn.mock.invocationCallOrder[addTurn.mock.calls.length - 1];
 		expect(addTurn.mock.invocationCallOrder[0]).toBeLessThan(addFailedAttempt.mock.invocationCallOrder[0]);
 		expect(addFailedAttempt.mock.invocationCallOrder[1]).toBeLessThan(turn2Order);
+	});
+});
+
+// ─── B22 / E1: image-only turns skip PCK until the PCK agent is multimodal ────
+
+describe("PCK handling by turn type (B22 / E1)", () => {
+	const pckError = () => view.container.querySelector('[data-testid="pck-error"]');
+
+	beforeEach(() => getPCKFeedback.mockResolvedValue(FEEDBACK_ANALYSIS));
+
+	it.each([
+		["empty text", ""],
+		["whitespace-only text", "   "],
+	])("image-only turn (%s): PCK skipped silently; students get the drawing; turn logged normally", async (_label, text) => {
+		board.include = true;
+		board.image = "iVBORimageonly";
+		await startLesson();
+		await sendTeacherMessage(text);
+
+		expect(getPCKFeedback).not.toHaveBeenCalled();
+		expect(pckError()).toBeNull();
+		expect(logger().addFailedAttempt).not.toHaveBeenCalled();
+
+		expect(callAI).toHaveBeenCalledTimes(1);
+		expect(studentCalls[0].messages[0].image).toBe("iVBORimageonly");
+		expect(studentCalls[0].impact).toBeNull();
+
+		expect(logger().addTurn).toHaveBeenCalledTimes(1);
+		const [, loggedStudents, loggedFeedback, loggedImage] = logger().addTurn.mock.calls[0];
+		expect(loggedStudents).toEqual([{ name: allStudents[0].name, text: "STUDENT-REPLY" }]);
+		expect(loggedFeedback).toBeNull();
+		expect(loggedImage).toBe("iVBORimageonly");
+
+		expect(isUnlocked()).toBe(true);
+	});
+
+	it("image-only turn keeps the lock until students reply", async () => {
+		board.include = true;
+		board.image = "iVBORimageonly";
+		const students = pendingStudents();
+		await startLesson();
+		await sendTeacherMessage("");
+		expect(getPCKFeedback).not.toHaveBeenCalled();
+		expect(isLocked()).toBe(true);
+		students[0].resolve("STUDENT-REPLY");
+		await flush();
+		expect(isUnlocked()).toBe(true);
+	});
+
+	it("text-only turn still calls PCK exactly as before", async () => {
+		await startLesson();
+		await sendTeacherMessage("מה ההגדרה של מלבן?");
+		expect(getPCKFeedback).toHaveBeenCalledTimes(1);
+		const [teacherText, history, scen, feedbackHistory] = getPCKFeedback.mock.calls[0];
+		expect(teacherText).toBe("מה ההגדרה של מלבן?");
+		expect(history.map((m) => m.text)).toEqual(["מה ההגדרה של מלבן?"]);
+		expect(scen).toBe(scenario);
+		expect(feedbackHistory).toEqual([]);
+		expect(studentCalls[0].impact).toBe(FEEDBACK_ANALYSIS);
+	});
+
+	it("text + drawing turn calls PCK with the text and sends the drawing to the students", async () => {
+		board.include = true;
+		board.image = "iVBORwithtext";
+		await startLesson();
+		await sendTeacherMessage("הסתכלו על הציור");
+		expect(getPCKFeedback).toHaveBeenCalledTimes(1);
+		expect(getPCKFeedback.mock.calls[0][0]).toBe("הסתכלו על הציור");
+		expect(studentCalls[0].messages[0].image).toBe("iVBORwithtext");
+		expect(studentCalls[0].impact).toBe(FEEDBACK_ANALYSIS);
+		expect(logger().addTurn.mock.calls[0][3]).toBe("iVBORwithtext");
+	});
+
+	it("empty / whitespace submissions without a drawing are still blocked (C4)", async () => {
+		await startLesson();
+		await sendTeacherMessage("   ");
+		expect(getPCKFeedback).not.toHaveBeenCalled();
+		expect(callAI).not.toHaveBeenCalled();
+		expect(logger().addTurn).not.toHaveBeenCalled();
 	});
 });
 

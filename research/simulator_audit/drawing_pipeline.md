@@ -84,8 +84,13 @@ So the student agent and the feedback agent see different evidence for the same 
 Image-only turns (drawing included, no text) are a supported input (`invariants.md` B22, DECIDED). The C4 empty-message fix deliberately keeps them. Downstream they are incomplete (`invariants.md` §E1):
 - they appear as **blank teacher messages** in the Excel and CSV exports and in agent transcripts;
 - in-app viewers show the drawing under an empty text line;
-- the **student agent sees the drawing**, but the **PCK agent receives an empty message** (`/api/pck-feedback` returns 400, so there is no feedback and the students run unsteered);
+- the **student agent sees the drawing**, but the **PCK agent does not analyse the turn**:
+  - until 1.3.2 the client sent an empty message and `/api/pck-feedback` returned 400 (a false "temporary problem" notice in 1.3.2);
+  - **since 1.3.3 the PCK call is intentionally skipped** for image-only turns (no feedback, no failure notice, no `failedAttempts` entry; students unsteered; turn logged with `pckFeedback: null`);
 - the **summary agent** sees an empty `Teacher:` line;
 - so saved pilot conversations with such turns are hard to interpret, and the agents worked from inconsistent evidence (11 turns in the 2026-07-27 export).
 
-Not changed yet. It belongs to the drawing/multimodal backlog (`regression_test_plan.md` §0.10), together with B17 (PCK and summary drawing visibility).
+Summary of the status:
+- image-only turns are **valid**;
+- PCK is **intentionally skipped** for them for now (1.3.3);
+- **full multimodal PCK support, and drawing markers in exports and transcripts, remain future work** in the drawing/multimodal backlog (`regression_test_plan.md` §0.10), together with B17 (PCK and summary drawing visibility).

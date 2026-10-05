@@ -240,7 +240,8 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 				const teacherMessages = history.getMessages().filter(msg => msg.role === "user");
 				const lastTeacherMessage = teacherMessages[teacherMessages.length - 1];
 				
-				if (lastTeacherMessage) {
+				// Image-only turns (drawing, no text) skip PCK until the PCK agent can see drawings
+				if (lastTeacherMessage && lastTeacherMessage.text.trim()) {
 					console.log("🎯 STEP 1: Analyzing teacher's pedagogical move...");
 					console.log("💡 Requesting PCK feedback for teacher message...");
 					console.log(`📊 Feedback history: ${feedbackHistory.length} previous turns`);

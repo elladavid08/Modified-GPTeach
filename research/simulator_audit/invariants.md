@@ -55,7 +55,7 @@ Status labels:
 | B19 | `feedbackHistory`: the last 3 analyses (displayed or not) are passed to the PCK prompt with continuity rules | REVIEW | Intentional (v1.3.0), but continuity Rule 1 conflicts with B200 "relevance ≠ success". |
 | B20 | Teacher-initiated scenarios show `teacher_briefing` until the first message; all six active scenarios are `initiated_by:"teacher"` | PROTECT | Pilot protocol. |
 | B21 | All UI is Hebrew and RTL | PROTECT | |
-| B22 | Image-only teacher turns (drawing included via "כלול בהודעה", no text) are accepted and start a turn | **DECIDED: PROTECT** | Image-only teacher turns are valid when the teacher **explicitly opts to include a real drawing** (opt-in ticked *and* a non-empty board). They must remain supported, and the C4 empty-message guard must not block them. They were used intentionally in the pilot (11 exported turns). Their handling downstream is incomplete: blank text in exports and agent transcripts, and PCK/summary agents don't see the drawing. See §E, issue **E1**. |
+| B22 | Image-only teacher turns (drawing included via "כלול בהודעה", no non-whitespace text) are accepted and start a turn | **DECIDED: PROTECT** | Image-only teacher turns are **valid** when the teacher explicitly opts to include a real drawing (opt-in ticked *and* a non-empty board). They must remain supported, and the C4 empty-message guard must not block them. Used intentionally in the pilot (11 exported turns). **PCK is intentionally skipped for them (since 1.3.3, 2026-10-05)** until the PCK agent can see drawings: no `/api/pck-feedback` call, no feedback, no failure notice, no `failedAttempts` entry. Students run without PCK steering and the turn is logged normally with the drawing and `pckFeedback: null` (A4: nothing displayed). **Full multimodal PCK support remains future work** (B17 / §E1). |
 
 ## C. Current behaviours that should NOT be protected (defects)
 
@@ -120,14 +120,21 @@ An image-only turn is saved with `teacher.message = ""` and the drawing in `teac
    - Research text pipelines see an empty teacher turn unless they join the images extracted separately (`research/pck_feedback/.../extract_images.py`).
 2. **Inconsistent evidence between agents.**
    - The **student agent sees the drawing.** It is sent as `inline_data`, and re-sent on every later turn (B16).
-   - The **PCK agent does not.** It receives an empty `teacherMessage`, which `/api/pck-feedback` rejects with 400, so the turn gets no feedback and the students run unsteered (B2). Even on later turns, the PCK history shows `מורה: ` with nothing after it.
+   - The **PCK agent does not.**
+     - *Until 1.3.2:* it received an empty `teacherMessage`, which `/api/pck-feedback` rejected with 400. In 1.3.2 this also showed a misleading "temporary problem" notice and recorded a `failedAttempts` entry.
+     - *Since 1.3.3:* the PCK call is **intentionally skipped** for image-only turns. There is no false failure, but also still no PCK analysis or feedback for these turns, and the students run unsteered.
+     - On later turns, the PCK history still shows `מורה: ` with nothing after it for the image-only turn.
    - The **summary agent does not see it either.** The transcript line is `Teacher: ` with nothing after it.
    - Related: B17 (PCK and summary agents do not see drawings at all).
 3. **Consequence.** Saved pilot conversations containing image-only turns are hard to interpret. The teacher's move is invisible in exports, and student replies appear to respond to nothing. The agents also judged the same turn on different evidence. Analyses of pilot data should treat these turns specially (11 turns in the 2026-07-27 export).
 
-**Direction (to be designed with the B17 drawing-visibility work, not a quick fix):**
+**Status:**
+- **Done (1.3.3):** image-only turns are valid (B22), and PCK is skipped silently for them instead of failing.
+- **Still open:** points 1-3 above.
+
+**Direction for the remaining work (to be designed with the B17 drawing-visibility work, not a quick fix):**
 - an explicit drawing marker or caption in transcripts and exports;
 - the PCK and summary agents receive the drawing (or a description) for the turn;
-- `/api/pck-feedback` accepts image-only turns.
+- `/api/pck-feedback` accepts image-only turns, and the client then stops skipping them.
 
 All of this needs a `systemVersion` bump and must keep old records readable.

@@ -113,7 +113,7 @@ These underlie several pilot items. They are listed first because they are cheap
 | Undo/redo, colours, line width, text/label tool, vertex labels | `DrawingBoard.jsx` | L-M each | **Direct** per item (UI only; the attached PNG changes appearance only) |
 | Clear vs keep the board after send; show which snapshot was sent | `DrawingBoard.jsx`, `Chat.jsx:63-86` | L | Spec first (UX decision) |
 | Store vector state (`canvas.toJSON()`) alongside the PNG | `DrawingBoard`, `conversationLogger`, storage location | M | **Spec first**: doc-size limit; store outside the conversation doc |
-| Image-only turns (B22 DECIDED: supported): drawing marker/caption in exports and transcripts; PCK accepts and analyses image-only turns (today a 400) | `exportConversationExcel.js`, `AdminConversationLogs.jsx`, `universal_pck_skills.js`, `server.js` | M | **Design first**, with the PCK visibility row below (`invariants.md` §E1) |
+| Image-only turns (B22 DECIDED: supported; PCK intentionally skipped since 1.3.3): drawing marker/caption in exports and transcripts; PCK accepts and analyses image-only turns (multimodal PCK) | `exportConversationExcel.js`, `AdminConversationLogs.jsx`, `universal_pck_skills.js`, `server.js` | M | **Design first**, with the PCK visibility row below (`invariants.md` §E1) |
 | Give the PCK agent visibility of drawings (image or description) | `server.js:/pck-feedback`, `genai.getPCKFeedback` | M | **Design first** (changes feedback decisions; research comparability) |
 | Stop re-sending every past image to the student agent / add captions | `ChatMessage.toAIformat`, `convertMessagesToGenAI` | M | Design first (changes student behaviour) |
 

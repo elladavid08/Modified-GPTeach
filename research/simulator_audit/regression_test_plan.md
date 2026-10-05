@@ -36,13 +36,13 @@ Both suites are fully offline:
 
 `package.json` gained only scripts (`test`, `test:server`, `test:all`). No dependencies were added.
 
-### 0.3 Tests implemented (142 total: 113 frontend, 29 backend)
+### 0.3 Tests implemented (148 total: 119 frontend, 29 backend)
 
 | file | tests | protects |
 |---|---:|---|
 | `src/__tests__/conversationContract.test.js` | 19 | A1, A2, A5, A12, A13. The validator accepts current and legacy docs and additive fields, and rejects 9 kinds of contract breaks. The Excel export reads both formats (turns, Hebrew skill names, score labels, summary sections, legacy free-text skill ids). Which skills the export includes is not asserted.; optional additive `failedAttempts` validated (A16): accepted when well-formed, rejected with a turnNumber / unknown agent / unknown stage / non-array. |
 | `src/__tests__/conversationLogger.test.js` | 17 | A1-A3, A4 (DECIDED), A6, A7, A10 (DECIDED), A11, A12, A14 (DECIDED), B5 (DECIDED: cast recorded). sessionId format; lazy init; `studentRefs` = `v<ver>_<id>` for the cast; systemVersion stamp; minimal user snapshot `{fullName, role}`; scenario snapshot fields; contract-valid doc after each turn; `turnNumber` 1..n; one-time init; turn field mapping; null feedback input stored as null; image stored without prefix; >600 px downscaled to 600; endTime and summary persisted.; displayed feedback is stored in the shape the summary consumes (shared fixture `loggedTurnWithFeedback.json`), without `should_provide_feedback` (A4, C1).; **C7 failed attempts (5 tests)**: kept out of `turns[]`, turn numbering unaffected, `precedingTurnNumber` / `attemptNumber` / `sessionId` set, saved immediately once the doc exists, held until the first logged turn (A11), bounded to 50, empty list on new docs. |
-| `src/__tests__/chatTurnOrchestration.test.js` | 34 | B1 (PCK before students; students wait for the PCK result; analysis passed as `impact_analysis`); B7 (no-feedback decision → no feedback content shown); A4 DECIDED (not displayed → logged as `pckFeedback: null`); A2 (displayed feedback logged with its fields); B9 (sidebar cleared on new send); B5 DECIDED (cast of 3 distinct personas, identical in the logger and in every student call, one logger per session); A6 (`SYSTEM_VERSION` to the logger); B20 (briefing before first message); students see prior replies; drawing attached and logged only when opted in. Renders the real `Chat.jsx` with mocked services, auth, logger and DrawingBoard.; **C2/C3 turn lock (10 tests)**: input, send and typing indicator locked from submit until the turn finishes; "סיים שיחה" disabled and ignored during a turn, available again afterwards, and executed only after queued turn log entries are written (repeat clicks ignored); **C4 empty messages (7 tests)**: empty, spaces-only, tabs+spaces and line-breaks-only submits with no drawing (and with the opt-in ticked but an empty board) start nothing (no history entry, PCK call, student call, log entry or lock); a normal message after an ignored empty one works; non-empty text is passed through unchanged; **B22 (DECIDED)**: an image-only submit (opt-in plus a real drawing, empty text) starts a turn, reaches the student agent with the drawing attached, and is logged with the drawing; extra submits ignored (no extra PCK or student call, nothing logged); unlock after success, PCK failure, empty-reply student failure, and thrown/rejected student generation; feedback and log entries stay with their own turn and are written in send order even when logging is slow.; **C7 phase 1 (6 tests)**: PCK failure → sidebar notice, failure recorded (`stage: parse` for the server's JSON-parse error), lock released, any logged turn carries null feedback, and the session keeps working (what follows a PCK failure is **not** asserted: B2 REVIEW); student request failure → banner, no turn logged, recorded with `pckFeedbackDisplayed`; student parse failure → no fallback/fake reply persisted, raw excerpt recorded; the PCK and student notices each contain no technical details; a later successful turn clears both notices, works normally, and the log queue order is turn 1 → failures → turn 2. |
+| `src/__tests__/chatTurnOrchestration.test.js` | 40 | B1 (PCK before students; students wait for the PCK result; analysis passed as `impact_analysis`); B7 (no-feedback decision → no feedback content shown); A4 DECIDED (not displayed → logged as `pckFeedback: null`); A2 (displayed feedback logged with its fields); B9 (sidebar cleared on new send); B5 DECIDED (cast of 3 distinct personas, identical in the logger and in every student call, one logger per session); A6 (`SYSTEM_VERSION` to the logger); B20 (briefing before first message); students see prior replies; drawing attached and logged only when opted in. Renders the real `Chat.jsx` with mocked services, auth, logger and DrawingBoard.; **C2/C3 turn lock (10 tests)**: input, send and typing indicator locked from submit until the turn finishes; "סיים שיחה" disabled and ignored during a turn, available again afterwards, and executed only after queued turn log entries are written (repeat clicks ignored); **C4 empty messages (7 tests)**: empty, spaces-only, tabs+spaces and line-breaks-only submits with no drawing (and with the opt-in ticked but an empty board) start nothing (no history entry, PCK call, student call, log entry or lock); a normal message after an ignored empty one works; non-empty text is passed through unchanged; **B22 (DECIDED)**: an image-only submit (opt-in plus a real drawing, empty text) starts a turn, reaches the student agent with the drawing attached, and is logged with the drawing; extra submits ignored (no extra PCK or student call, nothing logged); unlock after success, PCK failure, empty-reply student failure, and thrown/rejected student generation; feedback and log entries stay with their own turn and are written in send order even when logging is slow.; **C7 phase 1 (6 tests)**: PCK failure → sidebar notice, failure recorded (`stage: parse` for the server's JSON-parse error), lock released, any logged turn carries null feedback, and the session keeps working (what follows a PCK failure is **not** asserted: B2 REVIEW); student request failure → banner, no turn logged, recorded with `pckFeedbackDisplayed`; student parse failure → no fallback/fake reply persisted, raw excerpt recorded; the PCK and student notices each contain no technical details; a later successful turn clears both notices, works normally, and the log queue order is turn 1 → failures → turn 2.; **B22 / E1 PCK handling by turn type (6 tests)**: image-only turns (empty or whitespace text plus a drawing) skip the PCK call with no notice and no `failedAttempts` entry, students get the drawing unsteered, the turn is logged with the drawing and `pckFeedback: null`, and the lock behaves normally; text-only turns call PCK exactly as before; text + drawing turns call PCK with the text and send the drawing to the students; C4 still blocks empty submissions without a drawing. |
 | `src/__tests__/studentAgent.test.js` | 13 | B3 / B4 inputs. One system prompt + history in order; personas, topic and Hebrew requirement in the prompt; PCK impact block present iff provided (B1); `{student, message}` → assistant `ChatMessage`s in order, trimmed; no fabricated messages on backend failure; `ChatMessage.toAIformat` text and image forms.; `callAI` returns a promise that settles after `onResponse` and rejects when the request cannot be built (the completion signal for the turn lock).; **C7**: request failure rejects with the tagged error and calls no `onResponse`; invalid JSON / missing `responses` reject as `stage: parse` with the raw output and **no fallback message**; `responses: []` is still a normal empty reply. |
 | `src/__tests__/pckSkillsDisplay.test.js` | 12 | A5, B11. The duplicated skill-name maps (sidebar, Excel export, ConversationLogs, AdminConversationLogs, server prompt) equal the contract; score labels; the sidebar shows nothing without feedback (exact placeholder text not asserted, B10), legend, per-score text, irrelevant skills hidden, and legacy fallback.; failure notice (`errorMessage`, role=alert) replaces skills. |
 | `src/__tests__/configContracts.test.js` | 7 | A6 (semver + the DECIDED process rule: a changelog entry in `version.js` for the current version), A7 (persona id/version/uniqueness), A15 DECIDED (`participation.baseline ∈ {low, medium, high}`), B5 (≥3 personas, NUM_STUDENTS ≥ 3), A8 (unique non-empty scenario titles; title stability A9 not asserted; snapshotted fields present), B20 (all teacher-initiated). |
@@ -190,7 +190,7 @@ These are not fixed and not designed yet. They are listed so the drawing / share
 
 | id | issue | where it shows | tests to add when addressed |
 |---|---|---|---|
-| **E1** (`invariants.md` §E) | **Image-only teacher turns are under-represented outside the live chat.** (a) Exports and agent transcripts show a blank teacher message. In-app viewers show the drawing under an empty text line. (b) The student agent sees the drawing, while the PCK agent gets an empty message (`/api/pck-feedback` → 400 → no feedback, students unsteered) and the summary agent sees `Teacher: ` with nothing after it. (c) Pilot conversations with image-only turns are hard to interpret, and the agents had inconsistent evidence (11 turns in the 2026-07-27 export). | `exportConversationExcel.js`, `AdminConversationLogs.jsx` CSV, `universal_pck_skills.formatConversationHistory`, `server.js` `/api/pck-feedback` (empty-message 400) and `/api/pck-summary` transcript | exports and transcripts contain an explicit drawing marker/caption for image-only turns; the PCK request for an image-only turn is accepted and carries the drawing (or its description); the summary transcript marks the drawing; old records still render. |
+| **E1** (`invariants.md` §E) | **Image-only teacher turns are under-represented outside the live chat.** (a) Exports and agent transcripts show a blank teacher message. In-app viewers show the drawing under an empty text line. (b) The student agent sees the drawing, while **PCK is intentionally skipped for image-only turns since 1.3.3** (no feedback; students unsteered; previously a false 400 failure) and the summary agent sees `Teacher: ` with nothing after it. (c) Pilot conversations with image-only turns are hard to interpret, and the agents had inconsistent evidence (11 turns in the 2026-07-27 export). | `exportConversationExcel.js`, `AdminConversationLogs.jsx` CSV, `universal_pck_skills.formatConversationHistory`, `server.js` `/api/pck-feedback` (empty-message 400) and `/api/pck-summary` transcript | exports and transcripts contain an explicit drawing marker/caption for image-only turns; the PCK request for an image-only turn is accepted and carries the drawing (or its description), **replacing the 1.3.3 skip** (update the "PCK handling by turn type" tests); the summary transcript marks the drawing; old records still render. |
 | B17 | PCK and summary agents never see drawings (DECIDED: change later by design) | `server.js` PCK and summary prompts | PCK and summary requests include the turn's drawing per the chosen design; evaluation on drawing turns |
 | B16 | Every past drawing is re-sent to the student agent on every turn, with no caption | `ChatMessage.toAIformat`, `convertMessagesToGenAI` | the decided re-send policy (e.g. latest only, or captioned) |
 | B15 | Board opt-in reset, board persistence, auto-close after send | `DrawingBoard.jsx`, `Chat.jsx` | per the UX decision |
@@ -260,6 +260,155 @@ No server, prompt, model, parsing or retry changes.
 - **HTTP status for network failures** (none exists);
 - whether a student-call 500 was a model error vs a safety block vs an empty candidate, because the server collapses these into one error message (only the text is kept, truncated);
 - **Empty model text** (`""`) is still treated as silence, not a failure, because that path is unchanged (parsing not modified).
+
+### 0.13 Proposed policy: B2, retries and timeouts (investigation, 2026-10-05; NOT implemented)
+
+Status: recommendation only. No production code was changed. Decisions still needed are listed in §0.13.7.
+
+#### 0.13.1 What exists today (verified in code)
+
+| layer | where | retries | timeout |
+|---|---|---|---|
+| Model call (server → Vertex) | `server.js` `withRetry` (lines ~71-92), used by `/api/generate`, `/api/pck-feedback`, `/api/pck-summary` | **Only quota / rate-limit errors**: message contains `429`, `RESOURCE_EXHAUSTED`, `Too Many Requests` or `quota`, or `status === 429`. 3 retries with 2 / 4 / 8 s back-off, so up to ~14 s of waiting plus 4 calls. **No retry** on Vertex 5xx, network errors, empty or blocked candidates, `MAX_TOKENS` truncation, or PCK JSON-parse failure. | **None set.** The Vertex SDK (v1.10.0) only aborts when `requestOptions.timeout` is passed (`post_request.js:getFetchOptions`), and the server passes none. The underlying `undici` 5.29 fetch has default `headersTimeout` / `bodyTimeout` of **300 s**, so a stuck model call ends after about 5 minutes at the earliest. |
+| Server endpoint | `server.js` | none beyond `withRetry` | none. Every failure, including exhausted 429 retries, is returned as **HTTP 500**; empty PCK text is HTTP 400. |
+| Reverse proxy (production) | IIS + ARR (`public/web.config`, `IIS_CONFIGURATION.md`) | none | ARR proxy time-out, **default 120 s** (not set in the repo; assumed default, so verify on the server). On expiry IIS returns 502 while Node keeps working. |
+| Client → backend | `genai.js` `fetchWithRetry` | **HTTP 429 and 503 only**: 2 retries, 3 / 6 s. The server never returns 429 or 503 from the LLM endpoints (it returns 500), so in practice this only fires if IIS/the app pool returns 503. **No retry** on 500, 502, 504 or network errors (a fetch `TypeError` is thrown before the status check). | **None** (no `AbortController`). The browser waits until the proxy or server gives up. |
+| Turn orchestration | `Chat.jsx` | none | none. The turn lock is held until the student call settles, which today can take ~120 s (IIS) to ~300 s+ (direct). |
+
+Per agent:
+- **PCK:** the 429 back-off on the server only. Failure → notice + `failedAttempts`, then students are generated unsteered (B2, current).
+- **Student generation:** the 429 back-off on the server only. Failure → banner + `failedAttempts`, no turn logged. Parse failures are detected client-side (`convertResponseToMessages`) and never retried.
+- **429:** retried on the server (3×); the client's 429 branch is effectively dead.
+- **5xx / network:** never retried anywhere.
+
+**Interaction found while investigating (resolved in 1.3.3, see §0.14):** for **image-only turns** (B22), `Chat.jsx` called `getPCKFeedback("")`, and `/api/pck-feedback` answers 400 ("Teacher message is required"). Since C7 phase 1, every image-only turn therefore shows the "temporary problem" PCK notice and records a `failedAttempts` entry (`stage: http`, 400). The failure is deterministic, not temporary. The policy below treats it separately (§0.13.5).
+
+#### 0.13.2 Where timeouts should live
+
+At several layers, with **nested budgets**, so the innermost layer gives up first and reports a classified error:
+
+```
+model call timeout (server, per attempt)
+  < server endpoint budget (all attempts + back-off)
+    < client fetch timeout (AbortController)
+      < IIS/ARR proxy timeout (120 s default)
+```
+
+- **Model call (server):** pass `requestOptions: { timeout }` to `getGenerativeModel` or per call. This is the only layer that can tell "model too slow" apart from other errors and retry it.
+- **Server endpoint budget:** stop retrying when the remaining budget is shorter than one attempt. Return a classified error, e.g. `{ success:false, error, errorKind: 'timeout'|'rate_limit'|'model_error'|'parse'|'bad_request', attempts, latencyMs, model }`.
+- **Client:** a hard `AbortController` timeout slightly above the server budget. This guarantees the turn lock is released even if the server or proxy hangs, which today is unbounded from the client's point of view.
+- **No timeout in the turn lock itself.** The lock is released by the client calls settling, and those become bounded.
+
+#### 0.13.3 Options for a PCK failure (B2)
+
+| | A. continue unsteered (current) | B. retry PCK once, then continue unsteered | C. retry PCK once, then block the turn |
+|---|---|---|---|
+| **Pedagogical consistency** | Weakest for that turn: students react without the move-quality signal (B1 intent lost), and the teacher gets no feedback on what may be a key PCK move. | Same as A when the retry also fails, but that should be rare for transient errors. | Strongest: every logged turn had PCK steering and a feedback opportunity. |
+| **User experience** | Fastest; the conversation never stalls; a notice explains the missing feedback. | Adds one attempt's latency only when something already failed; otherwise as A. | Worst: the teacher must resend. A deterministic PCK failure (e.g. a prompt that reliably produces unparseable output, or the image-only 400) can **stall the session** on the same message. The failed message and drawing have to be handled (re-tick opt-in, B15) and kept out of the student context. |
+| **Data / research integrity** | The turn is logged with `pckFeedback: null`, which looks like "no feedback warranted" in `turns[]` (A4 still true: nothing was displayed). Only `failedAttempts` tells them apart, and joining by `precedingTurnNumber` is ambiguous when several attempts happen between two logged turns (§0.13.6). The student reaction in that turn comes from a different condition (unsteered), a confound for student-behaviour analyses. | As A, but far fewer affected turns. | Cleanest `turns[]`: all turns produced under the same condition; failures live only in `failedAttempts`. |
+| **Implementation complexity** | None (today). | Low-medium: a server-side retry with a timeout and classification; no UI-flow change. | Medium-high: roll back or mark the teacher message, exclude it from AI context, re-attach the drawing, add a resend UX, plus tests. Also needs a way out for deterministic failures. |
+
+**Recommendation: B for now.** Revisit C only after (a) PCK JSON mode with a validated parser (fix 0.5) has reduced deterministic parse failures, and (b) latency/failure data from the new diagnostics shows how often the retry still fails. C becomes attractive only if residual PCK failures are rare *and* transient.
+
+#### 0.13.4 Proposed retry / timeout policy
+
+The numbers are **provisional**: no latency data exists yet (§0.13.7, decision 1). Step 1 of implementation is to measure: per-attempt latency and attempt count in server logs, and `latencyMs` / `attempts` in responses.
+
+**Common rules:**
+- **One retry layer: the server**, closest to the model and the only one that sees Vertex status, `finishReason`, quota errors and the raw text. The client retries only transport-level failures that the server cannot see.
+- **Retriable:** model-call timeout; Vertex 5xx / `UNAVAILABLE` / `INTERNAL`; network errors to Vertex; empty candidate / no parts; 429 / `RESOURCE_EXHAUSTED` (with back-off, capped by the budget); **parse/validation failure** (one re-ask, per B200 A3).
+- **Not retriable:** 4xx bad input (empty text 400, payload 413); safety block (`finishReason: SAFETY`, deterministic for the input); client-side prompt-construction errors.
+- **Client:** keep `fetchWithRetry` but change its trigger to **network error / 502 / 503 / 504 only, at most 1 retry**, and only while the client budget allows. Drop the 429 branch (the server handles quota). Never retry 500 (the server has already retried) or 400 / 413.
+- Both endpoints are stateless, so retries are idempotent. A client retry after a lost response just repeats a model call.
+
+| | PCK (`/api/pck-feedback`) | Student generation (`/api/generate`) |
+|---|---|---|
+| Model-call timeout per attempt | 25 s (output ≤ 2000 tokens) | 20 s (output ≤ 512 tokens) |
+| Server attempts | 2 (1 retry) on retriable errors; parse failure → 1 re-ask | 2 (1 retry); **move the JSON / `responses` validation to the server** so a parse/schema failure can be retried there. The client keeps its parser as a second line of defence. |
+| 429 back-off | existing 2 / 4 / 8 s, but capped so the total stays within the budget | same |
+| Server budget | ~55 s | ~45 s |
+| Client `AbortController` timeout | ~60 s | ~50 s |
+| Client transport retry | 1, network / 502 / 503 / 504 only, if budget remains | same |
+| After final failure | notice (as today) + `failedAttempts`, then **continue unsteered (B2 option B)** | banner (as today) + `failedAttempts`; no turn logged (A3); the teacher can resend |
+
+Worst-case lock time is about 60 s (PCK) + 50 s (students) ≈ 110 s. Each request stays under the 120 s IIS limit, but the total is long, so consider a "still working" hint after ~15 s (UX decision 5).
+
+#### 0.13.5 Interaction with existing behaviour
+
+- **Turn lock (C2/C3):**
+  - All retries happen inside the turn; the lock is held throughout and released when the final client call settles.
+  - The new client timeout **bounds** the lock. This is the main reliability gain over today, where the lock can be held for minutes.
+  - "סיים שיחה" stays disabled during retries, and finish still queues behind logging.
+- **`failedAttempts` (A16):**
+  - Record **one entry per final failure**, as today.
+  - Add, as optional additive fields, what the server reports: `attempts`, `errorKind` (timeout / rate_limit / model_error / parse / bad_request), `latencyMs`, `model`, `finishReason`. This removes most of the "impossible to capture" items from §0.12.
+  - Recovered failures (a retry succeeded) should **not** create `failedAttempts` entries. Their retry count belongs in turn-level or server diagnostics (decision 4), so `failedAttempts` keeps meaning "the user experienced a failure".
+  - Any A16 field addition must stay additive, bounded and privacy-minimal, and should update the A16 field list and the contract test.
+- **Visible messages:**
+  - Show only after the final failure, never during retries.
+  - A timeout uses the same notice texts.
+  - Notices still clear when the next turn starts.
+  - The image-only case below must not use the "temporary problem" text.
+- **A3 turn numbering:** unchanged. Retries never create turns, a logged turn is created only once, after student success, and failed attempts never get a `turnNumber`. With option B, a turn whose PCK call failed is still a normal logged turn (`pckFeedback: null`).
+- **Image-only turns (B22):**
+  - **Decided and implemented in 1.3.3 (§0.14):** the PCK call is skipped silently for image-only turns, so there is no PCK request, nothing to retry and no failure notice.
+  - Making the server accept image-only turns is the B17 design itself and not a quick fix.
+  - Student retries resend the image (bounded by the 10 MB body limit; 413 is not retried).
+
+#### 0.13.6 Data-model gap: joining failures to turns
+
+`precedingTurnNumber` positions a failure *between* logged turns, but it cannot say which logged turn (if any) came from the same teacher submission. Examples:
+- a PCK failure followed by an unsteered logged turn;
+- a student failure, then a resend that succeeds.
+
+Recommended (additive, decision 2): the client generates a `submissionId` per teacher submit, stored on the `failedAttempts` entry and as an additive field on the logged turn (e.g. `turn.submissionId`). This gives exact joins without changing `turnNumber` (A3) or `pckFeedback` (A4).
+
+#### 0.13.7 Decisions still needed (product / research input)
+
+1. **Latency budget:** how long a teacher may wait per turn before an error is acceptable, and whether to measure first (recommended) before fixing the numbers in §0.13.4.
+2. **B2:** confirm option B, or choose A or C. If C: what should happen to the failed teacher message (kept visible and marked, removed, or auto-resent), and how deterministic failures are escaped.
+3. ~~**Image-only turns and PCK**~~: **decided**. PCK is skipped silently and no diagnostic is recorded (implemented in 1.3.3, §0.14).
+4. **Recovered retries:** whether to record them at all, and where (turn-level additive field vs server logs only).
+5. **"Still working" UX:** whether to show a hint during long turns or retries.
+6. **Schema additions:** `submissionId` on turns and failed attempts, and the extra `failedAttempts` fields (`attempts`, `errorKind`, `latencyMs`, `model`, `finishReason`). Each extends A16 / A2 additively and needs explicit approval.
+7. **Ordering with fix 0.5 (PCK JSON mode):** recommended to implement JSON mode + validation **before** or together with the PCK parse re-ask, so the retry does not mask a fixable formatting problem.
+
+#### 0.13.8 Tests to add when implementing
+
+- **Server** (`node:test`, fake model):
+  - timeout per attempt → one retry → success;
+  - timeout twice → classified `timeout` error with `attempts: 2`;
+  - Vertex 5xx → retry;
+  - 400 / 413 / `SAFETY` → no retry;
+  - 429 back-off capped by the budget;
+  - PCK parse failure → one re-ask;
+  - student invalid JSON → server-side retry, then classified `parse`.
+- **Client** (`genaiErrors`): `AbortController` timeout → `stage: 'network'` / `errorKind: 'timeout'`; one retry on network / 502 / 503 / 504; no retry on 500 / 400.
+- **Orchestration:**
+  - lock released after a client timeout;
+  - no notice while a retry succeeds;
+  - one `failedAttempts` entry per final failure;
+  - option B: after a final PCK failure the turn proceeds (only once B2 is DECIDED);
+  - image-only: covered since 1.3.3 (no PCK call, no failure notice).
+- **Contract:** new optional `failedAttempts` fields and `submissionId` are additive; old docs still validate.
+
+### 0.14 Implemented: image-only turns skip PCK (2026-10-05, version 1.3.3)
+
+**Decision:** image-only teacher turns are valid (B22). Until the PCK agent is multimodal, an image-only turn skips the PCK call silently, rather than sending an empty message to `/api/pck-feedback` and producing a false 400 failure (a "temporary problem" notice plus a `failedAttempts` entry in 1.3.2).
+
+**Production change:** `src/pages/Chat.jsx`, PCK step of the turn. The condition `if (lastTeacherMessage)` became `if (lastTeacherMessage && lastTeacherMessage.text.trim())`. Nothing else changed.
+
+| turn type | PCK call | sidebar | `failedAttempts` | students | logged turn |
+|---|---|---|---|---|---|
+| image-only (opt-in + drawing, text empty or whitespace) | **skipped** | placeholder (no notice) | none | receive the drawing; `impact_analysis` null (unsteered) | normal turn, drawing in `teacher.image`, `pckFeedback: null` |
+| text-only | unchanged (text, history, scenario, last 3 analyses) | feedback / notice as before | on failure, as before | steered by the analysis | as before |
+| text + drawing | unchanged, using the text (PCK still does not see the drawing, B17) | as before | as before | receive the drawing, steered | as before, with the drawing |
+| empty / whitespace, no drawing | (C4) nothing starts | — | — | — | — |
+
+Notes:
+- Image-only turns also do not add an entry to the in-memory `feedbackHistory`, since there was no analysis.
+- The B2 policy (what follows a real PCK failure) is unaffected.
+- **Still future work:** multimodal PCK (B17), and drawing markers in exports and transcripts (E1).
 
 ## Original proposal (kept for reference; see §0.6 for what is still open)
 

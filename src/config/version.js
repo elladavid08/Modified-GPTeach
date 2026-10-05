@@ -13,10 +13,18 @@
  * - Z: Patch version (bug fixes, minor improvements)
  */
 
-export const SYSTEM_VERSION = "1.3.2";
+export const SYSTEM_VERSION = "1.3.3";
 
 /**
  * Version History:
+ * 
+ * 1.3.3 (2026-10-05):
+ * - Image-only teacher turns (a drawing explicitly included, no text) no longer call the
+ *   PCK feedback agent, which cannot see drawings yet. Previously the empty message was
+ *   rejected by the PCK endpoint and showed a misleading "temporary problem" notice plus
+ *   a failure diagnostic. Now these turns proceed without PCK feedback and without a
+ *   failure notice; students still receive the drawing, and the turn is logged normally
+ *   with the drawing. Text-only and text+drawing turns are unchanged.
  * 
  * 1.3.2 (2026-10-05):
  * - Visible failures (C7 phase 1): when the PCK feedback call fails, the feedback sidebar
