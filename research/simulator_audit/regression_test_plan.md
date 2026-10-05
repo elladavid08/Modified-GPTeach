@@ -24,7 +24,7 @@ Both suites are fully offline:
 
 | file | purpose |
 |---|---|
-| `jest.config.js`, `test-config/babelTransform.js` | Mirrors react-scripts' Jest config. Adds `@babel/plugin-transform-block-scoping` (lowers `let`/`const` to `var`, **as the production bundle does**). Needed because of the latent TDZ defect in §0.5. `react-scripts test` is therefore **not** the test command: it fails on `Chat.jsx` for that reason. |
+| `jest.config.js` | Mirrors react-scripts' Jest config and uses react-scripts' own Babel transform (`react-scripts/config/jest/babelTransform.js`, native `let`/`const` in tests). A separate config rather than `react-scripts test`, so `.env` is not loaded. `react-scripts test` also passes since the TDZ fix (§0.5). |
 | `src/setupTests.js` | `IS_REACT_ACT_ENVIRONMENT`; silences `console.log/info/warn/debug` but keeps `console.error`; `Element.scrollTo` shim for jsdom 11 |
 | `src/testUtils/dom.js` | React 18 `createRoot` + `act` helpers (no testing-library dependency) |
 | `src/testUtils/contracts/pckSkillsContract.json` | **Canonical** skill ids ↔ p1-p5 ↔ Hebrew names, scores 0/1/2, score labels. Shared by both suites. |
@@ -81,11 +81,13 @@ Gate 0 (B7) can only be tested deterministically at two levels:
 
 Whether the live model *follows* Gate 0 belongs in the behavioural suite (§5). The prompt-text assertions in `api_pck_feedback.test.mjs` are marked for deliberate update if the rubric is redesigned.
 
-### 0.5 Known latent defects found while building the suite (not fixed)
+### 0.5 Latent defects found while building the suite
 
-- **TDZ in `Chat.jsx`:** the logger `useEffect` (line ~54) lists `students` in its dependency array before `const students` is declared (line 56). It works in production only because the production bundle compiles `const` to `var` (verified in `build/static/js/main.*.chunk.js`: `[S,le,o,c]);var le=…`). Any build that keeps native `const` (Node-targeted tests, the development browserslist `last 1 chrome version`, a future toolchain upgrade) throws `ReferenceError: Cannot access 'students' before initialization` on first render.
-  - **Fix:** move the `students` declaration above the effect.
-  - **Then:** remove the block-scoping plugin from `test-config/babelTransform.js` (the orchestration tests act as its regression test).
+- **TDZ in `Chat.jsx`: FIXED (2026-10-05, `feature/post-pilot-improvements`).**
+  - **Problem:** the logger `useEffect` listed `students` in its dependency array before `const students` was declared. The production bundle compiles `const` to `var` (verified in `build/static/js/main.*.chunk.js`: `[S,le,o,c]);var le=…`), and so does the development transform (checked with `babel-preset-react-app`, `BABEL_ENV=development`), so neither build ever failed. Any build that keeps native `const` (Node-targeted tests, a future toolchain or browserslist upgrade) threw `ReferenceError: Cannot access 'students' before initialization` on first render.
+  - **Fix:** the `students` declaration was moved above the effect. No other code changed.
+  - **Test workaround removed:** the `@babel/plugin-transform-block-scoping` workaround and `test-config/babelTransform.js` are deleted. `jest.config.js` now uses react-scripts' own transform, which keeps native `const`.
+  - **Regression test:** `chatTurnOrchestration.test.js` renders `Chat.jsx` under native `const` and fails with the ReferenceError if the order regresses. Verified: all 61 frontend tests also pass under `react-scripts test`.
 - jsdom 11 lacks `scrollTo`. This is shimmed in tests and is not a product issue.
 
 ### 0.6 What remains from the original plan
@@ -122,7 +124,7 @@ Whether the live model *follows* Gate 0 belongs in the behavioural suite (§5). 
 | **Diagnostics persistence (0.4)** | `conversationContract`: new diagnostic fields or subcollection are additive; raw output, parse status, `finishReason` stored per call; doc-size guard (images and raw outputs not inline beyond the limit). |
 | **B5 cast recorded reliably** | `conversationLogger`: the cast is recorded at session start (not only on the first logged turn) if that is changed; the cast is identical across all turns of a session. |
 | **Completed-scenario indication** | `ScenarioSelector`: completed badge per the definition; matching by scenario id (and the text→id map for old records). |
-| **TDZ in Chat.jsx (§0.5)** | Remove the block-scoping plugin; the existing orchestration tests must still pass under native `const`. |
+| ~~TDZ in Chat.jsx (§0.5)~~ | **Done.** Plugin removed; the orchestration tests pass under native `const`. |
 | **Any prompt / model / config change** | Bump `SYSTEM_VERSION` + changelog entry (enforced by `configContracts`); behavioural replay (§5). |
 
 ## Original proposal (kept for reference; see §0.6 for what is still open)

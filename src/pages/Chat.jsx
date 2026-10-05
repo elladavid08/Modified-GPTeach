@@ -38,6 +38,8 @@ export const Chat = () => {
 	
 	// Scenario is set by the ScenarioSelector — no random pre-selection
 	
+	const students = appData.students ? appData.students.slice(0, Constants.NUM_STUDENTS) : [];
+	
 	// Initialize conversation logger when scenario and students are ready
 	useEffect(() => {
 		if (scenario && students.length > 0 && !conversationLoggerRef.current && currentUser) {
@@ -52,8 +54,6 @@ export const Chat = () => {
 			console.log("✅ Conversation logger initialized:", conversationLoggerRef.current.sessionId);
 		}
 	}, [scenario, students, currentUser, userProfile]);
-	
-	const students = appData.students ? appData.students.slice(0, Constants.NUM_STUDENTS) : [];
 
 	/** Add the teacher's message and wait for a response */
 	async function addUserResponse(TAmessage) {
