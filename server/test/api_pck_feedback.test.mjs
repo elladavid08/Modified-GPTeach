@@ -1,0 +1,143 @@
+// Real-time PCK feedback endpoint. Protects: A5 (skill ids / 0-1-2 scores pass through intact),
+// B7 (Gate 0 rules are part of the prompt; a no-feedback decision stays a no-feedback decision),
+// and the request/response interface the client depends on.
+//
+// Deliberately NOT asserted (defects, invariants.md §C10): no-JSON-mode config, throwing on parse
+// errors, silent default-filling, or the 'המורה התקדם בשיעור' placeholder. Those are expected to change.
+import { test, before, after, beforeEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { startServer, postJson, promptText } from '../test-support/startServer.mjs';
+import { textResult } from '../test-support/fakes/vertexai.mjs';
+
+const contract = JSON.parse(
+  readFileSync(new URL('../../src/testUtils/contracts/pckSkillsContract.json', import.meta.url), 'utf8'),
+);
+
+let srv;
+before(async () => { srv = await startServer(); });
+after(async () => { await srv.close(); });
+beforeEach(() => srv.fakeModel.reset());
+
+const scenario = {
+  text: 'יחסי הכלה בין ריבוע למלבן',
+  grade_level: 7,
+  ai_context_summary: 'כיתה ז׳. מעבר מהגדרת מלבן להגדרת ריבוע.',
+  misconception_focus: 'MISCONCEPTION-MARKER ריבוע אינו מלבן',
+};
+
+const history = [
+  { role: 'user', name: 'Teacher', text: 'מה אתם יודעים על ריבוע?' },
+  { role: 'assistant', name: 'נועה', text: 'ריבוע זה לא מלבן כי הוא נראה אחרת' },
+  { role: 'user', name: 'Teacher', text: 'בואו נבדוק - מה ההגדרה של מלבן?' },
+];
+
+const positiveAnalysis = {
+  pedagogical_quality: 'positive',
+  predicted_student_state: {
+    understanding_level: 'improved',
+    response_tone: 'thoughtful',
+    student_reaction_hints: [
+      { student: 'נועה', likelihood: 'high', reaction_type: 'partial_understanding', reason: 'הופנתה להגדרה' },
+    ],
+  },
+  addressed_misconception: true,
+  how_addressed: 'החזיר להגדרה',
+  misconception_risk: 'low',
+  demonstrated_skills: [{ skill_id: 'error-identification', evidence: 'זיהית את הטעות' }],
+  missed_opportunities: [],
+  should_provide_feedback: true,
+  feedback_trigger: 'excellent_pck_use',
+  skills_assessment: [
+    { skill_id: 'error-identification', is_relevant: true, score: 2, evidence: 'זיהית את הטעות' },
+    { skill_id: 'adapted-pedagogical-response', is_relevant: true, score: 1, evidence: 'שאלת על ההגדרה', what_could_be_better: 'בקש דוגמה נגדית' },
+    { skill_id: 'error-leveraging', is_relevant: false, reason_not_relevant: 'מוקדם' },
+  ],
+  feedback_message_hebrew: 'זיהוי השגיאה: זיהית את הטעות.',
+};
+
+function request(body = {}) {
+  return postJson(srv.baseUrl, '/api/pck-feedback', {
+    teacherMessage: history[2].text,
+    conversationHistory: history,
+    scenario,
+    feedbackHistory: [],
+    ...body,
+  });
+}
+
+test('a valid analysis is returned with skills, scores and decision intact', async () => {
+  srv.fakeModel.respond = () => textResult(JSON.stringify(positiveAnalysis));
+  const res = await request();
+  assert.equal(res.status, 200);
+  assert.equal(res.body.success, true);
+  const a = res.body.analysis;
+  assert.equal(a.should_provide_feedback, true);
+  assert.equal(a.pedagogical_quality, 'positive');
+  assert.deepEqual(a.skills_assessment, positiveAnalysis.skills_assessment);
+  assert.equal(a.feedback_message_hebrew, positiveAnalysis.feedback_message_hebrew);
+  assert.deepEqual(a.predicted_student_state, positiveAnalysis.predicted_student_state);
+  const validIds = new Set(contract.skills.map((s) => s.skill_id));
+  for (const s of a.skills_assessment) {
+    assert.ok(validIds.has(s.skill_id));
+    if (s.is_relevant) assert.ok(contract.scores.includes(s.score));
+  }
+});
+
+test('analysis wrapped in a ```json fence is parsed', async () => {
+  srv.fakeModel.respond = () => textResult('```json\n' + JSON.stringify(positiveAnalysis) + '\n```');
+  const res = await request();
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.analysis.skills_assessment, positiveAnalysis.skills_assessment);
+});
+
+test('a no-feedback decision (e.g. greeting) stays a no-feedback decision with no message', async () => {
+  const greeting = {
+    pedagogical_quality: 'neutral',
+    predicted_student_state: { understanding_level: 'same', response_tone: 'confident', student_reaction_hints: [] },
+    addressed_misconception: false,
+    how_addressed: '',
+    misconception_risk: 'low',
+    demonstrated_skills: [],
+    missed_opportunities: [],
+    should_provide_feedback: false,
+    feedback_trigger: null,
+    skills_assessment: [],
+    feedback_message_hebrew: '',
+  };
+  srv.fakeModel.respond = () => textResult(JSON.stringify(greeting));
+  const res = await request({ teacherMessage: 'שלום לכולם!', conversationHistory: [] });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.analysis.should_provide_feedback, false);
+  assert.equal(res.body.analysis.feedback_message_hebrew, '');
+  assert.deepEqual(res.body.analysis.skills_assessment, []);
+});
+
+test('prompt contains the teacher message, scenario context, named history and all skill ids', async () => {
+  srv.fakeModel.respond = () => textResult(JSON.stringify(positiveAnalysis));
+  await request();
+  const text = promptText(srv.fakeModel.calls[0]);
+  assert.ok(text.includes('בואו נבדוק - מה ההגדרה של מלבן?'));
+  assert.ok(text.includes('MISCONCEPTION-MARKER'));
+  assert.ok(text.includes('נועה: ריבוע זה לא מלבן כי הוא נראה אחרת'), 'PCK history keeps student names');
+  for (const { skill_id } of contract.skills) assert.ok(text.includes(skill_id), skill_id);
+});
+
+// B7. Prompt-level check: update deliberately if the rubric is redesigned, keeping an
+// equivalent "no feedback for greetings / closings / procedural turns" rule.
+test('prompt includes Gate 0 exclusions for greetings, closings and procedural messages', async () => {
+  srv.fakeModel.respond = () => textResult(JSON.stringify(positiveAnalysis));
+  await request();
+  const text = promptText(srv.fakeModel.calls[0]);
+  assert.match(text, /GATE 0/);
+  assert.match(text, /Procedural \/ social message/);
+  assert.match(text, /Lesson closing/);
+  assert.match(text, /should_provide_feedback: false/);
+});
+
+test('400 when teacherMessage is missing', async () => {
+  const res = await postJson(srv.baseUrl, '/api/pck-feedback', { conversationHistory: [] });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.success, false);
+  assert.equal(srv.fakeModel.calls.length, 0);
+});
