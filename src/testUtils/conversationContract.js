@@ -7,6 +7,7 @@
 // extensions must be additive (A2). It returns a list of violations (empty = valid).
 
 import contract from "./contracts/pckSkillsContract.json";
+import { TELEMETRY_KEYS, TELEMETRY_STATUSES } from "../services/callTelemetry";
 
 export const SESSION_ID_RE = /^session_\d+_[a-z0-9]+$/;
 export const PERSONA_REF_RE = /^v[^_]+_[a-z0-9]+$/;
@@ -14,6 +15,40 @@ export const SKILL_IDS = contract.skills.map((s) => s.skill_id);
 export const SCORES = contract.scores;
 
 const isStr = (v) => typeof v === "string";
+const isNullableInt = (v) => v === null || (Number.isInteger(v) && v >= 0);
+const isNullableStr = (v) => v === null || typeof v === "string";
+
+// A17 (REVIEW): optional per-turn LLM-call telemetry, strict whitelist (no content fields).
+function validateTelemetryEntry(entry, where, errors) {
+	if (entry === null) return;
+	if (typeof entry !== "object" || Array.isArray(entry)) {
+		errors.push(`${where} must be an object or null`);
+		return;
+	}
+	for (const key of Object.keys(entry)) {
+		if (!TELEMETRY_KEYS.includes(key)) errors.push(`${where}.${key} is not an allowed telemetry field`);
+	}
+	if (!TELEMETRY_STATUSES.includes(entry.status)) errors.push(`${where}.status invalid`);
+	for (const key of ["latencyMs", "clientLatencyMs", "attempts"]) {
+		if (key in entry && !isNullableInt(entry[key])) errors.push(`${where}.${key} must be a non-negative integer or null`);
+	}
+	for (const key of ["reason", "model", "finishReason"]) {
+		if (key in entry && !isNullableStr(entry[key])) errors.push(`${where}.${key} must be a string or null`);
+	}
+}
+
+function validateTurnTelemetry(telemetry, where, errors) {
+	if (telemetry === null || telemetry === undefined) return;
+	if (typeof telemetry !== "object" || Array.isArray(telemetry)) {
+		errors.push(`${where}.telemetry must be an object or null`);
+		return;
+	}
+	for (const key of Object.keys(telemetry)) {
+		if (!["pck", "student"].includes(key)) errors.push(`${where}.telemetry.${key} is not an allowed agent`);
+	}
+	validateTelemetryEntry(telemetry.pck === undefined ? null : telemetry.pck, `${where}.telemetry.pck`, errors);
+	validateTelemetryEntry(telemetry.student === undefined ? null : telemetry.student, `${where}.telemetry.student`, errors);
+}
 const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 
 function validatePckFeedback(fb, where, errors) {
@@ -68,6 +103,12 @@ export function validateConversationDoc(doc, { legacy = false } = {}) {
 				if (!isStr(a.timestamp)) errors.push(`${where}: timestamp missing`);
 				if (!Number.isInteger(a.precedingTurnNumber) || a.precedingTurnNumber < 0) errors.push(`${where}: precedingTurnNumber invalid`);
 				if ("turnNumber" in a) errors.push(`${where}: must not carry a turnNumber`);
+				for (const key of ["latencyMs", "clientLatencyMs", "attempts"]) {
+					if (key in a && !isNullableInt(a[key])) errors.push(`${where}.${key} must be a non-negative integer or null`);
+				}
+				for (const key of ["model", "finishReason"]) {
+					if (key in a && !isNullableStr(a[key])) errors.push(`${where}.${key} must be a string or null`);
+				}
 			});
 	}
 
@@ -90,6 +131,7 @@ export function validateConversationDoc(doc, { legacy = false } = {}) {
 			});
 		if (!("pckFeedback" in t)) errors.push(`${where}: pckFeedback key missing (null allowed)`);
 		else validatePckFeedback(t.pckFeedback, where, errors);
+		validateTurnTelemetry(t.telemetry, where, errors);
 	});
 	return errors;
 }

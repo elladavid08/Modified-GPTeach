@@ -24,6 +24,28 @@ describe("conversation document contract validator", () => {
 		expect(validateConversationDoc(doc)).toEqual([]);
 	});
 
+	it("accepts turn telemetry (A17) and turns without it", () => {
+		const doc = currentFormatConversation();
+		doc.turns[1].telemetry = {
+			pck: { status: "ok", reason: null, model: "gemini-2.5-flash-lite", latencyMs: 2100, clientLatencyMs: 2300, finishReason: "STOP", attempts: 1 },
+			student: { status: "ok", reason: null, model: "gemini-2.5-flash-lite", latencyMs: 900, clientLatencyMs: 1000, finishReason: "STOP", attempts: 1 },
+		};
+		doc.turns[0].telemetry = null;
+		expect(validateConversationDoc(doc)).toEqual([]);
+		expect(validateConversationDoc(legacyFormatConversation(), { legacy: true })).toEqual([]);
+	});
+
+	it.each([
+		["telemetry with an unknown status", (t) => { t.telemetry = { pck: { status: "weird" }, student: null }; }],
+		["telemetry with non-whitelisted content", (t) => { t.telemetry = { pck: { status: "ok", prompt: "x" }, student: null }; }],
+		["telemetry with an unknown agent key", (t) => { t.telemetry = { summary: { status: "ok" } }; }],
+		["telemetry with a negative latency", (t) => { t.telemetry = { pck: { status: "ok", latencyMs: -1 }, student: null }; }],
+	])("rejects %s", (_label, mutate) => {
+		const doc = currentFormatConversation();
+		mutate(doc.turns[1]);
+		expect(validateConversationDoc(doc).length).toBeGreaterThan(0);
+	});
+
 	it("accepts an additive failedAttempts list (A16) and documents without it (legacy)", () => {
 		const doc = currentFormatConversation();
 		doc.failedAttempts = [

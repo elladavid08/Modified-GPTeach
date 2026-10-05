@@ -119,6 +119,30 @@ describe("buildFailedAttempt", () => {
 		expect(a).not.toHaveProperty("turnNumber"); // A3/A16
 	});
 
+	it("enriches the record with the call's timing, model, finish reason and attempts when available", () => {
+		const a = buildFailedAttempt({
+			agent: "pck",
+			error: tagged("Backend error (500): Failed to parse AI response as JSON", {
+				stage: "http",
+				status: 500,
+				endpoint: "/api/pck-feedback",
+				serverError: "Failed to parse AI response as JSON",
+				meta: { agent: "pck", model: "gemini-2.5-flash-lite", latencyMs: 4100, finishReason: "MAX_TOKENS", attempts: 1, prompt: "SECRET" },
+				clientLatencyMs: 4300,
+			}),
+			now: NOW,
+		});
+		expect(a).toEqual(
+			expect.objectContaining({ model: "gemini-2.5-flash-lite", latencyMs: 4100, clientLatencyMs: 4300, finishReason: "MAX_TOKENS", attempts: 1 })
+		);
+		expect(JSON.stringify(a)).not.toContain("SECRET");
+	});
+
+	it("leaves timing fields null when no telemetry is available", () => {
+		const a = buildFailedAttempt({ agent: "student", error: tagged("x", { stage: "network" }), now: NOW });
+		expect(a).toEqual(expect.objectContaining({ model: null, latencyMs: null, clientLatencyMs: null, finishReason: null, attempts: null }));
+	});
+
 	it("handles a missing error object and teacher message", () => {
 		const a = buildFailedAttempt({ agent: "pck", error: undefined, now: NOW });
 		expect(a.stage).toBe("client");

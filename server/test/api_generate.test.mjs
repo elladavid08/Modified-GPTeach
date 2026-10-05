@@ -6,7 +6,7 @@
 import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer, postJson, promptText } from '../test-support/startServer.mjs';
-import { textResult } from '../test-support/fakes/vertexai.mjs';
+import { textResult, delayed } from '../test-support/fakes/vertexai.mjs';
 
 let srv;
 before(async () => { srv = await startServer(); });
@@ -25,11 +25,13 @@ const baseMessages = [
   { role: 'user', content: 'שלום כיתה, מה ההגדרה של מלבן?', name: 'Teacher' },
 ];
 
-test('returns the model text verbatim as {success, text}', async () => {
+test('returns the model text verbatim as {success, text} (plus additive meta)', async () => {
   srv.fakeModel.respond = () => textResult(STUDENT_JSON);
   const res = await postJson(srv.baseUrl, '/api/generate', { messages: baseMessages, options: {} });
   assert.equal(res.status, 200);
-  assert.deepEqual(res.body, { success: true, text: STUDENT_JSON });
+  assert.equal(res.body.success, true);
+  assert.equal(res.body.text, STUDENT_JSON);
+  assert.deepEqual(Object.keys(res.body).sort(), ['meta', 'success', 'text']);
 });
 
 test('requests JSON output with a responses[{student, message}] schema', async () => {
@@ -101,3 +103,59 @@ test('model failure is reported as success:false (never as a successful empty re
   assert.notEqual(res.status, 200);
   assert.equal(res.body.success, false);
 });
+
+// ─── Telemetry (latency / model / finish reason / attempts) ───────────────────
+
+const META_KEYS = ['agent', 'attempts', 'finishReason', 'latencyMs', 'model'];
+
+test('telemetry: a successful call reports agent, model, latency, finish reason and attempts', async () => {
+  srv.fakeModel.respond = () => delayed(40, textResult(STUDENT_JSON, 'STOP'));
+  const res = await postJson(srv.baseUrl, '/api/generate', { messages: baseMessages });
+  const { meta } = res.body;
+  assert.deepEqual(Object.keys(meta).sort(), META_KEYS);
+  assert.equal(meta.agent, 'student');
+  assert.equal(meta.model, 'gemini-2.5-flash-lite');
+  assert.equal(meta.finishReason, 'STOP');
+  assert.equal(meta.attempts, 1);
+  assert.ok(Number.isInteger(meta.latencyMs) && meta.latencyMs >= 35, String(meta.latencyMs));
+});
+
+test('telemetry: attempts counts the existing quota retries', async () => {
+  let calls = 0;
+  srv.fakeModel.respond = () => {
+    calls += 1;
+    if (calls === 1) throw Object.assign(new Error('429 Too Many Requests'), { status: 429 });
+    return textResult(STUDENT_JSON);
+  };
+  const res = await postJson(srv.baseUrl, '/api/generate', { messages: baseMessages });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.meta.attempts, 2);
+});
+
+test('telemetry: a blocked candidate reports its finish reason in the failure meta', async () => {
+  srv.fakeModel.respond = () => ({ response: { candidates: [{ finishReason: 'SAFETY' }] } });
+  const res = await postJson(srv.baseUrl, '/api/generate', { messages: baseMessages });
+  assert.equal(res.body.success, false);
+  assert.equal(res.body.meta.finishReason, 'SAFETY');
+  assert.equal(res.body.meta.agent, 'student');
+  assert.equal(res.body.meta.attempts, 1);
+});
+
+test('telemetry: a thrown model error still reports timing and attempts', async () => {
+  srv.fakeModel.respond = () => delayed(20, null).then(() => { throw new Error('UNAVAILABLE'); });
+  const res = await postJson(srv.baseUrl, '/api/generate', { messages: baseMessages });
+  assert.equal(res.body.success, false);
+  assert.deepEqual(Object.keys(res.body.meta).sort(), META_KEYS);
+  assert.equal(res.body.meta.finishReason, null);
+  assert.ok(res.body.meta.latencyMs >= 15);
+});
+
+test('telemetry: meta contains no prompt, response text or message content', async () => {
+  srv.fakeModel.respond = () => textResult(STUDENT_JSON);
+  const res = await postJson(srv.baseUrl, '/api/generate', { messages: baseMessages });
+  const json = JSON.stringify(res.body.meta);
+  assert.ok(!json.includes('SYSTEM-PROMPT-MARKER'));
+  assert.ok(!json.includes('שלום כיתה'));
+  assert.ok(!json.includes('נועה'));
+});
+

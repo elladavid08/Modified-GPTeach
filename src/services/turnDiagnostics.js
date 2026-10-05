@@ -7,6 +7,8 @@
  * credentials.
  */
 
+import { timingFields } from "./callTelemetry";
+
 export const MAX_ERROR_MESSAGE_CHARS = 300;
 export const MAX_RAW_OUTPUT_CHARS = 1000;
 
@@ -51,5 +53,7 @@ export function buildFailedAttempt({ agent, error, teacherMessage = null, pckFee
 		pckFeedbackDisplayed: Boolean(pckFeedbackDisplayed),
 		rawOutputExcerpt: truncate(rawOutput, MAX_RAW_OUTPUT_CHARS),
 		rawOutputChars: rawOutput === null ? null : rawOutput.length,
+		// Call telemetry where available (model, latencyMs, clientLatencyMs, finishReason, attempts)
+		...timingFields(error && error.meta, error ? error.clientLatencyMs : undefined),
 	};
 }

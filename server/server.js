@@ -54,8 +54,10 @@ const vertexAI = new VertexAI({
   }
 });
 
+const MODEL_ID = 'gemini-2.5-flash-lite';
+
 const model = vertexAI.getGenerativeModel({
-  model: 'gemini-2.5-flash-lite'
+  model: MODEL_ID
 });
 
 console.log('✅ Vertex AI initialized successfully with service account');
@@ -90,6 +92,35 @@ async function withRetry(fn, maxRetries = 3, baseDelayMs = 2000) {
       }
     }
   }
+}
+
+/**
+ * Model call with compact telemetry (no prompt or response content): wall-clock latency
+ * (including the quota back-off in withRetry), attempts made, model id and finish reason.
+ * On failure the telemetry is attached to the thrown error as `error.telemetry`.
+ */
+async function generateWithTelemetry(agent, request) {
+  const telemetry = { agent, model: MODEL_ID, latencyMs: null, finishReason: null, attempts: 0 };
+  const started = Date.now();
+  try {
+    const result = await withRetry(() => {
+      telemetry.attempts += 1;
+      return model.generateContent(request);
+    });
+    telemetry.latencyMs = Date.now() - started;
+    const candidate = result && result.response && result.response.candidates && result.response.candidates[0];
+    telemetry.finishReason = (candidate && candidate.finishReason) || null;
+    return { result, telemetry };
+  } catch (error) {
+    telemetry.latencyMs = Date.now() - started;
+    error.telemetry = telemetry;
+    throw error;
+  }
+}
+
+/** Telemetry for an error response: what the failed call measured, or what is known statically. */
+function errorTelemetry(agent, telemetry, error) {
+  return telemetry || (error && error.telemetry) || { agent, model: MODEL_ID, latencyMs: null, finishReason: null, attempts: 0 };
 }
 
 const auth = new GoogleAuth({
@@ -253,6 +284,7 @@ function convertMessagesToGenAI(openAIMessages) {
 
 // API endpoint for chat completions (GPT 3.5/4 style)
 app.post('/api/generate', async (req, res) => {
+  let telemetry = null;
   try {
     console.log('🚀 Received chat completion request');
     console.log('📝 Request body keys:', Object.keys(req.body));
@@ -312,10 +344,12 @@ app.post('/api/generate', async (req, res) => {
 
     console.log('📤 Calling Vertex AI with config:', generationConfig);
     
-    const result = await withRetry(() => model.generateContent({
+    const call = await generateWithTelemetry('student', {
       contents,
       generationConfig
-    }));
+    });
+    const result = call.result;
+    telemetry = call.telemetry;
 
     console.log('📦 Raw result structure:', JSON.stringify(result, null, 2));
 
@@ -344,7 +378,8 @@ app.post('/api/generate', async (req, res) => {
     
     const responsePayload = { 
       success: true,
-      text: responseText
+      text: responseText,
+      meta: telemetry
     };
     console.log('📤 Sending response to frontend...');
     res.json(responsePayload);
@@ -358,7 +393,8 @@ app.post('/api/generate', async (req, res) => {
     res.status(500).json({ 
       success: false,
       error: error.message,
-      details: error.name
+      details: error.name,
+      meta: errorTelemetry('student', telemetry, error)
     });
   }
 });
@@ -366,6 +402,7 @@ app.post('/api/generate', async (req, res) => {
 // API endpoint for completions (GPT-3 style)
 // NEW: Comprehensive PCK Feedback Analysis Endpoint
 app.post('/api/pck-feedback', async (req, res) => {
+  let telemetry = null;
   try {
     console.log('💡 Received comprehensive PCK feedback analysis request');
     
@@ -792,10 +829,12 @@ Return JSON only, no additional text:`;
 
     console.log('📤 Calling Vertex AI for comprehensive PCK analysis...');
     
-    const result = await withRetry(() => model.generateContent({
+    const call = await generateWithTelemetry('pck', {
       contents,
       generationConfig
-    }));
+    });
+    const result = call.result;
+    telemetry = call.telemetry;
 
     if (!result || !result.response) {
       throw new Error('No response received from Vertex AI');
@@ -824,7 +863,8 @@ Return JSON only, no additional text:`;
         success: false,
         error: PCK_PARSE_ERROR,
         errorKind: 'parse',
-        finishReason
+        finishReason,
+        meta: telemetry
       });
     }
     
@@ -837,7 +877,8 @@ Return JSON only, no additional text:`;
         error: `${PCK_INVALID_ERROR} (${problems.length} problem${problems.length === 1 ? '' : 's'})`,
         errorKind: 'schema',
         problems: problems.slice(0, 10),
-        finishReason
+        finishReason,
+        meta: telemetry
       });
     }
     
@@ -851,13 +892,15 @@ Return JSON only, no additional text:`;
     
     res.json({ 
       success: true,
-      analysis: analysis
+      analysis: analysis,
+      meta: telemetry
     });
   } catch (error) {
     console.error('❌ Error in PCK feedback:', error);
     res.status(500).json({ 
       success: false,
-      error: error.message 
+      error: error.message,
+      meta: errorTelemetry('pck', telemetry, error)
     });
   }
 });

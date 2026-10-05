@@ -32,6 +32,11 @@ export class VertexAI {
 }
 
 /** Build a Vertex-shaped result whose first candidate contains `text`. */
-export function textResult(text) {
-  return { response: { candidates: [{ content: { parts: [{ text }] }, finishReason: 'STOP' }] } };
+export function textResult(text, finishReason = 'STOP') {
+  return { response: { candidates: [{ content: { parts: [{ text }] }, finishReason }] } };
+}
+
+/** Resolve `value` after `ms` milliseconds (simulated model latency). */
+export function delayed(ms, value) {
+  return new Promise((resolve) => setTimeout(() => resolve(value), ms));
 }

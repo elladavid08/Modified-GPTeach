@@ -8,7 +8,7 @@ import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { startServer, postJson, promptText } from '../test-support/startServer.mjs';
-import { textResult } from '../test-support/fakes/vertexai.mjs';
+import { textResult, delayed } from '../test-support/fakes/vertexai.mjs';
 import { VALID_ANALYSIS, MALFORMED_OUTPUTS } from '../test-support/pckFixtures.mjs';
 
 const contract = JSON.parse(
@@ -161,7 +161,9 @@ test('C10: a valid current-format analysis passes through unchanged', async () =
   srv.fakeModel.respond = () => textResult(JSON.stringify(VALID_ANALYSIS));
   const res = await request();
   assert.equal(res.status, 200);
-  assert.deepEqual(res.body, { success: true, analysis: VALID_ANALYSIS });
+  assert.equal(res.body.success, true);
+  assert.deepEqual(res.body.analysis, VALID_ANALYSIS);
+  assert.deepEqual(Object.keys(res.body).sort(), ['analysis', 'meta', 'success']);
 });
 
 test('C10: should_provide_feedback true with an empty message is not given a placeholder', async () => {
@@ -190,4 +192,39 @@ for (const [label, raw, kind] of MALFORMED_OUTPUTS) {
     assert.ok(!JSON.stringify(res.body).includes('המורה התקדם בשיעור'));
   });
 }
+
+// ─── Telemetry ───────────────────────────────────────────────────────────────
+
+test('telemetry: a successful PCK call reports agent, model, latency, finish reason and attempts', async () => {
+  srv.fakeModel.respond = () => delayed(40, textResult(JSON.stringify(VALID_ANALYSIS), 'STOP'));
+  const res = await request();
+  const { meta } = res.body;
+  assert.deepEqual(Object.keys(meta).sort(), ['agent', 'attempts', 'finishReason', 'latencyMs', 'model']);
+  assert.equal(meta.agent, 'pck');
+  assert.equal(meta.model, 'gemini-2.5-flash-lite');
+  assert.equal(meta.finishReason, 'STOP');
+  assert.equal(meta.attempts, 1);
+  assert.ok(meta.latencyMs >= 35);
+  // The analysis itself carries no telemetry
+  assert.equal(res.body.analysis.meta, undefined);
+});
+
+test('telemetry: a parse failure reports the finish reason (e.g. truncation at max tokens)', async () => {
+  srv.fakeModel.respond = () => textResult('{"pedagogical_quality": "pos', 'MAX_TOKENS');
+  const res = await request();
+  assert.equal(res.body.errorKind, 'parse');
+  assert.equal(res.body.finishReason, 'MAX_TOKENS'); // B23 failure shape unchanged
+  assert.equal(res.body.meta.finishReason, 'MAX_TOKENS');
+  assert.equal(res.body.meta.agent, 'pck');
+  assert.equal(res.body.meta.attempts, 1);
+});
+
+test('telemetry: a thrown PCK model error reports timing and attempts', async () => {
+  srv.fakeModel.respond = () => { throw new Error('UNAVAILABLE'); };
+  const res = await request();
+  assert.equal(res.body.success, false);
+  assert.equal(res.body.meta.agent, 'pck');
+  assert.equal(res.body.meta.attempts, 1);
+  assert.ok(Number.isInteger(res.body.meta.latencyMs));
+});
 

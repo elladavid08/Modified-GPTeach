@@ -37,3 +37,44 @@ describe.each([
 		expect(err).toEqual(expect.objectContaining({ stage: "network", endpoint }));
 	});
 });
+
+describe("telemetry delivery (onMeta)", () => {
+	const META = { agent: "pck", model: "gemini-2.5-flash-lite", latencyMs: 900, finishReason: "STOP", attempts: 1 };
+
+	it("getPCKFeedback returns the analysis and reports meta + client latency via onMeta", async () => {
+		global.fetch = jest.fn(async () => jsonResponse(200, { success: true, analysis: { pedagogical_quality: "neutral" }, meta: META }));
+		const onMeta = jest.fn();
+		const analysis = await getPCKFeedback("שאלה", [], {}, [], { onMeta });
+		expect(analysis).toEqual({ pedagogical_quality: "neutral" });
+		expect(onMeta).toHaveBeenCalledWith(expect.objectContaining({ ...META, clientLatencyMs: expect.any(Number) }));
+		// The callback is not sent to the server
+		expect(JSON.parse(global.fetch.mock.calls[0][1].body)).toEqual({ teacherMessage: "שאלה", conversationHistory: [], scenario: {}, feedbackHistory: [] });
+	});
+
+	it("generateWithGenAI returns the text and reports meta via onMeta; onMeta is not sent", async () => {
+		global.fetch = jest.fn(async () => jsonResponse(200, { success: true, text: "{}", meta: { ...META, agent: "student" } }));
+		const onMeta = jest.fn();
+		const text = await generateWithGenAI([{ role: "user", content: "x" }], { stop: ["Teacher:"], onMeta });
+		expect(text).toBe("{}");
+		expect(onMeta).toHaveBeenCalledWith(expect.objectContaining({ agent: "student", clientLatencyMs: expect.any(Number) }));
+		expect(JSON.parse(global.fetch.mock.calls[0][1].body).options).toEqual({ stop: ["Teacher:"] });
+	});
+
+	it.each([
+		["getPCKFeedback", () => getPCKFeedback("שאלה", [], {}, [])],
+		["generateWithGenAI", () => generateWithGenAI([{ role: "user", content: "x" }])],
+	])("%s errors carry the server meta and client latency", async (_name, call) => {
+		global.fetch = jest.fn(async () => jsonResponse(500, { success: false, error: "UNAVAILABLE", meta: META }));
+		const err = await call().then(() => null, (e) => e);
+		expect(err.meta).toEqual(META);
+		expect(Number.isInteger(err.clientLatencyMs)).toBe(true);
+	});
+
+	it("works without server meta (older servers): still reports client latency, no crash", async () => {
+		global.fetch = jest.fn(async () => jsonResponse(200, { success: true, analysis: { pedagogical_quality: "neutral" } }));
+		const onMeta = jest.fn();
+		await getPCKFeedback("שאלה", [], {}, [], { onMeta });
+		expect(onMeta).toHaveBeenCalledWith(expect.objectContaining({ clientLatencyMs: expect.any(Number) }));
+	});
+});
+

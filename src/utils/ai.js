@@ -162,10 +162,17 @@ async function callChatModel(
 		);
 	}
 
+	// Call telemetry from the backend (latency, model, finish reason, attempts); no content
+	let callMeta = null;
 	try {
 		if (Constants.PROVIDER === "google") {
 			// Use Google's Vertex AI GenAI
-			const msg = await generateWithGenAI(myPrompt, { stop: ["Teacher:"] });
+			const msg = await generateWithGenAI(myPrompt, {
+				stop: ["Teacher:"],
+				onMeta: (meta) => {
+					callMeta = meta;
+				},
+			});
 			
 			if (!Constants.IS_PRODUCTION) {
 				console.log(`GenAI Response: \n${msg}`);
@@ -197,12 +204,12 @@ async function callChatModel(
 				const msgCount = messages ? messages.length : 0;
 				const codeCount = codePieces ? codePieces.length : 0;
 				console.log(`✅ Parsed ${msgCount} message(s) and ${codeCount} code piece(s)`);
-				onResponse(messages, codePieces);
+				onResponse(messages, codePieces, students, callMeta);
 			} else {
 				const parsedMessages = convertResponseToMessages(msg, null, students);
 				const msgCount = parsedMessages ? parsedMessages.length : 0;
 				console.log(`✅ Parsed ${msgCount} message(s) from response`);
-				onResponse(parsedMessages, null, students);
+				onResponse(parsedMessages, null, students, callMeta);
 			}
 		} else {
 			// ==================== OpenAI Chat API (COMMENTED OUT - Currently using Google Vertex AI) ====================
@@ -232,6 +239,10 @@ async function callChatModel(
 		}
 	} catch (err) {
 		console.error(`❌ Error from ${Constants.PROVIDER === "google" ? "GenAI" : "AI"}:`, err);
+		// A parse failure happens after a successful backend call: keep that call's telemetry
+		if (err && !err.meta && callMeta) {
+			err.meta = callMeta;
+		}
 		// Reject so the caller can show the failure and record it (C7); failures are not empty replies
 		throw err;
 	}

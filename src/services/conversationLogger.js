@@ -4,6 +4,7 @@
  */
 
 import { saveConversation, addMessageToConversation, saveOrGetStudentPersona } from './firestoreService';
+import { sanitizeTurnTelemetry } from './callTelemetry';
 
 /**
  * Compress a base64 PNG image by resizing it to a max width.
@@ -146,7 +147,7 @@ export class ConversationLog {
 	/**
 	 * Add a conversation turn (teacher message, student responses, PCK feedback)
 	 */
-	async addTurn(teacherMessage, studentResponses, pckFeedback, teacherImage = null) {
+	async addTurn(teacherMessage, studentResponses, pckFeedback, teacherImage = null, telemetry = null) {
 		// Initialize Firestore on first turn (lazy initialization)
 		if (!this.firestoreInitialized) {
 			console.log('📊 First message - initializing conversation in Firestore...');
@@ -177,7 +178,9 @@ export class ConversationLog {
 				detected_skills: pckFeedback.detected_skills || [],          // fallback
 				missed_opportunities: pckFeedback.missed_opportunities || [], // fallback
 				timestamp: new Date().toISOString()
-			} : null
+			} : null,
+			// LLM-call telemetry for this turn ({pck, student}, whitelist only; A17)
+			telemetry: sanitizeTurnTelemetry(telemetry)
 		};
 		
 		this.turns.push(turn);

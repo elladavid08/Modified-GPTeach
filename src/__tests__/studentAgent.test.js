@@ -138,12 +138,36 @@ describe("student agent failures (C7 phase 1)", () => {
 		expect(onResponse).not.toHaveBeenCalled();
 	});
 
+	it("a parse failure carries the call's telemetry", async () => {
+		const meta = { agent: "student", model: "gemini-2.5-flash-lite", latencyMs: 700, finishReason: "MAX_TOKENS", attempts: 1, clientLatencyMs: 750 };
+		generateWithGenAI.mockImplementation(async (_m, options) => {
+			options.onMeta(meta);
+			return "{\"responses\": [";
+		});
+		const { error } = await callExpectingFailure();
+		expect(error.stage).toBe("parse");
+		expect(error.meta).toEqual(meta);
+	});
+
 	it("genuine silence (responses: []) is still a normal empty reply, not a failure", async () => {
 		generateWithGenAI.mockResolvedValue(JSON.stringify({ responses: [] }));
 		const { error, onResponse } = await callExpectingFailure();
 		expect(error).toBeNull();
 		expect(onResponse).toHaveBeenCalledTimes(1);
 		expect(onResponse.mock.calls[0][0]).toEqual([]);
+	});
+});
+
+describe("student call telemetry", () => {
+	it("passes the call's telemetry to onResponse as the 4th argument", async () => {
+		const meta = { agent: "student", model: "gemini-2.5-flash-lite", latencyMs: 600, finishReason: "STOP", attempts: 1, clientLatencyMs: 650 };
+		generateWithGenAI.mockImplementation(async (_m, options) => {
+			options.onMeta(meta);
+			return JSON.stringify({ responses: [{ student: students[0].name, message: "היי" }] });
+		});
+		const onResponse = jest.fn();
+		await callAI(historyOf([]), students, scenario, "", null, onResponse);
+		expect(onResponse.mock.calls[0][3]).toEqual(meta);
 	});
 });
 

@@ -248,5 +248,44 @@ describe("ConversationLog", () => {
 			expect(lastSavedDoc().failedAttempts).toEqual([]);
 		});
 	});
+
+	describe("turn telemetry (A17, REVIEW)", () => {
+		const okPck = { status: "ok", reason: null, model: "gemini-2.5-flash-lite", latencyMs: 2100, clientLatencyMs: 2300, finishReason: "STOP", attempts: 1 };
+		const okStudent = { ...okPck, latencyMs: 900, clientLatencyMs: 1000 };
+
+		it("stores telemetry with the logged turn it belongs to", async () => {
+			const log = new ConversationLog(scenario, students, "u1", profile, "9.9.9");
+			await log.addTurn("t1", [{ name: "נועה", text: "s1" }], null, null, { pck: okPck, student: okStudent });
+			await log.addTurn("t2", [{ name: "נועה", text: "s2" }], null, null, {
+				pck: { ...okPck, status: "skipped", reason: "image_only", model: null, latencyMs: null, clientLatencyMs: null, finishReason: null, attempts: null },
+				student: { ...okStudent, latencyMs: 444 },
+			});
+			const doc = lastSavedDoc();
+			expect(doc.turns[0].telemetry).toEqual({ pck: okPck, student: okStudent });
+			expect(doc.turns[1].telemetry.pck.status).toBe("skipped");
+			expect(doc.turns[1].telemetry.student.latencyMs).toBe(444);
+			expect(validateConversationDoc(doc)).toEqual([]);
+		});
+
+		it("sanitises telemetry to the whitelist (no raw content can be persisted)", async () => {
+			const log = new ConversationLog(scenario, students, "u1", profile, "9.9.9");
+			await log.addTurn("t1", [{ name: "נועה", text: "s1" }], null, null, {
+				pck: { ...okPck, prompt: "SECRET-PROMPT" },
+				student: { ...okStudent, text: "SECRET-RAW" },
+				extra: { teacherMessage: "SECRET-TEACHER" },
+			});
+			const t = lastSavedDoc().turns[0].telemetry;
+			expect(JSON.stringify(t)).not.toContain("SECRET");
+			expect(Object.keys(t).sort()).toEqual(["pck", "student"]);
+			expect(validateConversationDoc(lastSavedDoc())).toEqual([]);
+		});
+
+		it("turns logged without telemetry store telemetry: null (backward compatible)", async () => {
+			const log = new ConversationLog(scenario, students, "u1", profile, "9.9.9");
+			await log.addTurn("t1", [{ name: "נועה", text: "s1" }], null);
+			expect(lastSavedDoc().turns[0].telemetry).toBeNull();
+			expect(validateConversationDoc(lastSavedDoc())).toEqual([]);
+		});
+	});
 });
 

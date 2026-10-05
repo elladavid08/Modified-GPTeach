@@ -14,6 +14,8 @@
 // All services are mocked: no LLM, no Firestore, no auth.
 //   C4 (fixed) a submit with no text (empty / whitespace) and no included drawing starts nothing
 //
+//   telemetry (A17, REVIEW) per-turn PCK/student call telemetry is passed to the logger with the
+//       right turn; image-only turns record PCK as skipped, not failed; failures carry timing
 //   C7 phase 1 (fixed) PCK / student failures are shown to the teacher (concise Hebrew, no
 //       technical detail), recorded as failedAttempts diagnostics (A16), never logged as turns
 //
@@ -781,6 +783,148 @@ describe("PCK handling by turn type (B22 / E1)", () => {
 		expect(getPCKFeedback).not.toHaveBeenCalled();
 		expect(callAI).not.toHaveBeenCalled();
 		expect(logger().addTurn).not.toHaveBeenCalled();
+	});
+});
+
+// ─── LLM-call telemetry (A17, REVIEW) ────────────────────────────────────────
+
+describe("LLM call telemetry", () => {
+	const META = (agent, latencyMs, extra = {}) => ({
+		agent,
+		model: "gemini-2.5-flash-lite",
+		latencyMs,
+		finishReason: "STOP",
+		attempts: 1,
+		clientLatencyMs: latencyMs + 50,
+		...extra,
+	});
+	const expectedTelemetry = (meta) => ({
+		status: "ok",
+		reason: null,
+		model: meta.model,
+		latencyMs: meta.latencyMs,
+		clientLatencyMs: meta.clientLatencyMs,
+		finishReason: meta.finishReason,
+		attempts: meta.attempts,
+	});
+
+	function pckWithMeta(meta, analysis = FEEDBACK_ANALYSIS) {
+		getPCKFeedback.mockImplementationOnce(async (_t, _h, _s, _f, options) => {
+			if (options && options.onMeta) options.onMeta(meta);
+			return analysis;
+		});
+	}
+	function studentsWithMeta(meta, text = "STUDENT-REPLY") {
+		callAI.mockImplementationOnce((history, students, scen, addendum, impact, onResponse) => {
+			studentCalls.push({ messages: history.getMessages().slice(), students, impact });
+			onResponse([new ChatMessage(students[0].name, text, "assistant")], null, students, meta);
+		});
+	}
+	const loggedTelemetry = (i) => logger().addTurn.mock.calls[i][4];
+	let errorSpy;
+	beforeEach(() => {
+		errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+	});
+	afterEach(() => errorSpy.mockRestore());
+
+	it("a successful turn logs PCK and student telemetry with the turn", async () => {
+		const pckMeta = META("pck", 2100);
+		const studentMeta = META("student", 900);
+		pckWithMeta(pckMeta);
+		studentsWithMeta(studentMeta);
+		await startLesson();
+		await sendTeacherMessage("מה ההגדרה של מלבן?");
+		expect(loggedTelemetry(0)).toEqual({ pck: expectedTelemetry(pckMeta), student: expectedTelemetry(studentMeta) });
+	});
+
+	it("telemetry stays with the correct turn across turns", async () => {
+		pckWithMeta(META("pck", 100));
+		studentsWithMeta(META("student", 110));
+		pckWithMeta(META("pck", 200), NO_FEEDBACK_ANALYSIS);
+		studentsWithMeta(META("student", 220));
+		await startLesson();
+		await sendTeacherMessage("TURN-1");
+		await sendTeacherMessage("TURN-2");
+		const calls = logger().addTurn.mock.calls;
+		expect(calls.map((c) => [c[0], c[4].pck.latencyMs, c[4].student.latencyMs])).toEqual([
+			["TURN-1", 100, 110],
+			["TURN-2", 200, 220],
+		]);
+	});
+
+	it("image-only turn: PCK recorded as skipped (not failed), no failure diagnostic", async () => {
+		board.include = true;
+		board.image = "iVBORimageonly";
+		studentsWithMeta(META("student", 900));
+		await startLesson();
+		await sendTeacherMessage("");
+		expect(getPCKFeedback).not.toHaveBeenCalled();
+		expect(logger().addFailedAttempt).not.toHaveBeenCalled();
+		expect(loggedTelemetry(0).pck).toEqual({
+			status: "skipped",
+			reason: "image_only",
+			model: null,
+			latencyMs: null,
+			clientLatencyMs: null,
+			finishReason: null,
+			attempts: null,
+		});
+		expect(loggedTelemetry(0).student.status).toBe("ok");
+	});
+
+	it("PCK failure: the failure diagnostic carries timing; a logged turn (if any) marks PCK as failed", async () => {
+		const failureMeta = META("pck", 4100, { finishReason: "MAX_TOKENS" });
+		getPCKFeedback.mockRejectedValueOnce(
+			Object.assign(new Error("Backend error (500): Failed to parse AI response as JSON"), {
+				stage: "http",
+				status: 500,
+				endpoint: "/api/pck-feedback",
+				serverError: "Failed to parse AI response as JSON",
+				meta: { ...failureMeta, clientLatencyMs: undefined },
+				clientLatencyMs: 4300,
+			})
+		);
+		await startLesson();
+		await sendTeacherMessage("שאלה");
+		expect(logger().addFailedAttempt.mock.calls[0][0]).toEqual(
+			expect.objectContaining({ agent: "pck", latencyMs: 4100, clientLatencyMs: 4300, finishReason: "MAX_TOKENS", attempts: 1, model: "gemini-2.5-flash-lite" })
+		);
+		// B2 is REVIEW: whether a turn follows is not asserted; if one is logged, PCK is marked failed.
+		logger().addTurn.mock.calls.forEach((call) => {
+			expect(call[4].pck).toEqual(expect.objectContaining({ status: "failed", latencyMs: 4100, clientLatencyMs: 4300, finishReason: "MAX_TOKENS" }));
+		});
+	});
+
+	it("student failure: the failure diagnostic carries timing; nothing is logged as a turn", async () => {
+		getPCKFeedback.mockResolvedValue(NO_FEEDBACK_ANALYSIS);
+		callAI.mockImplementationOnce(() =>
+			Promise.reject(
+				Object.assign(new Error("Backend error (500): No candidates"), {
+					stage: "http",
+					status: 500,
+					endpoint: "/api/generate",
+					meta: META("student", 3000, { finishReason: "SAFETY", clientLatencyMs: undefined }),
+					clientLatencyMs: 3100,
+				})
+			)
+		);
+		await startLesson();
+		await sendTeacherMessage("שאלה");
+		expect(logger().addTurn).not.toHaveBeenCalled();
+		expect(logger().addFailedAttempt.mock.calls[0][0]).toEqual(
+			expect.objectContaining({ agent: "student", latencyMs: 3000, clientLatencyMs: 3100, finishReason: "SAFETY", attempts: 1 })
+		);
+	});
+
+	it("persisted telemetry contains no teacher text, student text or drawing", async () => {
+		board.include = true;
+		board.image = "iVBORsecretdrawing";
+		pckWithMeta(META("pck", 100));
+		studentsWithMeta(META("student", 100), "SECRET-STUDENT-TEXT");
+		await startLesson();
+		await sendTeacherMessage("SECRET-TEACHER-TEXT");
+		const json = JSON.stringify(loggedTelemetry(0));
+		expect(json).not.toMatch(/SECRET|iVBOR/);
 	});
 });
 

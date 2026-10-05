@@ -12,6 +12,7 @@ import { AppContext } from "../objects/AppContext";
 import { ScenarioSelector } from "../components/ScenarioSelector";
 import { ConversationLog } from "../services/conversationLogger";
 import { buildFailedAttempt, FAILURE_MESSAGES_HE } from "../services/turnDiagnostics";
+import { buildCallTelemetry } from "../services/callTelemetry";
 import { useAuth } from "../contexts/AuthContext";
 import ChatMessage from "../objects/ChatMessage";
 import "../style/ChatOnly.css";
@@ -234,6 +235,9 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 		(async () => {
 			let impact_analysis = null;
 			let feedbackForLog = null;
+			// Per-turn LLM-call telemetry (logged with the turn; no content)
+			let pckTelemetry = null;
+			let pckMeta = null;
 			
 			// Step 1: Get PCK feedback analysis FIRST (except for first message)
 			try {
@@ -250,8 +254,10 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 						lastTeacherMessage.text,
 						history.getMessages(),
 						scenario,
-						feedbackHistory.slice(-3) // Pass last 3 feedback items for context
+						feedbackHistory.slice(-3), // Pass last 3 feedback items for context
+						{ onMeta: (meta) => { pckMeta = meta; } }
 					);
+					pckTelemetry = buildCallTelemetry("ok", pckMeta);
 					
 				console.log("✅ PCK analysis received:");
 				console.log("   - Quality:", impact_analysis.pedagogical_quality);
@@ -295,11 +301,15 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 				});
 				
 				console.log("📊 PCK feedback displayed to teacher");
+			} else {
+				// PCK intentionally not called: image-only turn, or no teacher message yet
+				pckTelemetry = buildCallTelemetry("skipped", null, lastTeacherMessage ? "image_only" : "no_teacher_message");
 			}
 			} catch (error) {
 				console.error("❌ Error getting PCK feedback:", error);
 				// Continue even if PCK feedback fails, but show and record it
 				impact_analysis = null;
+				pckTelemetry = buildCallTelemetry("failed", { ...(error && error.meta), clientLatencyMs: error && error.clientLatencyMs });
 				setPckError(FAILURE_MESSAGES_HE.pck);
 				const teacherMessages = history.getMessages().filter(msg => msg.role === "user");
 				recordFailedAttempt("pck", error, teacherMessages[teacherMessages.length - 1] || null);
@@ -315,7 +325,7 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 				scenario, 
 				addendum,
 				impact_analysis,  // NEW: Pass impact_analysis to student agent
-				async (aiMessages) => {
+				async (aiMessages, _codePieces, _students, studentMeta) => {
 					try {
 					// Handle case where no students respond (silence is valid with selective responses)
 					if (!aiMessages || aiMessages.length === 0) {
@@ -341,7 +351,8 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 								lastTeacherMessage.text,
 								aiMessages.map(msg => ({ name: msg.name, text: msg.text })),
 								feedbackForLog,
-								lastTeacherMessage.image || null  // include drawing image if teacher sent one
+								lastTeacherMessage.image || null,  // include drawing image if teacher sent one
+								{ pck: pckTelemetry, student: buildCallTelemetry("ok", studentMeta) }
 							))
 							.catch((error) => console.error("❌ Error logging conversation turn:", error));
 							console.log("✅ Turn logged. Total turns:", conversationLoggerRef.current.turns.length);

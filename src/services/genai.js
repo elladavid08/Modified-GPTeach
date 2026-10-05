@@ -48,10 +48,13 @@ function tagError(error, fields) {
  * @returns {Promise<string>} - Generated text response
  */
 export async function generateWithGenAI(messages, options = {}) {
+  // onMeta (optional) receives call telemetry; it is not sent to the server
+  const { onMeta, ...serverOptions } = options;
+  const started = Date.now();
   try {
     console.log('🚀 Calling backend API for chat completion...');
     console.log('📝 Messages count:', messages.length);
-    console.log('📝 Options:', options);
+    console.log('📝 Options:', serverOptions);
     
     const response = await fetchWithRetry(() => fetch(`${API_BASE_URL}/api/generate`, {
       method: 'POST',
@@ -60,7 +63,7 @@ export async function generateWithGenAI(messages, options = {}) {
       },
       body: JSON.stringify({
         messages,
-        options
+        options: serverOptions
       })
     }));
 
@@ -70,7 +73,8 @@ export async function generateWithGenAI(messages, options = {}) {
       const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
       console.error('❌ Backend error:', errorData);
       throw tagError(new Error(`Backend error (${response.status}): ${errorData.error || 'Unknown error'}`), {
-        stage: 'http', status: response.status, endpoint: '/api/generate', serverError: errorData.error || null
+        stage: 'http', status: response.status, endpoint: '/api/generate', serverError: errorData.error || null,
+        meta: errorData.meta || null, clientLatencyMs: Date.now() - started
       });
     }
 
@@ -80,11 +84,15 @@ export async function generateWithGenAI(messages, options = {}) {
     if (result.success) {
       console.log('✅ Backend response successful, text length:', result.text.length);
       console.log('✅ Response preview:', result.text.substring(0, 200) + '...');
+      if (onMeta) {
+        onMeta({ ...(result.meta || {}), clientLatencyMs: Date.now() - started });
+      }
       return result.text;
     } else {
       console.error('❌ Backend returned error:', result.error);
       throw tagError(new Error(result.error || 'Backend returned unsuccessful response'), {
-        stage: 'http', status: response.status, endpoint: '/api/generate', serverError: result.error || null
+        stage: 'http', status: response.status, endpoint: '/api/generate', serverError: result.error || null,
+        meta: result.meta || null, clientLatencyMs: Date.now() - started
       });
     }
   } catch (error) {
@@ -92,7 +100,7 @@ export async function generateWithGenAI(messages, options = {}) {
       console.error('❌ Network error - is the backend running on', API_BASE_URL + '?');
       console.error('❌ Make sure to start the backend server with: cd server && npm start');
       throw tagError(new Error('Backend server not available. Please start the backend server.'), {
-        stage: 'network', endpoint: '/api/generate'
+        stage: 'network', endpoint: '/api/generate', meta: null, clientLatencyMs: Date.now() - started
       });
     }
     
@@ -162,7 +170,9 @@ export async function generateWithGenAICompletion(prompt, options = {}) {
  * @param {Object} scenario - Current scenario context
  * @returns {Promise<Object>} - Structured PCK analysis object
  */
-export async function getPCKFeedback(teacherMessage, conversationHistory = [], scenario = {}, feedbackHistory = []) {
+export async function getPCKFeedback(teacherMessage, conversationHistory = [], scenario = {}, feedbackHistory = [], { onMeta } = {}) {
+  // onMeta (optional) receives call telemetry; it is not sent to the server
+  const started = Date.now();
   try {
     console.log('💡 Requesting structured PCK feedback analysis...');
     console.log('📝 Teacher message:', teacherMessage.substring(0, 100) + '...');
@@ -187,7 +197,8 @@ export async function getPCKFeedback(teacherMessage, conversationHistory = [], s
       const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
       console.error('❌ PCK feedback error:', errorData);
       throw tagError(new Error(`Backend error (${response.status}): ${errorData.error || 'Unknown error'}`), {
-        stage: 'http', status: response.status, endpoint: '/api/pck-feedback', serverError: errorData.error || null
+        stage: 'http', status: response.status, endpoint: '/api/pck-feedback', serverError: errorData.error || null,
+        meta: errorData.meta || null, clientLatencyMs: Date.now() - started
       });
     }
 
@@ -199,18 +210,22 @@ export async function getPCKFeedback(teacherMessage, conversationHistory = [], s
       console.log('   Quality:', result.analysis.pedagogical_quality);
       console.log('   Misconception addressed:', result.analysis.addressed_misconception);
       console.log('   Predicted understanding:', result.analysis.predicted_student_state && result.analysis.predicted_student_state.understanding_level);
+      if (onMeta) {
+        onMeta({ ...(result.meta || {}), clientLatencyMs: Date.now() - started });
+      }
       return result.analysis;
     } else {
       console.error('❌ PCK feedback returned error:', result.error);
       throw tagError(new Error(result.error || 'PCK feedback returned unsuccessful response'), {
-        stage: 'http', status: response.status, endpoint: '/api/pck-feedback', serverError: result.error || null
+        stage: 'http', status: response.status, endpoint: '/api/pck-feedback', serverError: result.error || null,
+        meta: result.meta || null, clientLatencyMs: Date.now() - started
       });
     }
   } catch (error) {
     if (error.name === 'TypeError' && error.message.includes('fetch')) {
       console.error('❌ Network error - is the backend running on', API_BASE_URL + '?');
       throw tagError(new Error('Backend server not available. Please start the backend server.'), {
-        stage: 'network', endpoint: '/api/pck-feedback'
+        stage: 'network', endpoint: '/api/pck-feedback', meta: null, clientLatencyMs: Date.now() - started
       });
     }
     

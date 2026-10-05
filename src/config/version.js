@@ -13,10 +13,21 @@
  * - Z: Patch version (bug fixes, minor improvements)
  */
 
-export const SYSTEM_VERSION = "1.3.4";
+export const SYSTEM_VERSION = "1.3.5";
 
 /**
  * Version History:
+ * 
+ * 1.3.5 (2026-10-05):
+ * - LLM-call telemetry for latency measurement (no behaviour change for teachers): the PCK
+ *   and student-generation endpoints now measure model-call latency and report compact
+ *   metadata (model, latency, finish reason, attempt count) alongside their responses.
+ * - Each logged turn now stores an additive `telemetry` field with that metadata for the
+ *   PCK and student calls, plus the browser round-trip time. Image-only turns record the
+ *   PCK call as "skipped" (not as a failure).
+ * - failedAttempts entries now also include the same timing metadata where available.
+ * - Telemetry never contains prompts, model output, teacher/student text, drawings or
+ *   history. No retries, timeouts, prompts or models were changed.
  * 
  * 1.3.4 (2026-10-05):
  * - Real-time PCK feedback output is now structurally reliable (C10): the PCK model call
