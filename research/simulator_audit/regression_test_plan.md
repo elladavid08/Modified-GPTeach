@@ -36,12 +36,12 @@ Both suites are fully offline:
 
 `package.json` gained only scripts (`test`, `test:server`, `test:all`). No dependencies were added.
 
-### 0.3 Tests implemented (104 total: 81 frontend, 23 backend)
+### 0.3 Tests implemented (111 total: 82 frontend, 29 backend)
 
 | file | tests | protects |
 |---|---:|---|
 | `src/__tests__/conversationContract.test.js` | 14 | A1, A2, A5, A12, A13. The validator accepts current and legacy docs and additive fields, and rejects 9 kinds of contract breaks. The Excel export reads both formats (turns, Hebrew skill names, score labels, summary sections, legacy free-text skill ids). Which skills the export includes is not asserted. |
-| `src/__tests__/conversationLogger.test.js` | 11 | A1-A3, A4 (DECIDED), A6, A7, A10 (DECIDED), A11, A12, A14 (DECIDED), B5 (DECIDED: cast recorded). sessionId format; lazy init; `studentRefs` = `v<ver>_<id>` for the cast; systemVersion stamp; minimal user snapshot `{fullName, role}`; scenario snapshot fields; contract-valid doc after each turn; `turnNumber` 1..n; one-time init; turn field mapping; null feedback input stored as null; image stored without prefix; >600 px downscaled to 600; endTime and summary persisted. |
+| `src/__tests__/conversationLogger.test.js` | 12 | A1-A3, A4 (DECIDED), A6, A7, A10 (DECIDED), A11, A12, A14 (DECIDED), B5 (DECIDED: cast recorded). sessionId format; lazy init; `studentRefs` = `v<ver>_<id>` for the cast; systemVersion stamp; minimal user snapshot `{fullName, role}`; scenario snapshot fields; contract-valid doc after each turn; `turnNumber` 1..n; one-time init; turn field mapping; null feedback input stored as null; image stored without prefix; >600 px downscaled to 600; endTime and summary persisted.; displayed feedback is stored in the shape the summary consumes (shared fixture `loggedTurnWithFeedback.json`), without `should_provide_feedback` (A4, C1). |
 | `src/__tests__/chatTurnOrchestration.test.js` | 28 | B1 (PCK before students; students wait for the PCK result; analysis passed as `impact_analysis`); B7 (no-feedback decision → no feedback content shown); A4 DECIDED (not displayed → logged as `pckFeedback: null`); A2 (displayed feedback logged with its fields); B9 (sidebar cleared on new send); B5 DECIDED (cast of 3 distinct personas, identical in the logger and in every student call, one logger per session); A6 (`SYSTEM_VERSION` to the logger); B20 (briefing before first message); students see prior replies; drawing attached and logged only when opted in. Renders the real `Chat.jsx` with mocked services, auth, logger and DrawingBoard.; **C2/C3 turn lock (10 tests)**: input, send and typing indicator locked from submit until the turn finishes; "סיים שיחה" disabled and ignored during a turn, available again afterwards, and executed only after queued turn log entries are written (repeat clicks ignored); **C4 empty messages (7 tests)**: empty, spaces-only, tabs+spaces and line-breaks-only submits with no drawing (and with the opt-in ticked but an empty board) start nothing (no history entry, PCK call, student call, log entry or lock); a normal message after an ignored empty one works; non-empty text is passed through unchanged; **B22 (DECIDED)**: an image-only submit (opt-in plus a real drawing, empty text) starts a turn, reaches the student agent with the drawing attached, and is logged with the drawing; extra submits ignored (no extra PCK or student call, nothing logged); unlock after success, PCK failure, empty-reply student failure, and thrown/rejected student generation; feedback and log entries stay with their own turn and are written in send order even when logging is slow. |
 | `src/__tests__/studentAgent.test.js` | 10 | B3 / B4 inputs. One system prompt + history in order; personas, topic and Hebrew requirement in the prompt; PCK impact block present iff provided (B1); `{student, message}` → assistant `ChatMessage`s in order, trimmed; no fabricated messages on backend failure; `ChatMessage.toAIformat` text and image forms.; `callAI` returns a promise that settles after `onResponse` and rejects when the request cannot be built (the completion signal for the turn lock). |
 | `src/__tests__/pckSkillsDisplay.test.js` | 11 | A5, B11. The duplicated skill-name maps (sidebar, Excel export, ConversationLogs, AdminConversationLogs, server prompt) equal the contract; score labels; the sidebar shows nothing without feedback (exact placeholder text not asserted, B10), legend, per-score text, irrelevant skills hidden, and legacy fallback. |
@@ -49,12 +49,12 @@ Both suites are fully offline:
 | `server/test/pck_skills.test.mjs` | 7 | A5. Exactly the 5 contract ids as a set (order not protected); Hebrew names; 0/1/2 bands only; unknown id → null; prompt formatter covers all ids and bands; history format `מורה:` / `<name>:`; empty-history marker. |
 | `server/test/api_generate.test.mjs` | 7 | B3. Model text returned verbatim as `{success, text}`; JSON mode + `responses[{student, message}]` schema requested; system and teacher text reach the model; user/model roles; a teacher drawing is forwarded as inline PNG; 400 on bad input; model failure is never a successful reply. |
 | `server/test/api_pck_feedback.test.mjs` | 6 | A5, B7. A valid analysis passes through intact (skills, scores, decision, student-impact hints); a ```json fence is parsed; a no-feedback decision stays no-feedback with an empty message; the prompt contains the teacher message, scenario context, **named** history and all skill ids; the prompt contains Gate 0 exclusions; 400 on bad input. |
-| `server/test/api_pck_summary.test.mjs` | 3 | A12. `{success, summary (trimmed string), analyzed_turns, session_id}`; the prompt contains every logged teacher message and named student reply plus scenario context; 400 without turns. |
+| `server/test/api_pck_summary.test.mjs` | 9 | A12. `{success, summary (trimmed string), analyzed_turns, session_id}`; the prompt contains every logged teacher message and named student reply plus scenario context; 400 without turns.; **C1 (6 tests)**: a logged `pckFeedback` without `should_provide_feedback` is a moment; the moment carries skill name/id, score label + number, evidence, suggestion and stored feedback text (no `undefined`, irrelevant skills omitted); `pckFeedback: null` turns are not moments; multiple moments in turn order; legacy feedback without `skills_assessment` is passed without invented scores; no displayed feedback keeps the no-moments path. |
 
 ### 0.4 Deliberately not protected
 
 Each test file's header lists what it intentionally does **not** assert. In short:
-- No test preserves any §C behaviour of `invariants.md`: C1 summary moments, C5 newline stripping, C6 fallback text, C7 silent failures, C8 dropped names, C9 `thinking` vs schema, C10 PCK parse/default behaviour, C12 hard-coded tiers.
+- No test preserves any §C behaviour of `invariants.md`: C5 newline stripping, C6 fallback text, C7 silent failures, C8 dropped names, C9 `thinking` vs schema, C10 PCK parse/default behaviour, C12 hard-coded tiers.
 - Nothing preserves B12 (hidden score-1 suggestion).
 - Nothing asserts the B8 row cap.
 - **Invariants alignment pass (2026-10-05):** the baseline protects only PROTECT / DECIDED items. The following REVIEW items are deliberately untested:
@@ -94,7 +94,7 @@ Whether the live model *follows* Gate 0 belongs in the behavioural suite (§5). 
 
 - §2 Step 0 (golden prompt snapshots plus behaviour-preserving extraction of `server.js` / `ai.js` helpers). Today the server is tested through its HTTP surface, and `makeProsePrompt` / `convertResponseToMessages` only through `callAI`.
 - §3.2 malformed-output fixtures for the PCK parser (written together with fix 0.5; see the table below).
-- §3.3 summary moment extraction (with the C1 fix).
+- ~~§3.3 summary moment extraction~~: done (§0.11). Summary vs real-time *consistency* of the model output is still behavioural (§5.4).
 - §3.4 concurrent `addTurn` directly on `ConversationLog`. Concurrency is now prevented at the call site (§0.8), so this is lower priority.
 - §4 payload-limit and retry tests; client `fetchWithRetry` tests.
 - §5 behavioural / golden agent tests (real model, on demand).
@@ -105,7 +105,7 @@ Whether the live model *follows* Gate 0 belongs in the behavioural suite (§5). 
 
 | fix (audit id) | add / change these tests |
 |---|---|
-| **C1 summary never sees real-time moments** | `api_pck_summary`: a log containing a logged `pckFeedback` (as produced by `ConversationLog.addTurn`, i.e. without `should_provide_feedback`) → the prompt contains the moment's skill name, score label and evidence; a log with only `null` feedback → no moments. Logger: if a display flag is added, assert it in `conversationLogger.test.js` and in the contract (additive). |
+| ~~C1 summary never sees real-time moments~~ | **Done (§0.11).** |
 | ~~C2/C3 input re-enabled during generation; races~~ | **Done (§0.8).** Tests implemented in `chatTurnOrchestration` (turn lock) and `studentAgent` (`callAI` completion signal). A request **timeout** is still not implemented; add a test if one is introduced. |
 | ~~C4 empty sends~~ | **Done (§0.9).** Image-only messages are DECIDED as supported (B22), and their regression test is added. |
 | **C5 multiline teacher messages** | `studentAgent` / `ChatMessage`: teacher text keeps `\n` (and student text per decision); `ChatBubble` renders with `white-space: pre-wrap`; `formatConversationHistory` and the summary transcript keep line breaks; logger stores `\n`; Excel export and annotation viewers render it. |
@@ -195,6 +195,26 @@ These are not fixed and not designed yet. They are listed so the drawing / share
 | A10 | ≤600 px PNG inline storage; no vector state | `conversationLogger.js` | additive vector/external storage; old records readable |
 
 B22 regression test: **added** (`chatTurnOrchestration`, "accepts an image-only submit … (B22)"). It protects image-only turns against the C4 empty-message guard. It deliberately does not assert PCK or summary handling of image-only turns (E1).
+
+### 0.11 Fixed: C1 summary did not receive real-time PCK moments (2026-10-05)
+
+**Root cause:** `/api/pck-summary` selected moments with `turn.pckFeedback && turn.pckFeedback.should_provide_feedback`. `ConversationLog.addTurn` stores `pckFeedback` only for displayed feedback (A4), and never stores `should_provide_feedback` inside it. So no turn ever qualified, and every summary prompt said "No significant PCK moments were identified…". In the same block, the collected `feedback_message` was never printed, and a skill with no `evidence` printed `Evidence: undefined`.
+
+**Behaviour now** (`server/server.js`, moment block of `/api/pck-summary` only):
+
+| input | summary prompt |
+|---|---|
+| current format: `pckFeedback` with `skills_assessment` | One moment per such turn, in log (turn) order. Per relevant skill: `<Hebrew name> (<id>): <label> (score N)`, `Evidence:` (if present), `Could improve:` (if present). Then `Feedback message recorded for this turn:` (if present). Irrelevant skills are omitted. |
+| legacy: `pckFeedback` without `skills_assessment` | Still a moment. `detected_skills` / `missed_opportunities` are listed with their text, marked "no score recorded". No score or label is invented. Unknown free-text skill ids are shown as-is. |
+| `pckFeedback: null` | Not a moment (feedback was not displayed). The turn still appears in the transcript. |
+| no displayed feedback at all | Unchanged no-moments path ("No significant PCK moments were identified…") and the "0-2 moments" length band |
+
+Unchanged: the PCK rubric, the feedback model, scoring, the summary instructions (including "do not contradict the scores already given"), A4 and the stored schema.
+
+**Notes:**
+- The moments list everything stored for a displayed turn, including the score-1 suggestion that the v1.3.0 sidebar hides (B12, decided to be shown later).
+- `feedback_message` is labelled "recorded", because the v1.3.0 sidebar does not display it (the sidebar shows the per-skill rows).
+- Effect on output: summaries now take the 3-5 or 6+ moment length bands for conversations with feedback, so they will typically be **longer** than before. Bump `SYSTEM_VERSION` with this change.
 
 ## Original proposal (kept for reference; see §0.6 for what is still open)
 

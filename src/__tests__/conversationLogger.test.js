@@ -120,6 +120,25 @@ describe("ConversationLog", () => {
 		);
 	});
 
+	it("stores displayed feedback in the shape the summary consumes, without should_provide_feedback (A4, C1)", async () => {
+		const fixture = require("../testUtils/contracts/loggedTurnWithFeedback.json");
+		// What Chat.jsx passes for displayed feedback (formattedFeedback), including UI-only fields.
+		const chatFeedback = {
+			...fixture.pckFeedback,
+			should_display: true,
+			pedagogical_quality: "positive",
+			misconception_addressed: true,
+		};
+		delete chatFeedback.timestamp;
+		const log = new ConversationLog(scenario, students, "u1", profile, "9.9.9");
+		await log.addTurn(fixture.teacher.message, [{ name: "תמר", text: "s" }], chatFeedback);
+		const stored = lastSavedDoc().turns[0].pckFeedback;
+		for (const key of Object.keys(fixture.pckFeedback)) expect(stored).toHaveProperty(key);
+		expect(stored).not.toHaveProperty("should_provide_feedback");
+		expect(stored.skills_assessment).toEqual(fixture.pckFeedback.skills_assessment);
+		expect(stored.feedback_message).toBe(fixture.pckFeedback.feedback_message);
+	});
+
 	it("stores pckFeedback as null when no feedback was displayed (A2, A4 DECIDED)", async () => {
 		const log = new ConversationLog(scenario, students, "u1", profile, "9.9.9");
 		await log.addTurn("t", [{ name: "נועה", text: "s" }], null);

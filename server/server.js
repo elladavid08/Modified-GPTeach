@@ -930,13 +930,17 @@ app.post('/api/pck-summary', async (req, res) => {
       return turnText;
     }).join('\n');
 
-    // Extract PCK feedback moments with skill assessments
+    // Extract PCK feedback moments with skill assessments.
+    // A logged turn's pckFeedback is non-null only when feedback was displayed to the teacher (A4).
     const pckMoments = conversationLog.turns
-      .filter(turn => turn.pckFeedback && turn.pckFeedback.should_provide_feedback)
+      .filter(turn => turn.pckFeedback)
       .map(turn => ({
         turnNumber: turn.turnNumber,
-        teacherMessage: turn.teacher.message,
-        skills_assessment: turn.pckFeedback.skills_assessment || [],
+        teacherMessage: (turn.teacher && turn.teacher.message) || '',
+        skills_assessment: turn.pckFeedback.skills_assessment,
+        // Legacy records (no skills_assessment) only have these unscored lists
+        detected_skills: turn.pckFeedback.detected_skills || [],
+        missed_opportunities: turn.pckFeedback.missed_opportunities || [],
         feedback_message: turn.pckFeedback.feedback_message_hebrew || turn.pckFeedback.feedback_message
       }));
     
@@ -950,18 +954,41 @@ app.post('/api/pck-summary', async (req, res) => {
         pckMomentsText += `**Turn ${moment.turnNumber}:**\n`;
         pckMomentsText += `Teacher said: "${moment.teacherMessage.substring(0, 100)}..."\n`;
         
-        const relevantSkills = moment.skills_assessment.filter(s => s.is_relevant);
-        if (relevantSkills.length > 0) {
+        if (Array.isArray(moment.skills_assessment)) {
+          const relevantSkills = moment.skills_assessment.filter(s => s.is_relevant);
           relevantSkills.forEach(skill => {
             const scoreLabel = skill.score === 2 ? '✅ Excellent' : skill.score === 1 ? '⚠️ Partial' : '❌ Missed';
             const skillDef = getPCKSkillById(skill.skill_id);
             const hebrewName = skillDef ? skillDef.skill_name.he : skill.skill_id;
-            pckMomentsText += `  - ${hebrewName} (${skill.skill_id}): ${scoreLabel}\n`;
-            pckMomentsText += `    Evidence: ${skill.evidence}\n`;
+            pckMomentsText += `  - ${hebrewName} (${skill.skill_id}): ${scoreLabel} (score ${skill.score})\n`;
+            if (skill.evidence) {
+              pckMomentsText += `    Evidence: ${skill.evidence}\n`;
+            }
             if (skill.what_could_be_better) {
               pckMomentsText += `    Could improve: ${skill.what_could_be_better}\n`;
             }
           });
+        } else {
+          // Legacy feedback without skills_assessment: pass the recorded text, no scores
+          const skillName = (id) => {
+            const skillDef = getPCKSkillById(id);
+            return skillDef ? `${skillDef.skill_name.he} (${id})` : id;
+          };
+          moment.detected_skills.forEach(s => {
+            pckMomentsText += `  - ${skillName(s.skill_id)}: noted as demonstrated (no score recorded)\n`;
+            if (s.evidence) {
+              pckMomentsText += `    Evidence: ${s.evidence}\n`;
+            }
+          });
+          moment.missed_opportunities.forEach(s => {
+            pckMomentsText += `  - ${skillName(s.skill_id)}: noted as a missed opportunity (no score recorded)\n`;
+            if (s.what_could_have_been_done) {
+              pckMomentsText += `    Could improve: ${s.what_could_have_been_done}\n`;
+            }
+          });
+        }
+        if (moment.feedback_message) {
+          pckMomentsText += `  Feedback message recorded for this turn: ${moment.feedback_message}\n`;
         }
         pckMomentsText += `\n`;
       });

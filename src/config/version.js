@@ -13,10 +13,26 @@
  * - Z: Patch version (bug fixes, minor improvements)
  */
 
-export const SYSTEM_VERSION = "1.3.0";
+export const SYSTEM_VERSION = "1.3.1";
 
 /**
  * Version History:
+ * 
+ * 1.3.1 (2026-10-05):
+ * - Turn lock (C2/C3): only one simulation turn (PCK analysis + student responses) can
+ *   run at a time. From the teacher's submit until the turn finishes, the input, send
+ *   button, drawing-board toggle and "סיים שיחה" are disabled and the typing indicator
+ *   stays visible; extra submits are ignored. The lock is released after success and
+ *   after every failure path. Turn log entries are written in send order, and finishing
+ *   the conversation waits until queued turn logging has completed.
+ * - Empty messages (C4): empty or whitespace-only teacher submissions with no drawing
+ *   are ignored (no PCK call, no student call, no logged turn). Image-only turns (the
+ *   teacher explicitly includes a non-empty drawing without text) remain supported.
+ * - Summary feedback (C1): the final PCK summary now receives the real-time PCK
+ *   feedback that was actually displayed during the conversation (skill, score,
+ *   evidence, suggestion, recorded feedback message) and is grounded in it, instead of
+ *   treating every conversation as if no PCK moments existed. Summaries of
+ *   conversations with feedback are therefore typically longer than before.
  * 
  * 1.3.0 (2026-05-20):
  * - PCK feedback accuracy: restructured Phase 1 into three sequential gates so
