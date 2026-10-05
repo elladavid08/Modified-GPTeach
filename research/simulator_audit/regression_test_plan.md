@@ -36,13 +36,13 @@ Both suites are fully offline:
 
 `package.json` gained only scripts (`test`, `test:server`, `test:all`). No dependencies were added.
 
-### 0.3 Tests implemented (96 total: 73 frontend, 23 backend)
+### 0.3 Tests implemented (104 total: 81 frontend, 23 backend)
 
 | file | tests | protects |
 |---|---:|---|
 | `src/__tests__/conversationContract.test.js` | 14 | A1, A2, A5, A12, A13. The validator accepts current and legacy docs and additive fields, and rejects 9 kinds of contract breaks. The Excel export reads both formats (turns, Hebrew skill names, score labels, summary sections, legacy free-text skill ids). Which skills the export includes is not asserted. |
 | `src/__tests__/conversationLogger.test.js` | 11 | A1-A3, A4 (DECIDED), A6, A7, A10 (DECIDED), A11, A12, A14 (DECIDED), B5 (DECIDED: cast recorded). sessionId format; lazy init; `studentRefs` = `v<ver>_<id>` for the cast; systemVersion stamp; minimal user snapshot `{fullName, role}`; scenario snapshot fields; contract-valid doc after each turn; `turnNumber` 1..n; one-time init; turn field mapping; null feedback input stored as null; image stored without prefix; >600 px downscaled to 600; endTime and summary persisted. |
-| `src/__tests__/chatTurnOrchestration.test.js` | 20 | B1 (PCK before students; students wait for the PCK result; analysis passed as `impact_analysis`); B7 (no-feedback decision → no feedback content shown); A4 DECIDED (not displayed → logged as `pckFeedback: null`); A2 (displayed feedback logged with its fields); B9 (sidebar cleared on new send); B5 DECIDED (cast of 3 distinct personas, identical in the logger and in every student call, one logger per session); A6 (`SYSTEM_VERSION` to the logger); B20 (briefing before first message); students see prior replies; drawing attached and logged only when opted in. Renders the real `Chat.jsx` with mocked services, auth, logger and DrawingBoard.; **C2/C3 turn lock (10 tests)**: input, send and typing indicator locked from submit until the turn finishes; "סיים שיחה" disabled and ignored during a turn, available again afterwards, and executed only after queued turn log entries are written (repeat clicks ignored); extra submits ignored (no extra PCK or student call, nothing logged); unlock after success, PCK failure, empty-reply student failure, and thrown/rejected student generation; feedback and log entries stay with their own turn and are written in send order even when logging is slow. |
+| `src/__tests__/chatTurnOrchestration.test.js` | 28 | B1 (PCK before students; students wait for the PCK result; analysis passed as `impact_analysis`); B7 (no-feedback decision → no feedback content shown); A4 DECIDED (not displayed → logged as `pckFeedback: null`); A2 (displayed feedback logged with its fields); B9 (sidebar cleared on new send); B5 DECIDED (cast of 3 distinct personas, identical in the logger and in every student call, one logger per session); A6 (`SYSTEM_VERSION` to the logger); B20 (briefing before first message); students see prior replies; drawing attached and logged only when opted in. Renders the real `Chat.jsx` with mocked services, auth, logger and DrawingBoard.; **C2/C3 turn lock (10 tests)**: input, send and typing indicator locked from submit until the turn finishes; "סיים שיחה" disabled and ignored during a turn, available again afterwards, and executed only after queued turn log entries are written (repeat clicks ignored); **C4 empty messages (7 tests)**: empty, spaces-only, tabs+spaces and line-breaks-only submits with no drawing (and with the opt-in ticked but an empty board) start nothing (no history entry, PCK call, student call, log entry or lock); a normal message after an ignored empty one works; non-empty text is passed through unchanged; **B22 (DECIDED)**: an image-only submit (opt-in plus a real drawing, empty text) starts a turn, reaches the student agent with the drawing attached, and is logged with the drawing; extra submits ignored (no extra PCK or student call, nothing logged); unlock after success, PCK failure, empty-reply student failure, and thrown/rejected student generation; feedback and log entries stay with their own turn and are written in send order even when logging is slow. |
 | `src/__tests__/studentAgent.test.js` | 10 | B3 / B4 inputs. One system prompt + history in order; personas, topic and Hebrew requirement in the prompt; PCK impact block present iff provided (B1); `{student, message}` → assistant `ChatMessage`s in order, trimmed; no fabricated messages on backend failure; `ChatMessage.toAIformat` text and image forms.; `callAI` returns a promise that settles after `onResponse` and rejects when the request cannot be built (the completion signal for the turn lock). |
 | `src/__tests__/pckSkillsDisplay.test.js` | 11 | A5, B11. The duplicated skill-name maps (sidebar, Excel export, ConversationLogs, AdminConversationLogs, server prompt) equal the contract; score labels; the sidebar shows nothing without feedback (exact placeholder text not asserted, B10), legend, per-score text, irrelevant skills hidden, and legacy fallback. |
 | `src/__tests__/configContracts.test.js` | 7 | A6 (semver + the DECIDED process rule: a changelog entry in `version.js` for the current version), A7 (persona id/version/uniqueness), A15 DECIDED (`participation.baseline ∈ {low, medium, high}`), B5 (≥3 personas, NUM_STUDENTS ≥ 3), A8 (unique non-empty scenario titles; title stability A9 not asserted; snapshotted fields present), B20 (all teacher-initiated). |
@@ -54,7 +54,7 @@ Both suites are fully offline:
 ### 0.4 Deliberately not protected
 
 Each test file's header lists what it intentionally does **not** assert. In short:
-- No test preserves any §C behaviour of `invariants.md`: C1 summary moments, C4 empty sends, C5 newline stripping, C6 fallback text, C7 silent failures, C8 dropped names, C9 `thinking` vs schema, C10 PCK parse/default behaviour, C12 hard-coded tiers.
+- No test preserves any §C behaviour of `invariants.md`: C1 summary moments, C5 newline stripping, C6 fallback text, C7 silent failures, C8 dropped names, C9 `thinking` vs schema, C10 PCK parse/default behaviour, C12 hard-coded tiers.
 - Nothing preserves B12 (hidden score-1 suggestion).
 - Nothing asserts the B8 row cap.
 - **Invariants alignment pass (2026-10-05):** the baseline protects only PROTECT / DECIDED items. The following REVIEW items are deliberately untested:
@@ -107,7 +107,7 @@ Whether the live model *follows* Gate 0 belongs in the behavioural suite (§5). 
 |---|---|
 | **C1 summary never sees real-time moments** | `api_pck_summary`: a log containing a logged `pckFeedback` (as produced by `ConversationLog.addTurn`, i.e. without `should_provide_feedback`) → the prompt contains the moment's skill name, score label and evidence; a log with only `null` feedback → no moments. Logger: if a display flag is added, assert it in `conversationLogger.test.js` and in the contract (additive). |
 | ~~C2/C3 input re-enabled during generation; races~~ | **Done (§0.8).** Tests implemented in `chatTurnOrchestration` (turn lock) and `studentAgent` (`callAI` completion signal). A request **timeout** is still not implemented; add a test if one is introduced. |
-| **C4 empty sends** | `chatTurnOrchestration`: submitting `""` / whitespace → no `getPCKFeedback`, no `callAI`, no history entry. Image-only (per the product decision): allowed or blocked explicitly. |
+| ~~C4 empty sends~~ | **Done (§0.9).** Image-only messages are DECIDED as supported (B22), and their regression test is added. |
 | **C5 multiline teacher messages** | `studentAgent` / `ChatMessage`: teacher text keeps `\n` (and student text per decision); `ChatBubble` renders with `white-space: pre-wrap`; `formatConversationHistory` and the summary transcript keep line breaks; logger stores `\n`; Excel export and annotation viewers render it. |
 | **C6 fixed fallback text** | `studentAgent`: invalid JSON / truncated JSON / missing `responses` → no message with fallback text; at most one re-ask (if implemented); a visible error flag; nothing persisted as a student turn. |
 | **B2 PCK failure behaviour (open product decision)** | `chatTurnOrchestration`: PCK reject → the decided behaviour (students unsteered / retry / blocked turn), plus a visible failure state and a failure log entry. |
@@ -161,6 +161,40 @@ Whether the live model *follows* Gate 0 belongs in the behavioural suite (§5). 
 - There is no request timeout, so a hung backend call keeps the lock until the request ends.
 - Failures are still not shown to the teacher (C7).
 - Empty sends are still accepted (C4).
+
+### 0.9 Fixed: C4 empty teacher messages (2026-10-05)
+
+**Behaviour now** (`Chat.addUserResponse`, checked before the turn lock is taken):
+
+| submission | result |
+|---|---|
+| empty text, no drawing to include | ignored: no history entry, no PCK call, no student call, no logged turn, turn lock not taken; the textarea is cleared by `InputField` as before |
+| whitespace-only (spaces, tabs, line breaks), no drawing | same as empty |
+| empty / whitespace text, "כלול בהודעה" ticked but the board is empty | same as empty |
+| **image-only** (opt-in ticked + a drawing, no text) | **unchanged**: accepted, starts a turn. B22 is **DECIDED**: image-only turns are valid and must remain supported. Downstream handling is incomplete (E1, §0.10). |
+| non-empty text (with or without a drawing) | unchanged; text passed through as typed |
+
+**Production change:** in `src/pages/Chat.jsx`, the start of `addUserResponse` computes:
+- `hasText = TAmessage.text.trim().length > 0`;
+- `willIncludeDrawing = board.shouldInclude() && board.hasDrawing()`.
+
+It returns early if neither holds. Nothing else changed.
+
+**Known edge (not addressed):** if the board reports a drawing but `exportAsImage()` then returns `null` (only on an export exception), an empty-text message without an image is still sent.
+
+### 0.10 Future drawing / multimodal backlog (documented, not scheduled)
+
+These are not fixed and not designed yet. They are listed so the drawing / shared-workspace work picks them up. They change agent evidence, so each needs a `systemVersion` bump and the replay/evaluation runs in §5.
+
+| id | issue | where it shows | tests to add when addressed |
+|---|---|---|---|
+| **E1** (`invariants.md` §E) | **Image-only teacher turns are under-represented outside the live chat.** (a) Exports and agent transcripts show a blank teacher message. In-app viewers show the drawing under an empty text line. (b) The student agent sees the drawing, while the PCK agent gets an empty message (`/api/pck-feedback` → 400 → no feedback, students unsteered) and the summary agent sees `Teacher: ` with nothing after it. (c) Pilot conversations with image-only turns are hard to interpret, and the agents had inconsistent evidence (11 turns in the 2026-07-27 export). | `exportConversationExcel.js`, `AdminConversationLogs.jsx` CSV, `universal_pck_skills.formatConversationHistory`, `server.js` `/api/pck-feedback` (empty-message 400) and `/api/pck-summary` transcript | exports and transcripts contain an explicit drawing marker/caption for image-only turns; the PCK request for an image-only turn is accepted and carries the drawing (or its description); the summary transcript marks the drawing; old records still render. |
+| B17 | PCK and summary agents never see drawings (DECIDED: change later by design) | `server.js` PCK and summary prompts | PCK and summary requests include the turn's drawing per the chosen design; evaluation on drawing turns |
+| B16 | Every past drawing is re-sent to the student agent on every turn, with no caption | `ChatMessage.toAIformat`, `convertMessagesToGenAI` | the decided re-send policy (e.g. latest only, or captioned) |
+| B15 | Board opt-in reset, board persistence, auto-close after send | `DrawingBoard.jsx`, `Chat.jsx` | per the UX decision |
+| A10 | ≤600 px PNG inline storage; no vector state | `conversationLogger.js` | additive vector/external storage; old records readable |
+
+B22 regression test: **added** (`chatTurnOrchestration`, "accepts an image-only submit … (B22)"). It protects image-only turns against the C4 empty-message guard. It deliberately does not assert PCK or summary handling of image-only turns (E1).
 
 ## Original proposal (kept for reference; see §0.6 for what is still open)
 

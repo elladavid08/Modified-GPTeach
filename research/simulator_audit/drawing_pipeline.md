@@ -78,3 +78,14 @@ So the student agent and the feedback agent see different evidence for the same 
 - The feedback agent is blind to drawings. Any workspace work will need to decide what the PCK agent sees (pixels, a structured description, or both).
 - Persistence is inline base64 in the conversation document. A workspace with richer state would need a separate store (e.g. a subcollection or Cloud Storage), mainly because of the 1 MB document limit and the whole-document rewrite on every turn.
 - Downstream research tooling (`research/pck_feedback/src/pck_feedback/export/extract_images.py`, annotation UIs, the Excel export) reads `turn.teacher.image` as base64 PNG. That contract should be kept or versioned.
+
+## 8. Known issue: image-only teacher turns (added 2026-10-05)
+
+Image-only turns (drawing included, no text) are a supported input (`invariants.md` B22, DECIDED). The C4 empty-message fix deliberately keeps them. Downstream they are incomplete (`invariants.md` §E1):
+- they appear as **blank teacher messages** in the Excel and CSV exports and in agent transcripts;
+- in-app viewers show the drawing under an empty text line;
+- the **student agent sees the drawing**, but the **PCK agent receives an empty message** (`/api/pck-feedback` returns 400, so there is no feedback and the students run unsteered);
+- the **summary agent** sees an empty `Teacher:` line;
+- so saved pilot conversations with such turns are hard to interpret, and the agents worked from inconsistent evidence (11 turns in the 2026-07-27 export).
+
+Not changed yet. It belongs to the drawing/multimodal backlog (`regression_test_plan.md` §0.10), together with B17 (PCK and summary drawing visibility).

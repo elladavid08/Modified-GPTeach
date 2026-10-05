@@ -54,6 +54,7 @@ Status labels:
 | B19 | `feedbackHistory`: the last 3 analyses (displayed or not) are passed to the PCK prompt with continuity rules | REVIEW | Intentional (v1.3.0), but continuity Rule 1 conflicts with B200 "relevance ≠ success". |
 | B20 | Teacher-initiated scenarios show `teacher_briefing` until the first message; all six active scenarios are `initiated_by:"teacher"` | PROTECT | Pilot protocol. |
 | B21 | All UI is Hebrew and RTL | PROTECT | |
+| B22 | Image-only teacher turns (drawing included via "כלול בהודעה", no text) are accepted and start a turn | **DECIDED: PROTECT** | Image-only teacher turns are valid when the teacher **explicitly opts to include a real drawing** (opt-in ticked *and* a non-empty board). They must remain supported, and the C4 empty-message guard must not block them. They were used intentionally in the pilot (11 exported turns). Their handling downstream is incomplete: blank text in exports and agent transcripts, and PCK/summary agents don't see the drawing. See §E, issue **E1**. |
 
 ## C. Current behaviours that should NOT be protected (defects)
 
@@ -64,7 +65,7 @@ Rows marked ~~struck~~ / **FIXED** are kept for history. Their fixed behaviour i
 | C1 | Summary never receives real-time PCK moments (`should_provide_feedback` never logged) | `server.js:934-941`, `conversationLogger.js:166-173` |
 | ~~C2~~ | **FIXED 2026-10-05.** *Historical:* input and send were re-enabled, and the typing indicator hidden, as soon as a turn started (`setIsQuerying(false)` before the LLM calls). *Now:* a turn lock keeps input, send, the board toggle and **finish (סיים שיחה)** unavailable, and the indicator visible, until the turn finishes (success or any failure path). See `regression_test_plan.md` §0.8. | `Chat.jsx` (turn lock), `ai.js` (`callAI` returns its promise) |
 | ~~C3~~ | **FIXED 2026-10-05.** *Historical:* concurrent turns could race (sidebar showed an older analysis; turns were logged in completion order; finish could run mid-turn). *Now:* extra submits during a turn are ignored; turn log entries are written through a serial queue in send order; finish runs only after queued log entries are written. | consequence of C2 |
-| C4 | Empty messages (no text, no image) trigger the full PCK + student pipeline | `InputField.js:14-19` |
+| ~~C4~~ | **FIXED 2026-10-05.** *Historical:* empty messages (no text, no image) triggered the full PCK + student pipeline (13 such turns in the pilot export). *Now:* a submit whose text is empty or whitespace-only **and** that has no drawing to include is ignored: no history entry, no PCK or student call, no logged turn, no turn lock. Image-only messages are unchanged (see B22). | `Chat.jsx` `addUserResponse` |
 | C5 | All newlines stripped from messages (joined without a space) | `ChatMessage.js:9` |
 | C6 | Fixed fallback student message `"אני צריך רגע לחשוב על זה..."`, persisted as a real student turn | `ai.js:325-336` |
 | C7 | Student-call and PCK-call failures are silent and not logged; failed turns vanish from the record | `ai.js:232-237`, `Chat.jsx:244-264` |
@@ -96,3 +97,36 @@ Rows marked ~~struck~~ / **FIXED** are kept for history. Their fixed behaviour i
 5. **Should the PCK agent see drawings (B17)?**
    - **Decision:** Yes in the long term, for drawings that are part of the teacher turn. Treat it as a later design change, not a quick fix.
    - **Rationale:** Drawings can be the pedagogical move itself, and annotators saw them. But visibility changes feedback decisions and comparability, so it needs design and evaluation first.
+
+## E. Known future issues (not current invariants, not yet scheduled)
+
+### E1. Image-only teacher turns are under-represented outside the live chat
+
+Recorded 2026-10-05, after the C4 fix. Part of the future drawing / multimodal backlog (`regression_test_plan.md` §0.10, `drawing_pipeline.md` §8). **No change made yet.**
+
+An image-only turn is saved with `teacher.message = ""` and the drawing in `teacher.image` (when the turn is logged).
+
+1. **Blank teacher messages in history and export views.**
+   - Views that show the drawing, but with an empty text line above it:
+     - the live chat (`ChatBubble`);
+     - `ConversationLogs` / `AdminConversationLogs` detail (`ConversationDetail`);
+     - `ConvAnnotationEditor`;
+     - `ComparisonSetsPage`.
+   - Places where the turn is **blank**, with no image and no "[drawing]" marker:
+     - the research Excel export (`exportConversationExcel`, used by `ResearchConversations`);
+     - the admin CSV export (`AdminConversationLogs`, `teacher_message`);
+     - the text history inside agent prompts.
+   - Research text pipelines see an empty teacher turn unless they join the images extracted separately (`research/pck_feedback/.../extract_images.py`).
+2. **Inconsistent evidence between agents.**
+   - The **student agent sees the drawing.** It is sent as `inline_data`, and re-sent on every later turn (B16).
+   - The **PCK agent does not.** It receives an empty `teacherMessage`, which `/api/pck-feedback` rejects with 400, so the turn gets no feedback and the students run unsteered (B2). Even on later turns, the PCK history shows `מורה: ` with nothing after it.
+   - The **summary agent does not see it either.** The transcript line is `Teacher: ` with nothing after it.
+   - Related: B17 (PCK and summary agents do not see drawings at all).
+3. **Consequence.** Saved pilot conversations containing image-only turns are hard to interpret. The teacher's move is invisible in exports, and student replies appear to respond to nothing. The agents also judged the same turn on different evidence. Analyses of pilot data should treat these turns specially (11 turns in the 2026-07-27 export).
+
+**Direction (to be designed with the B17 drawing-visibility work, not a quick fix):**
+- an explicit drawing marker or caption in transcripts and exports;
+- the PCK and summary agents receive the drawing (or a description) for the turn;
+- `/api/pck-feedback` accepts image-only turns.
+
+All of this needs a `systemVersion` bump and must keep old records readable.

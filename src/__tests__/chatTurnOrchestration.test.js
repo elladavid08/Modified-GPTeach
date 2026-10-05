@@ -12,8 +12,12 @@
 //         unavailable during a turn and, after a turn, runs only once queued turn logging is done
 //
 // All services are mocked: no LLM, no Firestore, no auth.
-// Deliberately NOT asserted (defects, invariants.md §C): empty sends (C4), newline handling (C5),
-// and how failures are surfaced to the teacher (C7).
+//   C4 (fixed) a submit with no text (empty / whitespace) and no included drawing starts nothing
+//
+// Deliberately NOT asserted (defects, invariants.md §C): newline handling (C5) and how failures
+// are surfaced to the teacher (C7).
+//   B22 (DECIDED) an image-only submit (opt-in ticked + a real drawing, no text) is a valid turn.
+//       How the PCK/summary agents handle such turns is NOT asserted (E1 / B17, future design).
 // Also NOT asserted (REVIEW, undecided): what happens to students when the PCK call fails (B2),
 // how the cast is selected beyond "3 distinct personas" (B5 mechanism), the exact sidebar
 // placeholder text (B10), and whether the drawing opt-in resets after a send (B15).
@@ -488,3 +492,85 @@ describe("turn lock (C2/C3)", () => {
 		});
 	});
 });
+
+// ─── C4: empty teacher messages ──────────────────────────────────────────────
+
+describe("empty teacher messages (C4)", () => {
+	const finishButton = () => findButtonByText(view.container, "סיים שיחה");
+
+	function expectNothingStarted() {
+		expect(getPCKFeedback).not.toHaveBeenCalled();
+		expect(callAI).not.toHaveBeenCalled();
+		expect(logger().addTurn).not.toHaveBeenCalled();
+		// No teacher message in history: the pre-lesson briefing (shown only while history is
+		// empty) is still visible and finish is still unavailable.
+		expect(view.container.textContent).toContain(scenario.teacher_briefing.slice(0, 40));
+		expect(finishButton().disabled).toBe(true);
+		// Turn lock not activated.
+		expect(view.container.querySelector("textarea").disabled).toBe(false);
+		expect(view.container.querySelector('img[alt="waiting for response..."]')).toBeNull();
+	}
+
+	beforeEach(() => getPCKFeedback.mockResolvedValue(NO_FEEDBACK_ANALYSIS));
+
+	it.each([
+		["an empty string", ""],
+		["spaces only", "   "],
+		["tabs and spaces", " \t  \t "],
+		["line breaks only", "\n\n"],
+	])("ignores %s with no drawing", async (_label, text) => {
+		await startLesson();
+		await sendTeacherMessage(text);
+		expectNothingStarted();
+	});
+
+	it("ignores empty text when the drawing opt-in is ticked but the board is empty", async () => {
+		board.include = true;
+		board.image = null;
+		await startLesson();
+		await sendTeacherMessage("  ");
+		expectNothingStarted();
+	});
+
+	it("a normal message after an ignored empty one starts a turn as usual", async () => {
+		await startLesson();
+		await sendTeacherMessage("   ");
+		await sendTeacherMessage("מה ההגדרה של מלבן?");
+		expect(getPCKFeedback).toHaveBeenCalledTimes(1);
+		expect(getPCKFeedback.mock.calls[0][0]).toBe("מה ההגדרה של מלבן?");
+		expect(callAI).toHaveBeenCalledTimes(1);
+		expect(studentCalls[0].messages.map((m) => m.text)).toEqual(["מה ההגדרה של מלבן?"]);
+		expect(logger().addTurn).toHaveBeenCalledTimes(1);
+	});
+
+	it("accepts an image-only submit with an included, non-empty drawing as a valid turn (B22)", async () => {
+		board.include = true;
+		board.image = "iVBORimageonly";
+		await startLesson();
+		await sendTeacherMessage("");
+
+		expect(callAI).toHaveBeenCalledTimes(1);
+		const teacherMsg = studentCalls[0].messages[0];
+		expect(teacherMsg.role).toBe("user");
+		expect(teacherMsg.text).toBe("");
+		expect(teacherMsg.image).toBe("iVBORimageonly");
+		expect(teacherMsg.toAIformat().content).toEqual([
+			{ text: "" },
+			{ inline_data: { mime_type: "image/png", data: "iVBORimageonly" } },
+		]);
+
+		expect(logger().addTurn).toHaveBeenCalledTimes(1);
+		const [loggedText, loggedStudents, , loggedImage] = logger().addTurn.mock.calls[0];
+		expect(loggedText).toBe("");
+		expect(loggedStudents).toEqual([{ name: allStudents[0].name, text: "STUDENT-REPLY" }]);
+		expect(loggedImage).toBe("iVBORimageonly");
+		expect(view.container.textContent).not.toContain(scenario.teacher_briefing.slice(0, 40)); // now in history
+	});
+
+	it("keeps surrounding whitespace of a non-empty message unchanged", async () => {
+		await startLesson();
+		await sendTeacherMessage("  שאלה  ");
+		expect(getPCKFeedback.mock.calls[0][0]).toBe("  שאלה  ");
+	});
+});
+

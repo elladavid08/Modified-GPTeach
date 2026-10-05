@@ -78,6 +78,14 @@ export const Chat = () => {
 
 	/** Add the teacher's message and wait for a response */
 	async function addUserResponse(TAmessage) {
+		// Ignore empty sends: no text and no drawing to include
+		const hasText = TAmessage.text.trim().length > 0;
+		const board = drawingBoardRef.current;
+		const willIncludeDrawing = Boolean(board && board.shouldInclude() && board.hasDrawing());
+		if (!hasText && !willIncludeDrawing) {
+			return;
+		}
+
 		// Ignore sends while a turn is still in progress
 		if (!beginTurn()) {
 			return;
