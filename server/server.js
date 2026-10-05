@@ -13,6 +13,8 @@ import { VertexAI } from '@google-cloud/vertexai';
 import { GoogleAuth } from 'google-auth-library';
 import { formatSkillsForPrompt, formatConversationHistory, getPCKSkillById } from './universal_pck_skills.js';
 import { PCK_RESPONSE_SCHEMA, PCK_PARSE_ERROR, PCK_INVALID_ERROR, parsePckModelText, validatePckAnalysis } from './pck_feedback_contract.js';
+import { LLM_CALL_POLICY, callModelWithPolicy, interpretCandidate } from './llm_call_policy.js';
+import { validateStudentOutputText, STUDENT_PARSE_ERROR, STUDENT_INVALID_ERROR, MAX_RAW_OUTPUT_EXCERPT_CHARS } from './student_output_contract.js';
 import { saveConversation, saveMessage, createUserProfile, getUserProfile, saveTestSubmission, checkTestSubmission, verifyAnnotator, verifyAdmin, getTestSubmissions, getTestSubmission, saveTestAnnotation, getTestAnnotation, getAllAnnotationsForSubmission, getAllUsersAdmin, getResearchParticipantsAdmin, updateUserResearchStatusAdmin, getConversationsByUserAdmin, getConversationsMeta, getFullConversationForAnnotation, createAnnotationAssignments, getAnnotationAssignments, getAnnotatorAssignments, getConvAnnotation, saveConvAnnotation, submitConvAnnotation, exportConvAnnotations, cancelAnnotationAssignment, getEligibleAgreementConversations, getAgreementReports, getAgreementReport, computeAndSaveAgreementReport, getConversationsWithCompletedPairs, createComparisonSet, updateComparisonSet, deleteComparisonSet, getComparisonSets, getComparisonSetDetail, getComparisonData, getConsensusAnnotation, saveConsensusAnnotation, submitConsensusAnnotation } from './services/firebaseAdmin.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -60,6 +62,14 @@ const model = vertexAI.getGenerativeModel({
   model: MODEL_ID
 });
 
+// Per-turn calls (PCK feedback, student generation) use their own model instance, so the SDK
+// aborts the underlying HTTP request at the per-attempt timeout (LLM_CALL_POLICY). The summary,
+// completion and test endpoints keep `model` and the legacy `withRetry`, unchanged.
+const turnModel = vertexAI.getGenerativeModel({
+  model: MODEL_ID,
+  requestOptions: { timeout: LLM_CALL_POLICY.perAttemptTimeoutMs }
+});
+
 console.log('✅ Vertex AI initialized successfully with service account');
 
 /**
@@ -94,28 +104,21 @@ async function withRetry(fn, maxRetries = 3, baseDelayMs = 2000) {
   }
 }
 
-/**
- * Model call with compact telemetry (no prompt or response content): wall-clock latency
- * (including the quota back-off in withRetry), attempts made, model id and finish reason.
- * On failure the telemetry is attached to the thrown error as `error.telemetry`.
- */
-async function generateWithTelemetry(agent, request) {
-  const telemetry = { agent, model: MODEL_ID, latencyMs: null, finishReason: null, attempts: 0 };
-  const started = Date.now();
-  try {
-    const result = await withRetry(() => {
-      telemetry.attempts += 1;
-      return model.generateContent(request);
-    });
-    telemetry.latencyMs = Date.now() - started;
-    const candidate = result && result.response && result.response.candidates && result.response.candidates[0];
-    telemetry.finishReason = (candidate && candidate.finishReason) || null;
-    return { result, telemetry };
-  } catch (error) {
-    telemetry.latencyMs = Date.now() - started;
-    error.telemetry = telemetry;
-    throw error;
+/** Body of a final per-turn failure response (B23 shape; errorKind from LLM_CALL_POLICY failures). */
+function failureBody(failure, telemetry, defaults) {
+  const body = {
+    success: false,
+    error: failure.error || failure.message || defaults.error,
+    errorKind: failure.kind,
+    finishReason: telemetry.finishReason,
+    meta: telemetry
+  };
+  if (failure.problems) body.problems = failure.problems.slice(0, 10);
+  if (failure.rawOutputExcerpt !== undefined) {
+    body.rawOutputExcerpt = failure.rawOutputExcerpt;
+    body.rawOutputChars = failure.rawOutputChars;
   }
+  return body;
 }
 
 /** Telemetry for an error response: what the failed call measured, or what is known statically. */
@@ -344,35 +347,40 @@ app.post('/api/generate', async (req, res) => {
 
     console.log('📤 Calling Vertex AI with config:', generationConfig);
     
-    const call = await generateWithTelemetry('student', {
-      contents,
-      generationConfig
+    // Retry / timeout policy (1.3.6): at most 2 attempts; malformed structured output is retried
+    const call = await callModelWithPolicy({
+      agent: 'student',
+      model: turnModel,
+      modelId: MODEL_ID,
+      request: { contents, generationConfig },
+      interpret: (result) => {
+        const candidate = interpretCandidate(result);
+        if (!candidate.ok) return candidate;
+        const checked = validateStudentOutputText(candidate.text);
+        if (!checked.ok) {
+          console.error('❌ Invalid student output:', checked.kind, checked.problems.slice(0, 5));
+          return {
+            ok: false,
+            kind: checked.kind,
+            retryable: true,
+            error: checked.kind === 'parse' ? STUDENT_PARSE_ERROR : `${STUDENT_INVALID_ERROR} (${checked.problems.length} problem${checked.problems.length === 1 ? '' : 's'})`,
+            message: checked.problems[0],
+            problems: checked.problems,
+            rawOutputExcerpt: candidate.text.slice(0, MAX_RAW_OUTPUT_EXCERPT_CHARS),
+            rawOutputChars: candidate.text.length
+          };
+        }
+        return { ok: true, value: candidate.text };
+      }
     });
-    const result = call.result;
     telemetry = call.telemetry;
 
-    console.log('📦 Raw result structure:', JSON.stringify(result, null, 2));
-
-    // Check if response exists
-    if (!result || !result.response) {
-      throw new Error('No response received from Vertex AI');
+    if (!call.ok) {
+      console.error('❌ Student generation failed after', telemetry.attempts, 'attempt(s):', call.failure.kind, call.failure.message);
+      return res.status(500).json(failureBody(call.failure, telemetry, { error: 'Student generation failed' }));
     }
 
-    // Check if candidates exist
-    if (!result.response.candidates || result.response.candidates.length === 0) {
-      console.error('❌ No candidates in response. Full response:', JSON.stringify(result.response, null, 2));
-      throw new Error('No candidates in response. The model may have blocked the content or encountered an error.');
-    }
-
-    // Extract text from response following the structure: result.response.candidates[0].content.parts[0].text
-    const candidate = result.response.candidates[0];
-    
-    if (!candidate.content || !candidate.content.parts || candidate.content.parts.length === 0) {
-      console.error('❌ Invalid candidate structure:', JSON.stringify(candidate, null, 2));
-      throw new Error('Invalid response structure from model');
-    }
-
-    const responseText = candidate.content.parts[0].text;
+    const responseText = call.value;
     console.log('✅ Response received, length:', responseText.length);
     console.log('✅ Response preview:', responseText.substring(0, 200) + '...');
     
@@ -829,60 +837,47 @@ Return JSON only, no additional text:`;
 
     console.log('📤 Calling Vertex AI for comprehensive PCK analysis...');
     
-    const call = await generateWithTelemetry('pck', {
-      contents,
-      generationConfig
+    // Retry / timeout policy (1.3.6): at most 2 attempts; parse/schema failures (C10) are retried
+    const call = await callModelWithPolicy({
+      agent: 'pck',
+      model: turnModel,
+      modelId: MODEL_ID,
+      request: { contents, generationConfig },
+      interpret: (result) => {
+        const candidate = interpretCandidate(result);
+        if (!candidate.ok) return candidate;
+        console.log('✅ Raw PCK analysis received:', candidate.text.substring(0, 200) + '...');
+        // Parse and validate the model output (C10): invalid output is rejected, never default-filled
+        const parsed = parsePckModelText(candidate.text);
+        if (!parsed.ok) {
+          console.error('❌ Failed to parse PCK analysis JSON:', parsed.error, '| finishReason:', candidate.finishReason);
+          console.error('Response text:', candidate.text);
+          return { ok: false, kind: 'parse', retryable: true, error: PCK_PARSE_ERROR, message: parsed.error };
+        }
+        const problems = validatePckAnalysis(parsed.value);
+        if (problems.length > 0) {
+          console.error('❌ Invalid PCK analysis:', problems, '| finishReason:', candidate.finishReason);
+          console.error('Response text:', candidate.text);
+          return {
+            ok: false,
+            kind: 'schema',
+            retryable: true,
+            error: `${PCK_INVALID_ERROR} (${problems.length} problem${problems.length === 1 ? '' : 's'})`,
+            message: problems[0],
+            problems
+          };
+        }
+        return { ok: true, value: parsed.value };
+      }
     });
-    const result = call.result;
     telemetry = call.telemetry;
 
-    if (!result || !result.response) {
-      throw new Error('No response received from Vertex AI');
+    if (!call.ok) {
+      console.error('❌ PCK analysis failed after', telemetry.attempts, 'attempt(s):', call.failure.kind, call.failure.message);
+      return res.status(500).json(failureBody(call.failure, telemetry, { error: 'PCK analysis failed' }));
     }
 
-    if (!result.response.candidates || result.response.candidates.length === 0) {
-      throw new Error('No candidates in response');
-    }
-
-    const candidate = result.response.candidates[0];
-    
-    if (!candidate.content || !candidate.content.parts || candidate.content.parts.length === 0) {
-      throw new Error('Invalid response structure from model');
-    }
-
-    const responseText = candidate.content.parts[0].text;
-    console.log('✅ Raw PCK analysis received:', responseText.substring(0, 200) + '...');
-    const finishReason = candidate.finishReason || null;
-    
-    // Parse and validate the model output (C10): invalid output is rejected, never default-filled
-    const parsed = parsePckModelText(responseText);
-    if (!parsed.ok) {
-      console.error('❌ Failed to parse PCK analysis JSON:', parsed.error, '| finishReason:', finishReason);
-      console.error('Response text:', responseText);
-      return res.status(500).json({
-        success: false,
-        error: PCK_PARSE_ERROR,
-        errorKind: 'parse',
-        finishReason,
-        meta: telemetry
-      });
-    }
-    
-    const problems = validatePckAnalysis(parsed.value);
-    if (problems.length > 0) {
-      console.error('❌ Invalid PCK analysis:', problems, '| finishReason:', finishReason);
-      console.error('Response text:', responseText);
-      return res.status(500).json({
-        success: false,
-        error: `${PCK_INVALID_ERROR} (${problems.length} problem${problems.length === 1 ? '' : 's'})`,
-        errorKind: 'schema',
-        problems: problems.slice(0, 10),
-        finishReason,
-        meta: telemetry
-      });
-    }
-    
-    const analysis = parsed.value;
+    const analysis = call.value;
     console.log('✅ PCK analysis parsed and validated');
     
     // No feedback decided: the message is not shown and must not be recorded as "given" (prompt contract)

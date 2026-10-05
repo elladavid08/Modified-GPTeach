@@ -68,6 +68,33 @@ describe("buildFailedAttempt", () => {
 		expect(a.stage).toBe("parse");
 	});
 
+	it("classifies the server's student output failure (1.3.6) as parse and keeps the raw excerpt length", () => {
+		const a = buildFailedAttempt({
+			agent: "student",
+			error: tagged("Backend error (500): Failed to parse AI response: invalid student output (not JSON)", {
+				stage: "http",
+				status: 500,
+				endpoint: "/api/generate",
+				serverError: "Failed to parse AI response: invalid student output (not JSON)",
+				rawOutput: "{\"responses\": [",
+				rawOutputChars: 4000,
+			}),
+			now: NOW,
+		});
+		expect(a.stage).toBe("parse");
+		expect(a.rawOutputExcerpt).toBe("{\"responses\": [");
+		expect(a.rawOutputChars).toBe(4000);
+	});
+
+	it("records a client hard timeout as a network-stage failure", () => {
+		const a = buildFailedAttempt({
+			agent: "pck",
+			error: Object.assign(new Error("Client timeout after 50000 ms"), { name: "ClientTimeoutError", stage: "network", endpoint: "/api/pck-feedback", clientLatencyMs: 50003 }),
+			now: NOW,
+		});
+		expect(a).toEqual(expect.objectContaining({ stage: "network", errorName: "ClientTimeoutError", clientLatencyMs: 50003 }));
+	});
+
 	it("records a network failure (no HTTP response)", () => {
 		const a = buildFailedAttempt({
 			agent: "student",

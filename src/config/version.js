@@ -13,10 +13,25 @@
  * - Z: Patch version (bug fixes, minor improvements)
  */
 
-export const SYSTEM_VERSION = "1.3.5";
+export const SYSTEM_VERSION = "1.3.6";
 
 /**
  * Version History:
+ * 
+ * 1.3.6 (2026-10-05):
+ * - Retry / timeout policy for the per-turn LLM calls (PCK feedback and student generation):
+ *   the server makes at most 2 model attempts per request, each limited to 20 s, within a
+ *   45 s total budget; the browser sends a single request per agent with a 50 s hard
+ *   timeout. Values are provisional (latency baseline) and configurable.
+ * - Retried once: timeouts, transient model/network errors (5xx), rate limits (429), empty
+ *   responses, and malformed/invalid structured output (PCK and students). Not retried:
+ *   request errors (4xx) and safety-blocked output. The previous multi-retry 429 handling
+ *   and the browser-side retry are no longer used for these calls.
+ * - Student output is now structurally validated on the server so malformed output can be
+ *   retried; an empty student response is now a (retried) failure instead of silence.
+ * - B2: if PCK still fails after its retry, the teacher sees the PCK notice, the failure is
+ *   recorded, and students are generated without PCK guidance. A retry that succeeds is not
+ *   recorded as a failure (telemetry shows 2 attempts).
  * 
  * 1.3.5 (2026-10-05):
  * - LLM-call telemetry for latency measurement (no behaviour change for teachers): the PCK

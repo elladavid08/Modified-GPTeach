@@ -186,10 +186,17 @@ for (const [label, raw, kind] of MALFORMED_OUTPUTS) {
     assert.equal(res.status, 500);
     assert.equal(res.body.success, false);
     assert.equal(res.body.analysis, undefined, 'no analysis returned');
+    assert.ok(!JSON.stringify(res.body).includes('המורה התקדם בשיעור'));
+    // Since 1.3.6 every malformed output is retried once before the final failure
+    assert.equal(res.body.meta.attempts, 2);
+    if (raw.trim() === '') {
+      // An empty model response is a model failure ("empty"), detected before parsing
+      assert.equal(res.body.errorKind, 'empty');
+      return;
+    }
     // Stable prefix the C7 client classifier maps to stage "parse"
     assert.match(res.body.error, /^Failed to parse AI response/);
     assert.equal(res.body.errorKind, kind);
-    assert.ok(!JSON.stringify(res.body).includes('המורה התקדם בשיעור'));
   });
 }
 
@@ -216,7 +223,7 @@ test('telemetry: a parse failure reports the finish reason (e.g. truncation at m
   assert.equal(res.body.finishReason, 'MAX_TOKENS'); // B23 failure shape unchanged
   assert.equal(res.body.meta.finishReason, 'MAX_TOKENS');
   assert.equal(res.body.meta.agent, 'pck');
-  assert.equal(res.body.meta.attempts, 1);
+  assert.equal(res.body.meta.attempts, 2); // parse failure retried once (1.3.6)
 });
 
 test('telemetry: a thrown PCK model error reports timing and attempts', async () => {
@@ -224,7 +231,8 @@ test('telemetry: a thrown PCK model error reports timing and attempts', async ()
   const res = await request();
   assert.equal(res.body.success, false);
   assert.equal(res.body.meta.agent, 'pck');
-  assert.equal(res.body.meta.attempts, 1);
+  assert.equal(res.body.meta.attempts, 2); // transient error retried once (1.3.6)
+  assert.equal(res.body.errorKind, 'model_error');
   assert.ok(Number.isInteger(res.body.meta.latencyMs));
 });
 

@@ -1,6 +1,8 @@
 // Fake @google-cloud/vertexai. Tests control model output through `fakeModel`.
 export const fakeModel = {
   calls: [],
+  // Params passed to getGenerativeModel (model id, requestOptions), recorded at server start
+  modelParams: [],
   // Replaced per test: (request) => result | Promise<result>
   respond: () => {
     throw new Error('fakeModel.respond not configured for this test');
@@ -21,6 +23,7 @@ export class VertexAI {
   }
 
   getGenerativeModel(params) {
+    fakeModel.modelParams.push(params);
     return {
       params,
       generateContent: async (request) => {

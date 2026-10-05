@@ -928,3 +928,86 @@ describe("LLM call telemetry", () => {
 	});
 });
 
+// ─── Retry / timeout policy (1.3.6) and B2 (DECIDED) ─────────────────────────
+
+describe("retry policy and B2 at the turn level", () => {
+	const META = (agent, attempts, latencyMs = 1000) => ({ agent, model: "gemini-2.5-flash-lite", latencyMs, finishReason: "STOP", attempts, clientLatencyMs: latencyMs + 20 });
+	const finalFailure = (endpoint, extra = {}) =>
+		Object.assign(new Error("Backend error (500): Model call timed out after 20000 ms"), {
+			stage: "http",
+			status: 500,
+			endpoint,
+			serverError: "Model call timed out after 20000 ms",
+			meta: { agent: endpoint.includes("pck") ? "pck" : "student", model: "gemini-2.5-flash-lite", latencyMs: 40100, finishReason: null, attempts: 2 },
+			clientLatencyMs: 40150,
+			...extra,
+		});
+	let errorSpy;
+	beforeEach(() => {
+		errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+	});
+	afterEach(() => errorSpy.mockRestore());
+
+	it("B2 (DECIDED): after a final PCK failure, students are still generated without PCK guidance", async () => {
+		getPCKFeedback.mockRejectedValueOnce(finalFailure("/api/pck-feedback"));
+		await startLesson();
+		await sendTeacherMessage("מה ההגדרה של מלבן?");
+
+		expect(view.container.querySelector('[data-testid="pck-error"]')).not.toBeNull();
+		expect(callAI).toHaveBeenCalledTimes(1);
+		expect(studentCalls[0].impact).toBeNull();
+		expect(logger().addTurn).toHaveBeenCalledTimes(1);
+		const [, , loggedFeedback, , telemetry] = logger().addTurn.mock.calls[0];
+		expect(loggedFeedback).toBeNull();
+		expect(telemetry.pck).toEqual(expect.objectContaining({ status: "failed", attempts: 2, latencyMs: 40100, clientLatencyMs: 40150 }));
+		expect(logger().addFailedAttempt.mock.calls[0][0]).toEqual(expect.objectContaining({ agent: "pck", attempts: 2, latencyMs: 40100 }));
+		expect(isUnlocked()).toBe(true);
+	});
+
+	it("a PCK call that succeeded on retry (attempts 2) records no failedAttempts, and telemetry shows 2 attempts", async () => {
+		getPCKFeedback.mockImplementationOnce(async (_t, _h, _s, _f, options) => {
+			options.onMeta(META("pck", 2, 9000));
+			return FEEDBACK_ANALYSIS;
+		});
+		callAI.mockImplementationOnce((history, students, scen, addendum, impact, onResponse) => {
+			studentCalls.push({ messages: history.getMessages().slice(), students, impact });
+			onResponse([new ChatMessage(students[0].name, "STUDENT-REPLY", "assistant")], null, students, META("student", 2, 3000));
+		});
+		await startLesson();
+		await sendTeacherMessage("מה ההגדרה של מלבן?");
+		expect(logger().addFailedAttempt).not.toHaveBeenCalled();
+		const telemetry = logger().addTurn.mock.calls[0][4];
+		expect(telemetry.pck.attempts).toBe(2);
+		expect(telemetry.student.attempts).toBe(2);
+		expect(view.container.querySelector('[data-testid="pck-error"]')).toBeNull();
+		expect(view.container.querySelector('[data-testid="turn-error"]')).toBeNull();
+	});
+
+	it("a final student failure after retries logs no normal turn and records attempts/latency", async () => {
+		getPCKFeedback.mockResolvedValue(NO_FEEDBACK_ANALYSIS);
+		callAI.mockImplementationOnce(() => Promise.reject(finalFailure("/api/generate")));
+		await startLesson();
+		await sendTeacherMessage("שאלה");
+		expect(logger().addTurn).not.toHaveBeenCalled();
+		expect(logger().addFailedAttempt.mock.calls[0][0]).toEqual(expect.objectContaining({ agent: "student", attempts: 2, latencyMs: 40100, clientLatencyMs: 40150 }));
+		expect(isUnlocked()).toBe(true);
+	});
+
+	it.each([
+		["PCK", "pck"],
+		["student", "student"],
+	])("a client hard timeout on the %s call releases the turn lock", async (_l, which) => {
+		const timeout = (endpoint) =>
+			Object.assign(new Error("Client timeout after 50000 ms"), { name: "ClientTimeoutError", stage: "network", endpoint, clientLatencyMs: 50002 });
+		getPCKFeedback.mockResolvedValue(NO_FEEDBACK_ANALYSIS);
+		if (which === "pck") getPCKFeedback.mockRejectedValueOnce(timeout("/api/pck-feedback"));
+		else callAI.mockImplementationOnce(() => Promise.reject(timeout("/api/generate")));
+		await startLesson();
+		await sendTeacherMessage("שאלה");
+		expect(isUnlocked()).toBe(true);
+		expect(logger().addFailedAttempt.mock.calls[0][0]).toEqual(expect.objectContaining({ agent: which, stage: "network", errorName: "ClientTimeoutError" }));
+		await sendTeacherMessage("שאלה שנייה");
+		expect(getPCKFeedback).toHaveBeenCalledTimes(2);
+	});
+});
+

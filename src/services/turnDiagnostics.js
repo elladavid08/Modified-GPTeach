@@ -30,7 +30,8 @@ const KNOWN_STAGES = ["network", "http", "parse"];
  */
 function classifyStage(agent, error) {
 	if (!error || !KNOWN_STAGES.includes(error.stage)) return "client";
-	if (agent === "pck" && error.stage === "http" && /Failed to parse AI response/i.test(error.serverError || "")) {
+	// The server's final output-parse / validation failures (PCK since C10, student since 1.3.6)
+	if (error.stage === "http" && /Failed to parse AI response/i.test(error.serverError || "")) {
 		return "parse";
 	}
 	return error.stage;
@@ -52,7 +53,7 @@ export function buildFailedAttempt({ agent, error, teacherMessage = null, pckFee
 		teacherHasDrawing: Boolean(teacherMessage && teacherMessage.image),
 		pckFeedbackDisplayed: Boolean(pckFeedbackDisplayed),
 		rawOutputExcerpt: truncate(rawOutput, MAX_RAW_OUTPUT_CHARS),
-		rawOutputChars: rawOutput === null ? null : rawOutput.length,
+		rawOutputChars: rawOutput === null ? null : Number.isInteger(error.rawOutputChars) ? error.rawOutputChars : rawOutput.length,
 		// Call telemetry where available (model, latencyMs, clientLatencyMs, finishReason, attempts)
 		...timingFields(error && error.meta, error ? error.clientLatencyMs : undefined),
 	};

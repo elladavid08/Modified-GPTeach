@@ -1,3 +1,5 @@
+import { CLIENT_TIMEOUT_MS } from '../config/llmCallPolicy';
+
 // Backend API base URL
 // In production: REACT_APP_API_URL should be empty string (requests go to same domain)
 // In development: Falls back to localhost:3001
@@ -34,6 +36,30 @@ async function fetchWithRetry(fetchFn, maxRetries = 2, baseDelayMs = 3000) {
 }
 
 /**
+ * One request with a hard client timeout (1.3.6), for the per-turn calls. No client-side retry:
+ * the server is the only retry layer for /api/pck-feedback and /api/generate.
+ * Rejects with a ClientTimeoutError (stage 'network') when the timeout elapses.
+ */
+async function fetchOnceWithTimeout(url, options, timeoutMs, endpoint, started) {
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new Error(`Client timeout after ${timeoutMs} ms`);
+      error.name = 'ClientTimeoutError';
+      // Settle the race with the tagged timeout first, then abort the underlying request
+      reject(tagError(error, { stage: 'network', endpoint, meta: null, clientLatencyMs: Date.now() - started }));
+      if (controller) controller.abort();
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([fetch(url, controller ? { ...options, signal: controller.signal } : options), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Attach diagnostic fields to a backend-call error (C7): stage ('network' | 'http'),
  * endpoint, HTTP status and the backend's error text. Message text is unchanged.
  */
@@ -49,14 +75,14 @@ function tagError(error, fields) {
  */
 export async function generateWithGenAI(messages, options = {}) {
   // onMeta (optional) receives call telemetry; it is not sent to the server
-  const { onMeta, ...serverOptions } = options;
+  const { onMeta, timeoutMs = CLIENT_TIMEOUT_MS, ...serverOptions } = options;
   const started = Date.now();
   try {
     console.log('🚀 Calling backend API for chat completion...');
     console.log('📝 Messages count:', messages.length);
     console.log('📝 Options:', serverOptions);
     
-    const response = await fetchWithRetry(() => fetch(`${API_BASE_URL}/api/generate`, {
+    const response = await fetchOnceWithTimeout(`${API_BASE_URL}/api/generate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -65,7 +91,7 @@ export async function generateWithGenAI(messages, options = {}) {
         messages,
         options: serverOptions
       })
-    }));
+    }, timeoutMs, '/api/generate', started);
 
     console.log('📥 Backend response status:', response.status);
 
@@ -74,7 +100,11 @@ export async function generateWithGenAI(messages, options = {}) {
       console.error('❌ Backend error:', errorData);
       throw tagError(new Error(`Backend error (${response.status}): ${errorData.error || 'Unknown error'}`), {
         stage: 'http', status: response.status, endpoint: '/api/generate', serverError: errorData.error || null,
-        meta: errorData.meta || null, clientLatencyMs: Date.now() - started
+        meta: errorData.meta || null, clientLatencyMs: Date.now() - started,
+        // Final student parse/schema failure on the server: bounded excerpt for diagnostics (A16)
+        ...(typeof errorData.rawOutputExcerpt === 'string'
+          ? { rawOutput: errorData.rawOutputExcerpt, rawOutputChars: errorData.rawOutputChars }
+          : {})
       });
     }
 
@@ -170,7 +200,7 @@ export async function generateWithGenAICompletion(prompt, options = {}) {
  * @param {Object} scenario - Current scenario context
  * @returns {Promise<Object>} - Structured PCK analysis object
  */
-export async function getPCKFeedback(teacherMessage, conversationHistory = [], scenario = {}, feedbackHistory = [], { onMeta } = {}) {
+export async function getPCKFeedback(teacherMessage, conversationHistory = [], scenario = {}, feedbackHistory = [], { onMeta, timeoutMs = CLIENT_TIMEOUT_MS } = {}) {
   // onMeta (optional) receives call telemetry; it is not sent to the server
   const started = Date.now();
   try {
@@ -178,7 +208,7 @@ export async function getPCKFeedback(teacherMessage, conversationHistory = [], s
     console.log('📝 Teacher message:', teacherMessage.substring(0, 100) + '...');
     console.log('📊 Feedback history items:', feedbackHistory.length);
     
-    const response = await fetchWithRetry(() => fetch(`${API_BASE_URL}/api/pck-feedback`, {
+    const response = await fetchOnceWithTimeout(`${API_BASE_URL}/api/pck-feedback`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -189,7 +219,7 @@ export async function getPCKFeedback(teacherMessage, conversationHistory = [], s
         scenario,
         feedbackHistory
       })
-    }));
+    }, timeoutMs, '/api/pck-feedback', started);
 
     console.log('📥 PCK feedback response status:', response.status);
 
