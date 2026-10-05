@@ -109,6 +109,21 @@ describe("student agent response interface", () => {
 	});
 });
 
+describe("callAI completion signal (lets the caller release the turn lock, C2/C3)", () => {
+	it("returns a promise that settles after onResponse was called", async () => {
+		generateWithGenAI.mockResolvedValue(JSON.stringify({ responses: [{ student: students[0].name, message: "היי" }] }));
+		const onResponse = jest.fn();
+		await callAI(historyOf([]), students, scenario, "", null, onResponse);
+		expect(onResponse).toHaveBeenCalledTimes(1);
+	});
+
+	it("returns a rejecting promise when the request cannot be built", async () => {
+		const onResponse = jest.fn();
+		await expect(callAI(historyOf([]), students, null, "", null, onResponse)).rejects.toThrow();
+		expect(generateWithGenAI).not.toHaveBeenCalled();
+	});
+});
+
 describe("ChatMessage AI format (drawing path to the student model)", () => {
 	it("text-only message", () => {
 		const m = new ChatMessage("Teacher", "שלום", "user");

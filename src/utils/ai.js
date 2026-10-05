@@ -28,10 +28,11 @@ export default async function callAI(
 	onResponse
 ) {
 	const verNum = Constants.MODEL_VERSION;
+	// Return the generation promise so callers know when the turn has settled (incl. failures).
 	if (verNum === 3) {
-		callCompletionModel(history, students, scenario, addendum, impact_analysis, onResponse);
+		return callCompletionModel(history, students, scenario, addendum, impact_analysis, onResponse);
 	} else if (verNum === 3.5) {
-		callChatModel(
+		return callChatModel(
 			"gpt-3.5-turbo",
 			history,
 			students,
@@ -42,7 +43,7 @@ export default async function callAI(
 		);
 	} else {
 		// Default to 4 (or Gemini equivalent when using Google provider)
-		callChatModel("gpt-4", history, students, scenario, addendum, impact_analysis, onResponse);
+		return callChatModel("gpt-4", history, students, scenario, addendum, impact_analysis, onResponse);
 	}
 }
 

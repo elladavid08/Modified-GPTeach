@@ -41,7 +41,7 @@ Status labels:
 | B6 | Zero student responses ("silence") is allowed by the parser, while the prompt demands ≥1 | REVIEW | Contradictory. Silence also causes the turn not to be logged (A3). |
 | B7 | Greetings, closings and pure procedural teacher messages get **no** feedback (Gate 0) | PROTECT | Consistent with B200 (a greeting has no dimensions) and with expert intent. |
 | B8 | At most 1-2 skills are shown per turn | REVIEW (intended, **not currently true**: 41% of v1.3.0 displayed feedbacks have 3-5) | Intended by the prompt and supported by B200 over-selection findings. If protected, it must be enforced in code. |
-| B9 | Feedback from the previous turn is cleared when the teacher sends a new message; no stale feedback is shown | PROTECT | Correct intent (`Chat.jsx:61`). It is currently violable through the concurrent-send race (C3). |
+| B9 | Feedback from the previous turn is cleared when the teacher sends a new message; no stale feedback is shown | PROTECT | Correct intent (`Chat.jsx` `addUserResponse`). It was violable through the concurrent-send race (C3) until the turn lock was added (C2/C3 fixed 2026-10-05). |
 | B10 | Sidebar placeholder "בהמתנה לתגובת המורה..." when there is no feedback | REVIEW | Does not distinguish "no feedback warranted" from "feedback failed". |
 | B11 | Score colours and legend: 2 green "קיים היטב", 1 yellow "קיים באופן חלקי", 0 lilac "חסר" | PROTECT (UI vocabulary) | Teachers in the pilot learned this vocabulary. |
 | B12 | Score-1 rows show `evidence` only (the suggestion is hidden) | **DECIDED: DO NOT PROTECT** | Score-1 feedback should eventually show both what was present (`evidence`) and what still needs improvement (`what_could_be_better`). Today 96/103 score-1 rows had a hidden suggestion. Changing the display is a planned behaviour change; bump `systemVersion`. |
@@ -57,11 +57,13 @@ Status labels:
 
 ## C. Current behaviours that should NOT be protected (defects)
 
+Rows marked ~~struck~~ / **FIXED** are kept for history. Their fixed behaviour is now covered by regression tests; see `regression_test_plan.md`.
+
 | # | behaviour | where |
 |---|---|---|
 | C1 | Summary never receives real-time PCK moments (`should_provide_feedback` never logged) | `server.js:934-941`, `conversationLogger.js:166-173` |
-| C2 | Input and send re-enabled, and the typing indicator hidden, as soon as a turn starts | `Chat.jsx:176` |
-| C3 | Concurrent turns can race (sidebar shows an older analysis; turns are logged in completion order) | consequence of C2 |
+| ~~C2~~ | **FIXED 2026-10-05.** *Historical:* input and send were re-enabled, and the typing indicator hidden, as soon as a turn started (`setIsQuerying(false)` before the LLM calls). *Now:* a turn lock keeps input, send, the board toggle and **finish (סיים שיחה)** unavailable, and the indicator visible, until the turn finishes (success or any failure path). See `regression_test_plan.md` §0.8. | `Chat.jsx` (turn lock), `ai.js` (`callAI` returns its promise) |
+| ~~C3~~ | **FIXED 2026-10-05.** *Historical:* concurrent turns could race (sidebar showed an older analysis; turns were logged in completion order; finish could run mid-turn). *Now:* extra submits during a turn are ignored; turn log entries are written through a serial queue in send order; finish runs only after queued log entries are written. | consequence of C2 |
 | C4 | Empty messages (no text, no image) trigger the full PCK + student pipeline | `InputField.js:14-19` |
 | C5 | All newlines stripped from messages (joined without a space) | `ChatMessage.js:9` |
 | C6 | Fixed fallback student message `"אני צריך רגע לחשוב על זה..."`, persisted as a real student turn | `ai.js:325-336` |

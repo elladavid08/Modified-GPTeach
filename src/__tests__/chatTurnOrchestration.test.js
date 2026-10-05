@@ -6,11 +6,14 @@
 //   B5/A6 (DECIDED) the session's cast is fixed across turns and recorded; SYSTEM_VERSION stamped
 //   B20 the teacher briefing is shown before the first message
 //   drawing path: a board drawing is attached to the teacher message, and logged, only when opted in
+//   C2/C3 (fixed) one simulation turn at a time: input/send locked and the typing indicator
+//         visible until the turn finishes; extra submits ignored; unlock on success and on every
+//         failure path; turn results and logging stay with their own turn; "סיים שיחה" is
+//         unavailable during a turn and, after a turn, runs only once queued turn logging is done
 //
 // All services are mocked: no LLM, no Firestore, no auth.
-// Deliberately NOT asserted (defects, invariants.md §C): whether the input stays enabled during
-// generation (C2), concurrent-send behaviour (C3), empty sends (C4), newline handling (C5),
-// and silent failure handling (C7).
+// Deliberately NOT asserted (defects, invariants.md §C): empty sends (C4), newline handling (C5),
+// and how failures are surfaced to the teacher (C7).
 // Also NOT asserted (REVIEW, undecided): what happens to students when the PCK call fails (B2),
 // how the cast is selected beyond "3 distinct personas" (B5 mechanism), the exact sidebar
 // placeholder text (B10), and whether the drawing opt-in resets after a send (B15).
@@ -270,4 +273,218 @@ it("does not attach a drawing when the teacher did not opt in", async () => {
 	await sendTeacherMessage("בלי ציור");
 	expect(studentCalls[0].messages[0].image).toBeNull();
 	expect(logger().addTurn.mock.calls[0][3]).toBeNull();
+});
+
+// ─── C2/C3: one simulation turn at a time ────────────────────────────────────
+
+const textarea = () => view.container.querySelector("textarea");
+const sendButton = () => view.container.querySelector('button[type="submit"]');
+const typingIndicator = () => view.container.querySelector('img[alt="waiting for response..."]');
+const isLocked = () => textarea().disabled && sendButton().disabled && Boolean(typingIndicator());
+const isUnlocked = () => !textarea().disabled && !sendButton().disabled && !typingIndicator();
+
+// callAI stub whose reply the test releases later.
+function pendingStudents() {
+	const pending = [];
+	callAI.mockImplementation((history, students, scen, addendum, impact, onResponse) => {
+		studentCalls.push({ messages: history.getMessages().slice(), students, impact });
+		const d = deferred();
+		pending.push(d);
+		return d.promise.then((text) => onResponse(text === null ? [] : [new ChatMessage(students[0].name, text, "assistant")]));
+	});
+	return pending;
+}
+
+describe("turn lock (C2/C3)", () => {
+	it("keeps input, send and the typing indicator locked from submit until the turn finishes", async () => {
+		const pck = deferred();
+		getPCKFeedback.mockReturnValueOnce(pck.promise);
+		const students = pendingStudents();
+		await startLesson();
+		expect(isUnlocked()).toBe(true);
+
+		await sendTeacherMessage("מה ההגדרה של מלבן?");
+		expect(isLocked()).toBe(true); // waiting for PCK
+
+		pck.resolve(NO_FEEDBACK_ANALYSIS);
+		await flush();
+		expect(callAI).toHaveBeenCalledTimes(1);
+		expect(isLocked()).toBe(true); // waiting for students
+
+		students[0].resolve("STUDENT-REPLY");
+		await flush();
+		expect(view.container.textContent).toContain("STUDENT-REPLY");
+		expect(isUnlocked()).toBe(true);
+	});
+
+	it("ignores a second submit while the turn is pending (no extra PCK or student call)", async () => {
+		const pck = deferred();
+		getPCKFeedback.mockReturnValueOnce(pck.promise);
+		const students = pendingStudents();
+		await startLesson();
+
+		await sendTeacherMessage("הודעה ראשונה");
+		await sendTeacherMessage("SECOND-WHILE-PENDING"); // programmatic submit despite the lock
+		expect(getPCKFeedback).toHaveBeenCalledTimes(1);
+
+		pck.resolve(NO_FEEDBACK_ANALYSIS);
+		await flush();
+		await sendTeacherMessage("THIRD-WHILE-PENDING");
+		students[0].resolve("STUDENT-REPLY");
+		await flush();
+
+		expect(getPCKFeedback).toHaveBeenCalledTimes(1);
+		expect(callAI).toHaveBeenCalledTimes(1);
+		expect(studentCalls[0].messages.map((m) => m.text)).toEqual(["הודעה ראשונה"]);
+		expect(view.container.textContent).not.toContain("SECOND-WHILE-PENDING");
+		expect(view.container.textContent).not.toContain("THIRD-WHILE-PENDING");
+		expect(logger().addTurn).toHaveBeenCalledTimes(1);
+	});
+
+	it("unlocks after a successful turn and accepts the next message", async () => {
+		getPCKFeedback.mockResolvedValue(NO_FEEDBACK_ANALYSIS);
+		await startLesson();
+		await sendTeacherMessage("שאלה ראשונה");
+		expect(isUnlocked()).toBe(true);
+		await sendTeacherMessage("שאלה שנייה");
+		expect(getPCKFeedback).toHaveBeenCalledTimes(2);
+		expect(callAI).toHaveBeenCalledTimes(2);
+	});
+
+	it("unlocks after a PCK failure once the turn settles", async () => {
+		const errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+		getPCKFeedback.mockRejectedValueOnce(new Error("pck down")).mockResolvedValue(NO_FEEDBACK_ANALYSIS);
+		await startLesson();
+		await sendTeacherMessage("שאלה ראשונה");
+		expect(isUnlocked()).toBe(true);
+		await sendTeacherMessage("שאלה שנייה");
+		expect(getPCKFeedback).toHaveBeenCalledTimes(2);
+		errorSpy.mockRestore();
+	});
+
+	it("unlocks after a student-generation failure that yields no messages", async () => {
+		getPCKFeedback.mockResolvedValue(NO_FEEDBACK_ANALYSIS);
+		const students = pendingStudents();
+		await startLesson();
+		await sendTeacherMessage("שאלה ראשונה");
+		students[0].resolve(null); // callAI reports failure as an empty reply
+		await flush();
+		expect(isUnlocked()).toBe(true);
+		await sendTeacherMessage("שאלה שנייה");
+		expect(callAI).toHaveBeenCalledTimes(2);
+	});
+
+	it("unlocks when student generation throws or rejects", async () => {
+		const errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+		getPCKFeedback.mockResolvedValue(NO_FEEDBACK_ANALYSIS);
+		callAI.mockImplementationOnce(() => {
+			throw new Error("prompt build failed");
+		});
+		await startLesson();
+		await sendTeacherMessage("שאלה ראשונה");
+		expect(isUnlocked()).toBe(true);
+
+		callAI.mockImplementationOnce(() => Promise.reject(new Error("generation rejected")));
+		await sendTeacherMessage("שאלה שנייה");
+		expect(isUnlocked()).toBe(true);
+		await sendTeacherMessage("שאלה שלישית");
+		expect(callAI).toHaveBeenCalledTimes(3);
+		errorSpy.mockRestore();
+	});
+
+	it("keeps feedback and logging with their own turn, in send order, even when logging is slow", async () => {
+		const FEEDBACK_B = {
+			...FEEDBACK_ANALYSIS,
+			skills_assessment: [{ skill_id: "adapted-pedagogical-response", is_relevant: true, score: 2, evidence: "EVIDENCE-B" }],
+			demonstrated_skills: [{ skill_id: "adapted-pedagogical-response", evidence: "EVIDENCE-B" }],
+			feedback_message_hebrew: "MESSAGE-B",
+		};
+		getPCKFeedback.mockResolvedValueOnce(FEEDBACK_ANALYSIS).mockResolvedValueOnce(FEEDBACK_B);
+		await startLesson();
+		const slowLog = deferred();
+		logger().addTurn.mockImplementationOnce(() => slowLog.promise);
+
+		await sendTeacherMessage("TURN-A");
+		replyWith("REPLY-B");
+		await sendTeacherMessage("TURN-B");
+		expect(sidebarText()).toContain("EVIDENCE-B");
+		expect(sidebarText()).not.toContain("SIDEBAR-EVIDENCE");
+		// Turn B's log entry waits until turn A's entry has been written.
+		expect(logger().addTurn).toHaveBeenCalledTimes(1);
+
+		slowLog.resolve();
+		await flush();
+		const calls = logger().addTurn.mock.calls;
+		expect(calls).toHaveLength(2);
+		expect(calls[0][0]).toBe("TURN-A");
+		expect(calls[0][1]).toEqual([{ name: allStudents[0].name, text: "STUDENT-REPLY" }]);
+		expect(calls[0][2].feedback_message).toBe("FEEDBACK-MESSAGE");
+		expect(calls[1][0]).toBe("TURN-B");
+		expect(calls[1][1]).toEqual([{ name: allStudents[0].name, text: "REPLY-B" }]);
+		expect(calls[1][2].feedback_message).toBe("MESSAGE-B");
+	});
+
+	describe("finish conversation (סיים שיחה) during and after a turn", () => {
+		const finishButton = () => findButtonByText(view.container, "סיים שיחה");
+		let alertSpy;
+		beforeEach(() => {
+			alertSpy = jest.spyOn(window, "alert").mockImplementation(() => {});
+		});
+		afterEach(() => alertSpy.mockRestore());
+
+		it("cannot be triggered while a turn is pending", async () => {
+			const pck = deferred();
+			getPCKFeedback.mockReturnValueOnce(pck.promise);
+			const students = pendingStudents();
+			await startLesson();
+			await sendTeacherMessage("שאלה ראשונה");
+
+			expect(finishButton().disabled).toBe(true); // waiting for PCK
+			click(finishButton());
+			pck.resolve(NO_FEEDBACK_ANALYSIS);
+			await flush();
+			expect(finishButton().disabled).toBe(true); // waiting for students
+			click(finishButton());
+			expect(logger().endSession).not.toHaveBeenCalled();
+			expect(logger().saveToLocalStorage).not.toHaveBeenCalled();
+
+			students[0].resolve("STUDENT-REPLY");
+			await flush();
+		});
+
+		it("becomes available again after the turn completes", async () => {
+			getPCKFeedback.mockResolvedValue(NO_FEEDBACK_ANALYSIS);
+			await startLesson();
+			await sendTeacherMessage("שאלה ראשונה");
+
+			expect(finishButton().disabled).toBe(false);
+			click(finishButton());
+			await flush();
+			expect(logger().endSession).toHaveBeenCalledTimes(1);
+			expect(logger().saveToLocalStorage).toHaveBeenCalledTimes(1);
+		});
+
+		it("does not bypass or reorder turn logging: it waits for queued log entries", async () => {
+			getPCKFeedback.mockResolvedValue(NO_FEEDBACK_ANALYSIS);
+			await startLesson();
+			const slowLog = deferred();
+			logger().addTurn.mockImplementationOnce(() => slowLog.promise);
+			await sendTeacherMessage("TURN-A");
+			expect(isUnlocked()).toBe(true);
+
+			click(finishButton());
+			click(finishButton()); // repeated click while finishing is pending
+			await flush();
+			expect(logger().endSession).not.toHaveBeenCalled();
+
+			slowLog.resolve();
+			await flush();
+			const { addTurn, endSession, saveToLocalStorage } = logger();
+			expect(addTurn).toHaveBeenCalledTimes(1);
+			expect(addTurn.mock.calls[0][0]).toBe("TURN-A");
+			expect(endSession).toHaveBeenCalledTimes(1);
+			expect(saveToLocalStorage).toHaveBeenCalledTimes(1);
+			expect(addTurn.mock.invocationCallOrder[0]).toBeLessThan(endSession.mock.invocationCallOrder[0]);
+		});
+	});
 });

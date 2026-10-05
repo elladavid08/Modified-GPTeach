@@ -36,14 +36,14 @@ Both suites are fully offline:
 
 `package.json` gained only scripts (`test`, `test:server`, `test:all`). No dependencies were added.
 
-### 0.3 Tests implemented (84 total: 61 frontend, 23 backend)
+### 0.3 Tests implemented (96 total: 73 frontend, 23 backend)
 
 | file | tests | protects |
 |---|---:|---|
 | `src/__tests__/conversationContract.test.js` | 14 | A1, A2, A5, A12, A13. The validator accepts current and legacy docs and additive fields, and rejects 9 kinds of contract breaks. The Excel export reads both formats (turns, Hebrew skill names, score labels, summary sections, legacy free-text skill ids). Which skills the export includes is not asserted. |
 | `src/__tests__/conversationLogger.test.js` | 11 | A1-A3, A4 (DECIDED), A6, A7, A10 (DECIDED), A11, A12, A14 (DECIDED), B5 (DECIDED: cast recorded). sessionId format; lazy init; `studentRefs` = `v<ver>_<id>` for the cast; systemVersion stamp; minimal user snapshot `{fullName, role}`; scenario snapshot fields; contract-valid doc after each turn; `turnNumber` 1..n; one-time init; turn field mapping; null feedback input stored as null; image stored without prefix; >600 px downscaled to 600; endTime and summary persisted. |
-| `src/__tests__/chatTurnOrchestration.test.js` | 10 | B1 (PCK before students; students wait for the PCK result; analysis passed as `impact_analysis`); B7 (no-feedback decision → no feedback content shown); A4 DECIDED (not displayed → logged as `pckFeedback: null`); A2 (displayed feedback logged with its fields); B9 (sidebar cleared on new send); B5 DECIDED (cast of 3 distinct personas, identical in the logger and in every student call, one logger per session); A6 (`SYSTEM_VERSION` to the logger); B20 (briefing before first message); students see prior replies; drawing attached and logged only when opted in. Renders the real `Chat.jsx` with mocked services, auth, logger and DrawingBoard. |
-| `src/__tests__/studentAgent.test.js` | 8 | B3 / B4 inputs. One system prompt + history in order; personas, topic and Hebrew requirement in the prompt; PCK impact block present iff provided (B1); `{student, message}` → assistant `ChatMessage`s in order, trimmed; no fabricated messages on backend failure; `ChatMessage.toAIformat` text and image forms. |
+| `src/__tests__/chatTurnOrchestration.test.js` | 20 | B1 (PCK before students; students wait for the PCK result; analysis passed as `impact_analysis`); B7 (no-feedback decision → no feedback content shown); A4 DECIDED (not displayed → logged as `pckFeedback: null`); A2 (displayed feedback logged with its fields); B9 (sidebar cleared on new send); B5 DECIDED (cast of 3 distinct personas, identical in the logger and in every student call, one logger per session); A6 (`SYSTEM_VERSION` to the logger); B20 (briefing before first message); students see prior replies; drawing attached and logged only when opted in. Renders the real `Chat.jsx` with mocked services, auth, logger and DrawingBoard.; **C2/C3 turn lock (10 tests)**: input, send and typing indicator locked from submit until the turn finishes; "סיים שיחה" disabled and ignored during a turn, available again afterwards, and executed only after queued turn log entries are written (repeat clicks ignored); extra submits ignored (no extra PCK or student call, nothing logged); unlock after success, PCK failure, empty-reply student failure, and thrown/rejected student generation; feedback and log entries stay with their own turn and are written in send order even when logging is slow. |
+| `src/__tests__/studentAgent.test.js` | 10 | B3 / B4 inputs. One system prompt + history in order; personas, topic and Hebrew requirement in the prompt; PCK impact block present iff provided (B1); `{student, message}` → assistant `ChatMessage`s in order, trimmed; no fabricated messages on backend failure; `ChatMessage.toAIformat` text and image forms.; `callAI` returns a promise that settles after `onResponse` and rejects when the request cannot be built (the completion signal for the turn lock). |
 | `src/__tests__/pckSkillsDisplay.test.js` | 11 | A5, B11. The duplicated skill-name maps (sidebar, Excel export, ConversationLogs, AdminConversationLogs, server prompt) equal the contract; score labels; the sidebar shows nothing without feedback (exact placeholder text not asserted, B10), legend, per-score text, irrelevant skills hidden, and legacy fallback. |
 | `src/__tests__/configContracts.test.js` | 7 | A6 (semver + the DECIDED process rule: a changelog entry in `version.js` for the current version), A7 (persona id/version/uniqueness), A15 DECIDED (`participation.baseline ∈ {low, medium, high}`), B5 (≥3 personas, NUM_STUDENTS ≥ 3), A8 (unique non-empty scenario titles; title stability A9 not asserted; snapshotted fields present), B20 (all teacher-initiated). |
 | `server/test/pck_skills.test.mjs` | 7 | A5. Exactly the 5 contract ids as a set (order not protected); Hebrew names; 0/1/2 bands only; unknown id → null; prompt formatter covers all ids and bands; history format `מורה:` / `<name>:`; empty-history marker. |
@@ -54,7 +54,7 @@ Both suites are fully offline:
 ### 0.4 Deliberately not protected
 
 Each test file's header lists what it intentionally does **not** assert. In short:
-- No test preserves any §C behaviour of `invariants.md`: C1 summary moments, C2/C3 input lock and races, C4 empty sends, C5 newline stripping, C6 fallback text, C7 silent failures, C8 dropped names, C9 `thinking` vs schema, C10 PCK parse/default behaviour, C12 hard-coded tiers.
+- No test preserves any §C behaviour of `invariants.md`: C1 summary moments, C4 empty sends, C5 newline stripping, C6 fallback text, C7 silent failures, C8 dropped names, C9 `thinking` vs schema, C10 PCK parse/default behaviour, C12 hard-coded tiers.
 - Nothing preserves B12 (hidden score-1 suggestion).
 - Nothing asserts the B8 row cap.
 - **Invariants alignment pass (2026-10-05):** the baseline protects only PROTECT / DECIDED items. The following REVIEW items are deliberately untested:
@@ -95,7 +95,7 @@ Whether the live model *follows* Gate 0 belongs in the behavioural suite (§5). 
 - §2 Step 0 (golden prompt snapshots plus behaviour-preserving extraction of `server.js` / `ai.js` helpers). Today the server is tested through its HTTP surface, and `makeProsePrompt` / `convertResponseToMessages` only through `callAI`.
 - §3.2 malformed-output fixtures for the PCK parser (written together with fix 0.5; see the table below).
 - §3.3 summary moment extraction (with the C1 fix).
-- §3.4 concurrent `addTurn` (with the C2/C3 fix).
+- §3.4 concurrent `addTurn` directly on `ConversationLog`. Concurrency is now prevented at the call site (§0.8), so this is lower priority.
 - §4 payload-limit and retry tests; client `fetchWithRetry` tests.
 - §5 behavioural / golden agent tests (real model, on demand).
 - §6 automated e2e (Firestore emulator + Playwright).
@@ -106,7 +106,7 @@ Whether the live model *follows* Gate 0 belongs in the behavioural suite (§5). 
 | fix (audit id) | add / change these tests |
 |---|---|
 | **C1 summary never sees real-time moments** | `api_pck_summary`: a log containing a logged `pckFeedback` (as produced by `ConversationLog.addTurn`, i.e. without `should_provide_feedback`) → the prompt contains the moment's skill name, score label and evidence; a log with only `null` feedback → no moments. Logger: if a display flag is added, assert it in `conversationLogger.test.js` and in the contract (additive). |
-| **C2/C3 input re-enabled during generation; races** | `chatTurnOrchestration`: textarea and send button disabled and the typing indicator visible from send until students are appended; re-enabled after success **and** after each failure path (PCK reject, student reject, empty reply); a second submit during a pending turn does not call `getPCKFeedback` again; feedback from turn N never appears after turn N+1 was sent; `addTurn` order equals send order. Add a timeout test if a timeout is introduced. |
+| ~~C2/C3 input re-enabled during generation; races~~ | **Done (§0.8).** Tests implemented in `chatTurnOrchestration` (turn lock) and `studentAgent` (`callAI` completion signal). A request **timeout** is still not implemented; add a test if one is introduced. |
 | **C4 empty sends** | `chatTurnOrchestration`: submitting `""` / whitespace → no `getPCKFeedback`, no `callAI`, no history entry. Image-only (per the product decision): allowed or blocked explicitly. |
 | **C5 multiline teacher messages** | `studentAgent` / `ChatMessage`: teacher text keeps `\n` (and student text per decision); `ChatBubble` renders with `white-space: pre-wrap`; `formatConversationHistory` and the summary transcript keep line breaks; logger stores `\n`; Excel export and annotation viewers render it. |
 | **C6 fixed fallback text** | `studentAgent`: invalid JSON / truncated JSON / missing `responses` → no message with fallback text; at most one re-ask (if implemented); a visible error flag; nothing persisted as a student turn. |
@@ -126,6 +126,41 @@ Whether the live model *follows* Gate 0 belongs in the behavioural suite (§5). 
 | **Completed-scenario indication** | `ScenarioSelector`: completed badge per the definition; matching by scenario id (and the text→id map for old records). |
 | ~~TDZ in Chat.jsx (§0.5)~~ | **Done.** Plugin removed; the orchestration tests pass under native `const`. |
 | **Any prompt / model / config change** | Bump `SYSTEM_VERSION` + changelog entry (enforced by `configContracts`); behavioural replay (§5). |
+
+### 0.8 Fixed: C2/C3 concurrent simulation turns (2026-10-05)
+
+**Behaviour now:** one simulation turn at a time. A turn is PCK analysis followed by student generation, appending the replies, and queueing the log entry.
+- From the moment the teacher submits until the turn finishes:
+  - the textarea, the send button, the board toggle and **"סיים שיחה" (finish)** are disabled;
+  - the typing indicator stays visible.
+- Any further submit is ignored: no history entry, no PCK call, no student call, no log entry.
+- The lock is released when:
+  - **students replied:** after the replies are appended and the log entry is queued;
+  - **PCK call failed:** the existing behaviour is unchanged (B2, still undecided). The students are generated unsteered, and the lock is released when that finishes;
+  - **student generation returned no messages** (backend error, or `responses: []`): released in the reply callback's `finally`;
+  - **student generation threw or rejected** (e.g. building the prompt fails): released in a `catch` around `await callAI(...)`. Previously that rejection was unhandled and `onResponse` was never called.
+- **Logging:** `ConversationLog.addTurn` calls are chained on a queue. Each entry is written only after the previous one finished, so log order equals send order. A failed log write is `console.error`ed and does not block later entries. The UI does **not** wait for Firestore.
+- No late result from an earlier turn can overwrite a newer one: with the lock, PCK and student results of different turns never overlap, and log writes are serialized.
+- **Finish (סיים שיחה):**
+  - The button is disabled while a turn is in progress, and the handler also ignores calls then (`turnInProgressRef`).
+  - After a turn, finish is **queued on the same log chain**: `endSession()` / `saveToLocalStorage()` / the confirmation run only after every queued `addTurn` has been written, so the final save cannot skip or reorder a turn.
+  - Repeated finish requests are ignored (`finishRequestedRef`).
+  - Visible behaviour is unchanged except that the confirmation can appear slightly later if Firestore is slow.
+
+**Implementation (production files):**
+- `src/pages/Chat.jsx`:
+  - `turnInProgressRef` (synchronous guard) + `isTurnInProgress` state (UI) + `beginTurn()` / `endTurn()`;
+  - `beginTurn()` at the top of `addUserResponse` (returns early if a turn is running) and before a student-initiated opening;
+  - `endTurn()` in a `finally` of the student reply callback and in a `catch` around `await callAI(...)`;
+  - `turnLogQueueRef` promise chain for `addTurn`;
+  - finish handler guarded by `turnInProgressRef` / `finishRequestedRef` and chained on `turnLogQueueRef`, with the finish button disabled while `isTurnInProgress`;
+  - `Messages` gets `isWaitingOnStudent={isQuerying || isTurnInProgress}`.
+- `src/utils/ai.js`: `callAI` now `return`s the generation promise. Previously it was dropped, which gave the caller no completion or failure signal. Legacy pages ignore the return value, so they are unaffected.
+
+**Known limits (out of scope here):**
+- There is no request timeout, so a hung backend call keeps the lock until the request ends.
+- Failures are still not shown to the teacher (C7).
+- Empty sends are still accepted (C4).
 
 ## Original proposal (kept for reference; see §0.6 for what is still open)
 

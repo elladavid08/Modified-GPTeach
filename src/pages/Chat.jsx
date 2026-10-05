@@ -35,6 +35,27 @@ export const Chat = () => {
 	// Drawing board
 	const drawingBoardRef = useRef(null);
 	const [showBoard, setShowBoard] = useState(false);
+
+	// Turn lock: only one simulation turn (PCK analysis + student responses) runs at a time.
+	// The ref guards synchronously against double submits; the state drives the UI.
+	const turnInProgressRef = useRef(false);
+	const [isTurnInProgress, setIsTurnInProgress] = useState(false);
+	// Turn logging is chained so entries are written in send order, one at a time.
+	const turnLogQueueRef = useRef(Promise.resolve());
+
+	function beginTurn() {
+		if (turnInProgressRef.current) {
+			return false;
+		}
+		turnInProgressRef.current = true;
+		setIsTurnInProgress(true);
+		return true;
+	}
+
+	function endTurn() {
+		turnInProgressRef.current = false;
+		setIsTurnInProgress(false);
+	}
 	
 	// Scenario is set by the ScenarioSelector — no random pre-selection
 	
@@ -57,6 +78,11 @@ export const Chat = () => {
 
 	/** Add the teacher's message and wait for a response */
 	async function addUserResponse(TAmessage) {
+		// Ignore sends while a turn is still in progress
+		if (!beginTurn()) {
+			return;
+		}
+
 		// Clear any previous feedback immediately so it doesn't persist into the next turn
 		setPckFeedback(null);
 
@@ -112,6 +138,7 @@ export const Chat = () => {
 			if (scenario.initiated_by === "students") {
 				console.log("✅ Students will initiate");
 				// Students start - trigger AI to generate first message
+				beginTurn();
 				setIsQuerying(true);
 			} else {
 				console.log("✅ Waiting for teacher to initiate");
@@ -250,13 +277,15 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 			// Step 2: Generate student responses WITH the impact analysis
 			console.log("🎯 STEP 2: Generating student responses based on PCK analysis...");
 			
-			callAI(
+			try {
+			await callAI(
 				history, 
 				students, 
 				scenario, 
 				addendum,
 				impact_analysis,  // NEW: Pass impact_analysis to student agent
 				async (aiMessages) => {
+					try {
 					// Handle case where no students respond (silence is valid with selective responses)
 					if (!aiMessages || aiMessages.length === 0) {
 						console.log("📭 No student responses this turn - continuing conversation");
@@ -275,30 +304,54 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 						
 					if (lastTeacherMessage) {
 						console.log("📊 Logging conversation turn...");
-						conversationLoggerRef.current.addTurn(
-							lastTeacherMessage.text,
-							aiMessages.map(msg => ({ name: msg.name, text: msg.text })),
-							feedbackForLog,
-							lastTeacherMessage.image || null  // include drawing image if teacher sent one
-						);
+						const logger = conversationLoggerRef.current;
+						turnLogQueueRef.current = turnLogQueueRef.current
+							.then(() => logger.addTurn(
+								lastTeacherMessage.text,
+								aiMessages.map(msg => ({ name: msg.name, text: msg.text })),
+								feedbackForLog,
+								lastTeacherMessage.image || null  // include drawing image if teacher sent one
+							))
+							.catch((error) => console.error("❌ Error logging conversation turn:", error));
 							console.log("✅ Turn logged. Total turns:", conversationLoggerRef.current.turns.length);
 						}
 					}
 					
 					console.log("🎉 Turn complete: PCK analysis → Student responses → Display");
+					} finally {
+						endTurn();
+					}
 				}
 			);
+			} catch (error) {
+				console.error("❌ Error generating student responses:", error);
+				endTurn();
+			}
 		})();
 		}
 	}, [isQuerying, scenario]);
 
 	// Handle finishing the conversation
+	const finishRequestedRef = useRef(false);
+
 	const handleFinishConversation = () => {
+		// Not available while a turn is in progress; ignore repeated requests
+		if (turnInProgressRef.current || finishRequestedRef.current) {
+			return;
+		}
 		if (!conversationLoggerRef.current) {
 			console.warn("No conversation logger found");
 			return;
 		}
-		
+		finishRequestedRef.current = true;
+
+		// Finish only after queued turn log entries are written, so no turn is skipped or reordered
+		turnLogQueueRef.current = turnLogQueueRef.current
+			.then(finishConversation)
+			.catch((error) => console.error("❌ Error finishing conversation:", error));
+	};
+
+	const finishConversation = () => {
 		// End the session
 		conversationLoggerRef.current.endSession();
 		console.log("🏁 Conversation session ended");
@@ -460,7 +513,7 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 							)}
 							<button
 								className="btn btn-primary btn-sm"
-								disabled={isSessionEnded || history.getLength() === 0}
+								disabled={isSessionEnded || history.getLength() === 0 || isTurnInProgress}
 								onClick={handleFinishConversation}
 								style={{ direction: "rtl", fontSize: "12px", padding: "4px 12px" }}
 							>
@@ -514,7 +567,7 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 
 				<div style={{ flex: "1 1 auto", overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
 				<Messages
-					isWaitingOnStudent={isQuerying}
+					isWaitingOnStudent={isQuerying || isTurnInProgress}
 					onMessageSend={addUserResponse}
 					showBoard={showBoard}
 					onToggleBoard={setShowBoard}
