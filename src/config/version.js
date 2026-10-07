@@ -13,10 +13,19 @@
  * - Z: Patch version (bug fixes, minor improvements)
  */
 
-export const SYSTEM_VERSION = "1.3.8";
+export const SYSTEM_VERSION = "1.3.9";
 
 /**
  * Version History:
+ * 
+ * 1.3.9 (2026-10-07):
+ * - Student prompt / output contract made consistent (C9): the student-generation prompt no
+ *   longer asks the model to include a "thinking" analysis in its output, which the response
+ *   format never allowed. The decision checklist is kept, but the model is told to work
+ *   through it silently and return only the student responses; the example outputs no longer
+ *   show a "thinking" object. The obsolete browser warning about a missing "thinking" field
+ *   is removed. Response format, model, temperature and token limit are unchanged; Gemini's
+ *   native thinking remains off.
  * 
  * 1.3.8 (2026-10-07):
  * - Student speaker identity (C8): in the conversation history sent to the student-generation

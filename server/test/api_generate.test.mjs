@@ -259,3 +259,28 @@ test('C8: no metadata beyond the simulated student name enters the model context
   assert.ok(!JSON.stringify(srv.fakeModel.calls[0].contents).match(/SECRET|secret@|123/));
 });
 
+// ─── C9: schema and generation config unchanged; no native thinking ──────────
+
+test('C9: the response schema is exactly {responses: [{student, message}]} (no reasoning field)', async () => {
+  srv.fakeModel.respond = () => textResult(STUDENT_JSON);
+  await postJson(srv.baseUrl, '/api/generate', { messages: baseMessages });
+  const { responseSchema } = srv.fakeModel.calls[0].generationConfig;
+  assert.deepEqual(Object.keys(responseSchema.properties), ['responses']);
+  assert.deepEqual(responseSchema.required, ['responses']);
+  assert.deepEqual(Object.keys(responseSchema.properties.responses.items.properties).sort(), ['message', 'student']);
+  assert.ok(!JSON.stringify(responseSchema).match(/thinking|reason|rationale|analysis/i));
+});
+
+test('C9: model, temperature, token limit unchanged and no native thinking configuration', async () => {
+  srv.fakeModel.respond = () => textResult(STUDENT_JSON);
+  await postJson(srv.baseUrl, '/api/generate', { messages: baseMessages });
+  const { generationConfig } = srv.fakeModel.calls[0];
+  assert.equal(generationConfig.temperature, 0.7);
+  assert.equal(generationConfig.maxOutputTokens, 512);
+  assert.equal(generationConfig.topP, 1);
+  assert.equal(generationConfig.thinkingConfig, undefined);
+  assert.ok(srv.fakeModel.modelParams.every((p) => p.model === 'gemini-2.5-flash-lite' && !p.generationConfig?.thinkingConfig));
+  const { readFileSync } = await import('node:fs');
+  assert.ok(!readFileSync(new URL('../server.js', import.meta.url), 'utf8').includes('thinkingConfig'));
+});
+

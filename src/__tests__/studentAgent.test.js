@@ -81,6 +81,57 @@ describe("student agent request", () => {
 	});
 });
 
+describe("C9: reasoning is not requested in the output (1.3.9)", () => {
+	async function systemPrompt() {
+		generateWithGenAI.mockResolvedValue(JSON.stringify({ responses: [] }));
+		await runCallAI();
+		return generateWithGenAI.mock.calls[0][0][0].content;
+	}
+
+	it("no longer instructs the model to include a `thinking` field", async () => {
+		const system = await systemPrompt();
+		expect(system).not.toContain('INCLUDE the "thinking" field');
+		expect(system).not.toContain("MUST INCLUDE IN OUTPUT");
+	});
+
+	it("keeps the decision checklist (lesson phase, teacher's latest message, student knowledge, answered questions, who responds)", async () => {
+		const system = await systemPrompt();
+		expect(system).toContain("STEP 0: Check lesson phase");
+		expect(system).toContain("STEP 1: Summarize teacher's LATEST message");
+		expect(system).toContain("STEP 2: Analyze context");
+		expect(system).toContain("What does this student currently KNOW based on their previous responses?");
+		expect(system).toContain("If they asked a question before, did the teacher answer it?");
+		expect(system).toContain("Should they respond? (true/false)");
+		expect(system).toContain("STEP 4: Generate responses ONLY for students who should respond");
+	});
+
+	it("says to work through the checklist silently and return only the responses JSON", async () => {
+		const system = await systemPrompt();
+		expect(system).toContain("DECISION PROCESS (think through these steps silently before answering; do NOT include them in the output):");
+		expect(system).toContain('5. Return ONLY the "responses" array: no reasoning, analysis or explanation fields, and no text outside it');
+	});
+
+	it("the example outputs contain no `thinking` object but are otherwise kept", async () => {
+		const system = await systemPrompt();
+		expect(system).not.toMatch(/"thinking"\s*:/);
+		expect(system).not.toContain("teacher_message_summary");
+		expect(system).not.toContain("who_should_respond");
+		for (const label of ["EXAMPLE 1 - Student understood the explanation:", "EXAMPLE 2 - Student still confused after explanation:", "EXAMPLE 3 - Student THINKS understood but has misconception:"]) {
+			expect(system).toContain(label);
+		}
+		expect(system).toContain(`"responses": [{"student": "${students[0].name}", "message": "אה עכשיו הבנתי!`);
+	});
+
+	it("the browser no longer expects or warns about a missing `thinking` field", async () => {
+		console.warn.mockClear();
+		generateWithGenAI.mockResolvedValue(JSON.stringify({ responses: [{ student: students[0].name, message: "היי" }] }));
+		const { msgs } = await runCallAI();
+		expect(msgs).toHaveLength(1);
+		const warnings = console.warn.mock.calls.map((c) => c.join(" "));
+		expect(warnings.some((w) => /thinking/i.test(w))).toBe(false);
+	});
+});
+
 describe("student agent response interface", () => {
 	it("turns each {student, message} into an assistant ChatMessage, in order", async () => {
 		generateWithGenAI.mockResolvedValue(

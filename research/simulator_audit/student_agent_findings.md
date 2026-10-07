@@ -56,6 +56,64 @@ model: "כי הוא נראה אחרת"                         model: "תמר: �
   - It does **not** by itself fix repetition (§2). Consequences 2 and 3 above are still open: consecutive plain-text model turns vs JSON output, and the `thinking` vs schema conflict (C9). Repetition should be re-measured after C8 and C9 (replay, `regression_test_plan.md` §5.1).
 - **Risk to watch:** the model may echo the `"name: "` prefix inside its own `message` output, which would then show in the bubble. Not observed or tested with the live model yet; check it in the replay, and if it appears, strip an echoed own-name prefix in the parser (a separate change). [HYPOTHESIS]
 
+### 1.2 C9 investigation: reasoning requested in the output vs the response schema (2026-10-07)
+
+> **Update: C9 fixed in 1.3.9 (2026-10-07)** with option B exactly as tested below. The production prompt is now byte-identical to the A/B candidate, the obsolete browser `thinking` logging and warning are removed, and the schema, model, temperature, token limit and native-thinking setting (off) are unchanged. Repetition still needs a sequential replay.
+
+**The contradiction**, confirmed in the actual `/api/generate` request (20,443-character system text, captured from the real `callAI`):
+- **Three places explicitly demand reasoning in the output:**
+  - Format rule 5: `5. INCLUDE the "thinking" field with your analysis`.
+  - Header: `🧠 DECISION PROCESS (MUST INCLUDE IN OUTPUT):`, followed by STEP 0-4: lesson phase; summarise the teacher message; analyse context; per student "Should they respond? / Why or why not? / What does this student currently KNOW…? / did the teacher answer…? / Confidence level"; then generate.
+  - Three "✅ CORRECT EXAMPLES" whose JSON contains `"thinking": { teacher_message_summary, context_analysis, who_should_respond[{student, should_respond, reason, confidence}] }` next to `"responses"`.
+- **The schema has no field for it.** `/api/generate` sends `responseMimeType: application/json` with `responseSchema = {responses: [{student, message}]}` (required: `responses`; items require `student`, `message`). There is no `thinking` property.
+- **So the model cannot satisfy both literally.** Schema-constrained decoding cannot emit `thinking`; in the A/B below, **0 / 30 raw CURRENT outputs contained a `thinking` key**.
+- No reasoning happens elsewhere either: the request sets no `thinkingConfig`. Gemini 2.5 Flash-Lite's thinking is off by default, according to Google's documentation; that is not verifiable from this repo.
+- The client still expects the field: `convertResponseToMessages` logs "No 'thinking' field … Chain-of-Thought may not be working" on every turn.
+
+**Other prompt/schema conflicts found:**
+1. "At least ONE student must respond every turn" vs "Number of responses can be: 0" (B6).
+2. "NEVER refer to the teacher in third person" and "Do not invent earlier teacher statements" are both violated occasionally. In the A/B, CURRENT produced "המורה אמרה…" twice and one invented teacher attribution.
+3. `maxOutputTokens: 512` makes adding a reasoning field (option C) risky: reasoning text would compete with the replies for output tokens and raise truncation (`MAX_TOKENS` → parse failure → retry).
+
+**Options:**
+
+| | A. remove the reasoning instruction | B. "consider silently, output only `responses`" (keep the checklist) | C. add a reasoning field to the schema |
+|---|---|---|---|
+| natural replies | likely unchanged | unchanged in the A/B | risk: rationale-style wording may bleed into messages |
+| schema reliability | contradiction removed | contradiction removed | contract consistent, but more output → more `MAX_TOKENS` / parse risk at 512 tokens |
+| repetition risk | the checklist cues ("did the teacher answer? don't repeat") are lost | cues kept as silent guidance | an explicit "was this said before?" step *might* help, but unproven |
+| persona / state consistency | loses STEP 3 "what does this student KNOW" guidance | guidance kept | could help, unproven |
+| latency / tokens | slightly less input | about the same (A/B p50 1067 vs 1141 ms) | more output tokens, so slower; more prone to truncation |
+| research / data | none | none | new generated content to log or drop; privacy and storage decisions (A16 / A17 whitelist) |
+
+**Live A/B sanity check** (synthetic only; real Gemini via the local unmodified `server.js`; same 30 contexts and both conditions interleaved; covered all 6 scenarios, early and late turns, 3 drawing contexts, synthetic PCK guidance positive / neutral / problematic / none). CANDIDATE = option B as three exact edits: rule 5 → "Return ONLY the responses array…"; header → "think through these steps silently… do NOT include them in the output"; the 3 `thinking` blocks removed from the examples.
+
+| metric | CURRENT | CANDIDATE |
+|---|---:|---:|
+| calls / failures / empty | 30 / 0 / 0 | 30 / 0 / 0 |
+| attempts > 1 | 0 | 0 |
+| raw output with a `thinking` key | 0 | 0 |
+| server latency p50 / p90 / max (ms) | 1141 / 1326 / 2523 | 1067 / 1321 / 1653 |
+| student replies (per call) | 49 (1.63) | 55 (1.83) |
+| average reply length (chars) | 66.0 | 57.9 |
+| exact repeats of an earlier message (any / same student / normalised) | 0 / 0 / 0 | 0 / 0 / 0 |
+| intra-turn duplicates | 0 | 0 |
+| reasoning / meta-language in messages | 0 | 0 |
+| third-person "המורה אמרה" (invented attribution) | 2 | 0 |
+| non-cast names / formatting problems | 0 / 0 | 0 / 0 |
+
+- **Manual inspection** (12 matched contexts): both conditions are natural and persona-appropriate.
+  - CANDIDATE avoided the invented teacher attributions, held a misconception consistent with "problematic" steering where CURRENT corrected it early (case 19), and referred to the drawing in one drawing context.
+  - Both showed one visual-reasoner student drifting back to appearance-based reasoning (case 28).
+  - With n = 30 single-turn contexts this is a sanity check only, not an evaluation.
+
+**Relation to repetition:**
+- *Plausible but not demonstrated.* The output-check steps were never written out. With Flash-Lite they act at most as conditioning text, which weakens the "don't repeat" self-check.
+- Neither condition produced any repetition here. These were fixed single-turn contexts, and the pilot repetition appeared in long sequential conversations, mostly after empty or short teacher input (§2).
+- Re-measure repetition with a sequential replay after the C9 fix.
+
+**Recommendation:** option B, as the three edits tested above. It is the smallest change that makes the prompt coherent with the schema and keeps the existing checklist guidance. Do **not** add a reasoning field (option C) without demonstrated need. When implementing, also remove the client's per-turn "No 'thinking' field" warning (log-only), and decide the B6 "at least one student" vs "0 responses" conflict separately.
+
 ## 2. Student response repetition (pilot issue)
 
 ### 2.1 What the data shows [CONFIRMED-DATA]
