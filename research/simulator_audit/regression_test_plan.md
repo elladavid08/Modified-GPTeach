@@ -121,7 +121,8 @@ Whether the live model *follows* Gate 0 belongs in the behavioural suite (§5). 
 | **B10 empty / waiting / failure sidebar states** | `pckSkillsDisplay` / `chatTurnOrchestration`: each state has its own distinct, decided text. |
 | ~~C7 silent failures; failed turns unlogged~~ | **Phase 1 done (§0.12).** Still to add with phase 2: retry / timeout tests, the B2-decided behaviour, and server-side diagnostics (model, `finishReason`, PCK raw output). |
 | ~~C8 speaker names dropped from student history~~ | **Done (§0.19).** Still open: check in the live replay whether the model echoes the `name: ` prefix inside its messages (parser stripping would then be a separate change); re-measure repetition after C9. |
-| ~~C9 `thinking` required by prompt but excluded by schema~~ | **Done (1.3.9, §0.20).** Remaining: a sequential live replay to re-measure repetition after C8 + C9 (§5.1); B6 separately. |
+| ~~C9 `thinking` required by prompt but excluded by schema~~ | **Done (1.3.9, §0.20).** The sequential replay was run on 2026-10-07 (`student_stability_replay.md`). B6 is separate. |
+| ~~Repetition after short teacher messages (acknowledgement / praise / thanks / closing)~~ | **Done (1.3.10, §0.21, B25).** Still open: re-run the sequential replay on 1.3.10. Bare `?` is not handled; it is absent from the pilot data (`student_agent_findings.md` §2.5). Duplicate detection / re-ask and explicit student state are not designed yet. When built, use the duplicate-detector cases in §3. |
 | ~~C10 PCK JSON mode / parser / validation (fix 0.5)~~ | **Done (§0.15).** Still open: re-ask on parse failure (§0.13), and B200's consistency checks (decision == any(relevant), etc.), which need a semantic decision first. |
 | **B8 cap on displayed skills** | sidebar / server: at most N rows for an input with 5 relevant skills; selection rule per spec. |
 | **B12 score-1 shows evidence and suggestion** | `pckSkillsDisplay`: score-1 row shows both `evidence` and `what_could_be_better` (the format per spec); the Excel export likewise if changed. |
@@ -698,6 +699,42 @@ This is a sanity check only (n = 30 single-turn contexts).
 3. remove the 3 `thinking` blocks from the examples.
 
 No schema change and no rationale field. Implementing it needs a `SYSTEM_VERSION` bump and the tests listed in the C9 row of §0.7. Repetition must be re-measured afterwards with a **sequential** replay. Single-turn contexts cannot show the pilot repetition pattern.
+
+
+### 0.21 Conversational-move rule for short teacher messages (2026-10-07, version 1.3.10)
+
+**Evidence:**
+- `student_stability_replay.md`: after C8 + C9, every exact repeat followed a short teacher message.
+- `short_message_repetition_experiment.md` (2×2, live): on closings, the PCK block overrode the existing closure rule. Exact repeats were A 10/43, no-PCK 0/40, prompt rule 0/42. Removing only the "MUST show confusion" line was not enough.
+
+**Change (condition C, verbatim):** one bullet in `src/utils/ai.js` `makeProsePrompt`, at the end of the NO-DUPLICATE RULE and before `📍 LESSON PHASE DETECTION`:
+
+> When the teacher's latest message is primarily an acknowledgement, praise, thanks, or closing rather than a new content question, respond naturally to that conversational move. Do not restate an earlier answer verbatim. If the student is still confused, preserve that underlying state without forcing the same misconception or wording to be repeated.
+
+- I captured the system prompt before and after the change for a fixed cast and scenario, both with no PCK analysis and with a fixed `more_confused` analysis. In both cases the diff is exactly this one added line, and the result is byte-identical to the live-tested condition C prompt.
+- **Unchanged:** PCK steering, personas, model, temperature, schema, C8, C9.
+- **Not added:** a duplicate check, a re-ask, explicit student state, `?` handling, native thinking.
+- `SYSTEM_VERSION` 1.3.9 → 1.3.10 with a changelog entry.
+
+**Tests added (8):**
+
+| file | test | protects |
+|---|---|---|
+| `studentAgent.test.js` | the exact rule is in the prompt once, with and without PCK guidance | rule text |
+| `studentAgent.test.js` | it is the last bullet of the no-duplicate rule, directly before lesson-phase detection (exact section text) | location; the three existing no-duplicate bullets unchanged |
+| `studentAgent.test.js` | it is general guidance, outside the PCK analysis block | not tied to PCK |
+| `studentAgent.test.js` | the PCK block and the persona/PCK steering section match their 1.3.9 SHA-256 fingerprints (for a fixed `more_confused` analysis); key steering lines still present | PCK / student-state steering byte-identical (B1). A future change here must be deliberate and update the fingerprint. |
+| `studentAgent.test.js` | the same system prompt and unchanged history are sent for `?`, `למה?`, `נכון`, `יפה, תודה לכם.` and a content question | prompt guidance only; no deterministic classification |
+| `studentAgent.test.js` | C9 silent decision process and responses-only output kept; C8 client message format `{role, content, name}` kept | C8 / C9 unchanged |
+| `chatTurnOrchestration.test.js` | `?`, `למה?` and `יפה, תודה לכם.` each run the normal PCK + student turn with the text unchanged, and are logged | no short-message special-casing in the app |
+| `api_generate.test.mjs` | a system prompt containing the rule and short teacher messages are forwarded verbatim; C8 `"<name>: "` prefix still applied | server pass-through + C8 |
+
+**Results:** `npm run test:all` was run twice. Both runs passed: 184 frontend tests and 150 backend tests.
+
+**Follow-up (not done here):**
+- re-run the sequential replay (`student_stability_replay.md` method) on 1.3.10 to measure the effect over full conversations;
+- B6;
+- semantic loops, regression of resolved misconceptions, and contamination (explicit student state is not designed yet).
 
 ## Original proposal (kept for reference; see §0.6 for what is still open)
 

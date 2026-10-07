@@ -132,6 +132,101 @@ describe("C9: reasoning is not requested in the output (1.3.9)", () => {
 	});
 });
 
+describe("conversational-move rule for short teacher messages (1.3.10)", () => {
+	// Condition C of research/simulator_audit/short_message_repetition_experiment.md, added verbatim.
+	const RULE =
+		"When the teacher's latest message is primarily an acknowledgement, praise, thanks, or closing rather than a new content question, respond naturally to that conversational move. Do not restate an earlier answer verbatim. If the student is still confused, preserve that underlying state without forcing the same misconception or wording to be repeated.";
+	const PCK_IMPACT = {
+		pedagogical_quality: "problematic",
+		addressed_misconception: false,
+		how_addressed: "",
+		misconception_risk: "high",
+		demonstrated_skills: [{ skill_id: "error-identification", evidence: "E" }],
+		missed_opportunities: [{ skill_id: "counterexample", what_could_have_been_done: "W" }],
+		predicted_student_state: {
+			understanding_level: "more_confused",
+			response_tone: "confused",
+			student_reaction_hints: [{ student: "נועה", reaction_type: "persistent_confusion", likelihood: "high", reason: "R" }],
+		},
+	};
+	const sha256 = (s) => require("crypto").createHash("sha256").update(s, "utf8").digest("hex");
+	const between = (s, start, end) => {
+		const a = s.indexOf(start);
+		const b = s.indexOf(end, a);
+		expect(a).toBeGreaterThanOrEqual(0);
+		expect(b).toBeGreaterThan(a);
+		return s.slice(a, b);
+	};
+	async function systemPrompt(opts) {
+		generateWithGenAI.mockResolvedValue(JSON.stringify({ responses: [] }));
+		await runCallAI(opts);
+		const sent = generateWithGenAI.mock.calls[generateWithGenAI.mock.calls.length - 1][0];
+		return sent[0].content;
+	}
+
+	it("the exact rule is in the student prompt once, with and without PCK guidance", async () => {
+		for (const impact of [null, PCK_IMPACT]) {
+			const system = await systemPrompt({ impact });
+			expect(system.split(RULE)).toHaveLength(2);
+		}
+	});
+
+	it("is the last bullet of the no-duplicate rule, directly before lesson-phase detection", async () => {
+		const system = await systemPrompt();
+		expect(between(system, "🔁 NO-DUPLICATE RULE (MANDATORY):", "📍 LESSON PHASE DETECTION")).toBe(
+			"🔁 NO-DUPLICATE RULE (MANDATORY):" +
+				"\n- Before finalising responses, compare each student's draft response to what that same student said in the immediately preceding student turn." +
+				"\n- If a draft response is identical or near-identical (same meaning, same phrasing) to the student's previous message, DO NOT output it. Instead, either have the student react briefly to the teacher's new message in a different way, or keep them silent this turn." +
+				"\n- IMPORTANT: At least ONE student must respond every turn. If the no-duplicate rule would silence all students, pick the student whose persona makes a short reaction most natural and have them give a brief, genuinely different acknowledgement of the teacher's latest message." +
+				`\n- ${RULE}` +
+				"\n\n"
+		);
+	});
+
+	it("is general guidance, not part of the PCK analysis block", async () => {
+		const system = await systemPrompt({ impact: PCK_IMPACT });
+		expect(between(system, "🎯🎯🎯 CRITICAL: PCK EXPERT ANALYSIS", "\n\n💬 CONVERSATION BUILDING GUIDELINES")).not.toContain(RULE);
+		expect(system).toContain(RULE);
+		expect(system.indexOf(RULE)).toBeLessThan(system.indexOf("🎯🎯🎯 CRITICAL: PCK EXPERT ANALYSIS"));
+	});
+
+	it("leaves the PCK / student-state steering byte-identical to 1.3.9", async () => {
+		const system = await systemPrompt({ impact: PCK_IMPACT });
+		// Fingerprints of the 1.3.9 prompt for PCK_IMPACT. A change here must be a deliberate PCK-steering change.
+		const pckBlock = between(system, "🎯🎯🎯 CRITICAL: PCK EXPERT ANALYSIS", "\n\n💬 CONVERSATION BUILDING GUIDELINES");
+		expect(sha256(pckBlock)).toBe("86047cc68f4e0ed4c3948d8916876b009db8151b3b8cd0badaea39f0244105f4");
+		const personaSteering = between(system, "💡 USING PERSONA FIELDS WITH PCK ANALYSIS:", "they are likely to have\n") + "they are likely to have\n";
+		expect(sha256(personaSteering)).toBe("9979e5674ad0ba36afcc02a33ba577c6a4833c32623f1b035918d4d3f4fd01e1");
+		expect(pckBlock).toContain("THIS OVERRIDES ALL OTHER INSTRUCTIONS");
+		expect(pckBlock).toContain("- If understanding_level = 'more_confused' → MUST show confusion\n");
+		expect(pckBlock).toContain("  → Students should show confusion or persist in misconception\n");
+	});
+
+	it("is prompt guidance only: the same system prompt and unchanged history are sent whatever the teacher's latest message", async () => {
+		const prompts = [];
+		for (const text of ["?", "למה?", "נכון", "יפה, תודה לכם.", "מה ההגדרה של מלבן?"]) {
+			const earlier = new ChatMessage(students[0].name, "ארבע זוויות ישרות", "assistant");
+			const teacher = new ChatMessage("Teacher", text, "user");
+			const system = await systemPrompt({ messages: [earlier, teacher], impact: PCK_IMPACT });
+			const sent = generateWithGenAI.mock.calls[generateWithGenAI.mock.calls.length - 1][0];
+			expect(sent.slice(1)).toEqual([earlier.toAIformat(), teacher.toAIformat()]);
+			expect(sent[sent.length - 1].content).toBe(text);
+			prompts.push(system);
+		}
+		expect(new Set(prompts).size).toBe(1);
+	});
+
+	it("keeps C9 (silent decision process, responses-only output) and the C8 client history format", async () => {
+		const system = await systemPrompt();
+		expect(system).toContain("DECISION PROCESS (think through these steps silently before answering; do NOT include them in the output):");
+		expect(system).toContain('5. Return ONLY the "responses" array: no reasoning, analysis or explanation fields, and no text outside it');
+		expect(system).not.toMatch(/"thinking"\s*:/);
+		// C8: the client still sends {role, content, name}; the server adds the "<name>: " prefix.
+		const student = new ChatMessage(students[1].name, "כי הוא נראה אחרת", "assistant");
+		expect(student.toAIformat()).toEqual({ role: "assistant", content: "כי הוא נראה אחרת", name: students[1].name });
+	});
+});
+
 describe("student agent response interface", () => {
 	it("turns each {student, message} into an assistant ChatMessage, in order", async () => {
 		generateWithGenAI.mockResolvedValue(

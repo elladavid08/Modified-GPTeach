@@ -1,6 +1,10 @@
 # Short-message repetition: 2×2 live-model experiment
 
-Status: evaluation only, run on 2026-10-07 against `SYSTEM_VERSION 1.3.9` (C8 + C9 in place). No production code was changed. Follow-up to `student_stability_replay.md`, which found that every exact student repeat came after a short teacher message.
+Status: evaluation only, run on 2026-10-07 against `SYSTEM_VERSION 1.3.9` (C8 + C9 in place). No production code was changed by the experiment.
+
+> **Update (2026-10-07):**
+> - Condition C was adopted verbatim in **1.3.10**, with PCK steering unchanged (`regression_test_plan.md` §0.21, invariant B25).
+> - A read-only check of the pilot export found **0** bare-`?` and **0** punctuation-only teacher messages in 1,257 turns (`student_agent_findings.md` §2.5). The `?` trigger in §6 is therefore a synthetic edge case, and no `?` handling is planned. Follow-up to `student_stability_replay.md`, which found that every exact student repeat came after a short teacher message.
 
 **Question:** after short teacher messages, are exact student repeats driven mainly by:
 - (1) **PCK steering** (`confused` / `more_confused` leading to "MUST show confusion"), or

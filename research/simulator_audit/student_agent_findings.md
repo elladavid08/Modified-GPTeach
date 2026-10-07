@@ -178,6 +178,61 @@ They are **not** produced by parse failure, by retry/fallback logic, or by reuse
 | §8 silent normalisation | The parser silently drops invalid entries. Unknown or duplicate student names are accepted. |
 | no raw output kept | **Same gap as B200 recommended fixing.** Raw output is console-only. |
 
+### 2.4 After C8 + C9: replay, 2×2 experiment, and the 1.3.10 prompt rule (2026-10-07)
+
+- **Sequential replay** (`student_stability_replay.md`): repetition persists after C8 + C9. There were 10/280 exact self-repeats, all after short teacher messages (0/174 after longer ones), concentrated late in the conversation and at closings.
+- **2×2 live experiment on short-message contexts** (`short_message_repetition_experiment.md`):
+  - Closing repeats were driven by the PCK block, which "OVERRIDES ALL OTHER INSTRUCTIONS" and outranks the existing LESSON CLOSURE rule. Exact repeats on closings were A 10/43, B (no PCK) 0/40, C (prompt rule) 0/42.
+  - Removing only the "MUST show confusion" line did not remove them.
+  - The rule kept confused students confused, in new words, and did not turn content questions into social replies.
+- **Fixed in 1.3.10 (Condition C, adopted verbatim).** One bullet was added to the student prompt at the end of the NO-DUPLICATE RULE, before `📍 LESSON PHASE DETECTION` (`ai.js` `makeProsePrompt`):
+
+  > When the teacher's latest message is primarily an acknowledgement, praise, thanks, or closing rather than a new content question, respond naturally to that conversational move. Do not restate an earlier answer verbatim. If the student is still confused, preserve that underlying state without forcing the same misconception or wording to be repeated.
+
+  - With and without PCK guidance, the production prompt differs from 1.3.9 only by this line. It is byte-identical to the live-tested condition C prompt.
+  - **Unchanged:** the PCK guidance block and the persona/PCK steering section (both pinned by fingerprint tests), personas, model, temperature, schema, C8 and C9.
+  - **Not added:** a duplicate check, a re-ask, explicit student state, any special handling of `?` or other messages in code, or native thinking.
+  - The rule is prompt guidance only. The application does not classify teacher messages.
+- **Still open:**
+  - repeats after a bare `?` in synthetic contexts (§2.5);
+  - semantic loops, regression of resolved misconceptions and cross-student contamination (§3; `student_stability_replay.md` §4);
+  - B6.
+
+  The effect of 1.3.10 on full conversations should be confirmed with a sequential replay.
+
+### 2.5 Pilot check: bare `?` and punctuation-only teacher messages (2026-10-07) [CONFIRMED-DATA]
+
+**Why:** in the synthetic experiment, a bare `?` was the trigger that repeated under every condition. This check asks whether that happens in real pilot use.
+
+**Method:** a read-only aggregate script over the same export as §2.1 (133 conversations, 1,257 turns). It printed only counts and the short teacher strings, with no identifiers or transcripts.
+- Teacher text is trimmed.
+- Punctuation-only means at least one non-space character, and every character is ASCII punctuation, Unicode punctuation, or Hebrew/typographic punctuation (`׳ ״ ־ ׃ … – — “ ” « » ¿ ¡`). Whitespace-only messages are not counted.
+- "Exact repeat" uses the §2.1 definition. The recount gives 162 messages, plus 9 same-turn duplicates = 171, which matches §2.1.
+
+| teacher message (trimmed) | turns |
+|---|---:|
+| exactly `?` | **0** |
+| punctuation-only (`?`, `??`, `...`, `?!` …) | **0** |
+| 1–3 characters | 11 (`כן` ×5, `היי` ×3, `יפה` ×2, `הנה` ×1), none of them punctuation |
+| 1–20 characters | 195 |
+| empty / whitespace-only (no text; includes image-only) | 24 |
+
+| turn after a teacher message that is … | turns | student messages | exact-repeat messages | turns with a gap-1 same-student repeat | full-replay turns |
+|---|---:|---:|---:|---:|---:|
+| bare `?` | 0 | 0 | 0 | 0 | 0 |
+| other punctuation-only | 0 | 0 | 0 | 0 | 0 |
+| empty / whitespace-only | 24 | 69 | 19 | 9 | 3 |
+| 1–20 characters | 195 | 498 | 48 | 16 | 7 |
+| longer | 1,038 | 2,596 | 95 | 34 | 16 |
+
+The full-replay recount here is 26, against 25 in §2.1. The difference comes from ordering turns by `turnNumber`.
+
+**Conclusion:** no pilot repeat followed a bare `?` or any punctuation-only message, because pilot teachers never sent one. The `?` repetition is a **synthetic edge case** from the replay scripts, not an observed pilot failure mode. The pilot's real short-input triggers were:
+- empty or image-only sends, now blocked or handled by C4/B22;
+- short worded messages such as acknowledgements, praise and closings, which the 1.3.10 rule targets.
+
+No special `?` handling is planned on this evidence.
+
 ## 3. Student consistency
 
 ### 3.1 Misconception re-emerging after apparent resolution

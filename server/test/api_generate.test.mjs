@@ -284,3 +284,27 @@ test('C9: model, temperature, token limit unchanged and no native thinking confi
   assert.ok(!readFileSync(new URL('../server.js', import.meta.url), 'utf8').includes('thinkingConfig'));
 });
 
+
+// ─── 1.3.10: conversational-move rule (prompt text only; the server does not classify messages) ───
+
+test('1.3.10: a system prompt with the conversational-move rule and short teacher messages are forwarded verbatim; C8 prefix still applied', async () => {
+  const RULE = "When the teacher's latest message is primarily an acknowledgement, praise, thanks, or closing rather than a new content question, respond naturally to that conversational move. Do not restate an earlier answer verbatim. If the student is still confused, preserve that underlying state without forcing the same misconception or wording to be repeated.";
+  srv.fakeModel.respond = () => textResult(STUDENT_JSON);
+  await postJson(srv.baseUrl, '/api/generate', {
+    messages: [
+      { role: 'system', content: `SYS\n- ${RULE}` },
+      { role: 'user', content: 'האם ריבוע הוא מלבן?', name: 'Teacher' },
+      { role: 'assistant', content: 'לא, הוא נראה אחרת', name: 'נועה' },
+      { role: 'user', content: '?', name: 'Teacher' },
+      { role: 'assistant', content: 'כי כל הצלעות שוות', name: 'נועה' },
+      { role: 'user', content: 'יפה, תודה לכם.', name: 'Teacher' },
+    ],
+  });
+  assert.deepEqual(turnsOf(srv.fakeModel.calls[0]), [
+    { role: 'user', text: `SYS\n- ${RULE}\n\nהאם ריבוע הוא מלבן?` },
+    { role: 'model', text: 'נועה: לא, הוא נראה אחרת' },
+    { role: 'user', text: '?' },
+    { role: 'model', text: 'נועה: כי כל הצלעות שוות' },
+    { role: 'user', text: 'יפה, תודה לכם.' },
+  ]);
+});

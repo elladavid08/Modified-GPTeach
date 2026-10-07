@@ -1050,3 +1050,21 @@ describe("multi-line teacher messages (C5)", () => {
 	});
 });
 
+
+describe("short teacher messages (1.3.10 conversational-move rule is prompt guidance only)", () => {
+	it("a bare '?', a short content question and a closing each run the normal PCK + student turn, text unchanged", async () => {
+		getPCKFeedback.mockResolvedValue(FEEDBACK_ANALYSIS);
+		await startLesson();
+		const texts = ["?", "למה?", "יפה, תודה לכם."];
+		for (const text of texts) await sendTeacherMessage(text);
+
+		expect(getPCKFeedback.mock.calls.map((c) => c[0])).toEqual(texts);
+		expect(studentCalls).toHaveLength(3);
+		studentCalls.forEach((call, i) => {
+			expect(call.impact).toBe(FEEDBACK_ANALYSIS);
+			const teacherMessages = call.messages.filter((m) => m.agent === "Teacher");
+			expect(teacherMessages[teacherMessages.length - 1].text).toBe(texts[i]);
+		});
+		expect(logger().addTurn.mock.calls.map((c) => c[0])).toEqual(texts);
+	});
+});

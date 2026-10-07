@@ -394,6 +394,7 @@ function makeProsePrompt(students, scenario, addendum, impact_analysis = null) {
 	retStr += `\n- Before finalising responses, compare each student's draft response to what that same student said in the immediately preceding student turn.`;
 	retStr += `\n- If a draft response is identical or near-identical (same meaning, same phrasing) to the student's previous message, DO NOT output it. Instead, either have the student react briefly to the teacher's new message in a different way, or keep them silent this turn.`;
 	retStr += `\n- IMPORTANT: At least ONE student must respond every turn. If the no-duplicate rule would silence all students, pick the student whose persona makes a short reaction most natural and have them give a brief, genuinely different acknowledgement of the teacher's latest message.`;
+	retStr += `\n- When the teacher's latest message is primarily an acknowledgement, praise, thanks, or closing rather than a new content question, respond naturally to that conversational move. Do not restate an earlier answer verbatim. If the student is still confused, preserve that underlying state without forcing the same misconception or wording to be repeated.`;
 	
 	// Lesson phase detection
 	retStr += `\n\n📍 LESSON PHASE DETECTION (CRITICAL — CHECK BEFORE EVERY RESPONSE):`;

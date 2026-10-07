@@ -13,10 +13,20 @@
  * - Z: Patch version (bug fixes, minor improvements)
  */
 
-export const SYSTEM_VERSION = "1.3.9";
+export const SYSTEM_VERSION = "1.3.10";
 
 /**
  * Version History:
+ * 
+ * 1.3.10 (2026-10-07):
+ * - Short teacher messages: the student prompt has one new instruction. When the teacher's
+ *   latest message is mainly an acknowledgement, praise, thanks or a closing (not a new
+ *   content question), students respond to that conversational move, do not restate an
+ *   earlier answer word for word, and a still-confused student keeps that state without being
+ *   pushed to repeat the same misconception or wording. Added verbatim as live-tested
+ *   (short_message_repetition_experiment.md, condition C). The PCK guidance to the students,
+ *   personas, model and settings are unchanged; there is no duplicate check and no special
+ *   handling of particular messages in code.
  * 
  * 1.3.9 (2026-10-07):
  * - Student prompt / output contract made consistent (C9): the student-generation prompt no
