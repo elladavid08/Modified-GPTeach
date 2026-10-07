@@ -13,10 +13,17 @@
  * - Z: Patch version (bug fixes, minor improvements)
  */
 
-export const SYSTEM_VERSION = "1.3.7";
+export const SYSTEM_VERSION = "1.3.8";
 
 /**
  * Version History:
+ * 
+ * 1.3.8 (2026-10-07):
+ * - Student speaker identity (C8): in the conversation history sent to the student-generation
+ *   model, each earlier student reply is now labelled with the student who said it
+ *   ("<name>: <text>"). Previously all earlier student replies reached the model without
+ *   names. Teacher messages, drawings, the student prompt, personas and saved conversation
+ *   data are unchanged.
  * 
  * 1.3.7 (2026-10-07):
  * - Multi-line teacher messages (C5): line breaks typed by the teacher are now kept. The

@@ -263,9 +263,12 @@ function convertMessagesToGenAI(openAIMessages) {
         console.log('👤 Added user message');
       }
     } else if (message.role === "assistant") {
+      // Keep the speaker of each past student reply (C8). Gemini contents have no speaker field,
+      // so the simulated student's name is prefixed to the text ("name: text", as in the PCK history).
+      const speaker = typeof message.name === "string" ? message.name.trim() : "";
       contents.push({
-        role: "model", 
-        parts: [{ text: message.content }]
+        role: "model",
+        parts: [{ text: speaker ? `${speaker}: ${message.content}` : message.content }]
       });
       console.log('🤖 Added assistant/model message');
     }

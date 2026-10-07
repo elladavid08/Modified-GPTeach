@@ -36,14 +36,14 @@ Both suites are fully offline:
 
 `package.json` gained only scripts (`test`, `test:server`, `test:all`). No dependencies were added.
 
-### 0.3 Tests implemented (311 total: 171 frontend, 140 backend)
+### 0.3 Tests implemented (319 total: 172 frontend, 147 backend)
 
 | file | tests | protects |
 |---|---:|---|
 | `src/__tests__/conversationContract.test.js` | 24 | A1, A2, A5, A12, A13. The validator accepts current and legacy docs and additive fields, and rejects 9 kinds of contract breaks. The Excel export reads both formats (turns, Hebrew skill names, score labels, summary sections, legacy free-text skill ids). Which skills the export includes is not asserted.; optional additive `failedAttempts` validated (A16): accepted when well-formed, rejected with a turnNumber / unknown agent / unknown stage / non-array.; turn `telemetry` (A17) accepted when well-formed or absent, rejected with an unknown status / non-whitelisted key / unknown agent key / negative latency. |
 | `src/__tests__/conversationLogger.test.js` | 20 | A1-A3, A4 (DECIDED), A6, A7, A10 (DECIDED), A11, A12, A14 (DECIDED), B5 (DECIDED: cast recorded). sessionId format; lazy init; `studentRefs` = `v<ver>_<id>` for the cast; systemVersion stamp; minimal user snapshot `{fullName, role}`; scenario snapshot fields; contract-valid doc after each turn; `turnNumber` 1..n; one-time init; turn field mapping; null feedback input stored as null; image stored without prefix; >600 px downscaled to 600; endTime and summary persisted.; displayed feedback is stored in the shape the summary consumes (shared fixture `loggedTurnWithFeedback.json`), without `should_provide_feedback` (A4, C1).; **C7 failed attempts (5 tests)**: kept out of `turns[]`, turn numbering unaffected, `precedingTurnNumber` / `attemptNumber` / `sessionId` set, saved immediately once the doc exists, held until the first logged turn (A11), bounded to 50, empty list on new docs.; **telemetry (3 tests)**: stored with the right turn; sanitised to the whitelist; `telemetry: null` without it. |
 | `src/__tests__/chatTurnOrchestration.test.js` | 53 | B1 (PCK before students; students wait for the PCK result; analysis passed as `impact_analysis`); B7 (no-feedback decision → no feedback content shown); A4 DECIDED (not displayed → logged as `pckFeedback: null`); A2 (displayed feedback logged with its fields); B9 (sidebar cleared on new send); B5 DECIDED (cast of 3 distinct personas, identical in the logger and in every student call, one logger per session); A6 (`SYSTEM_VERSION` to the logger); B20 (briefing before first message); students see prior replies; drawing attached and logged only when opted in. Renders the real `Chat.jsx` with mocked services, auth, logger and DrawingBoard.; **C2/C3 turn lock (10 tests)**: input, send and typing indicator locked from submit until the turn finishes; "סיים שיחה" disabled and ignored during a turn, available again afterwards, and executed only after queued turn log entries are written (repeat clicks ignored); **C4 empty messages (7 tests)**: empty, spaces-only, tabs+spaces and line-breaks-only submits with no drawing (and with the opt-in ticked but an empty board) start nothing (no history entry, PCK call, student call, log entry or lock); a normal message after an ignored empty one works; non-empty text is passed through unchanged; **B22 (DECIDED)**: an image-only submit (opt-in plus a real drawing, empty text) starts a turn, reaches the student agent with the drawing attached, and is logged with the drawing; extra submits ignored (no extra PCK or student call, nothing logged); unlock after success, PCK failure, empty-reply student failure, and thrown/rejected student generation; feedback and log entries stay with their own turn and are written in send order even when logging is slow.; **C7 phase 1 (6 tests)**: PCK failure → sidebar notice, failure recorded (`stage: parse` for the server's JSON-parse error), lock released, any logged turn carries null feedback, and the session keeps working (what follows a PCK failure is **not** asserted: B2 REVIEW); student request failure → banner, no turn logged, recorded with `pckFeedbackDisplayed`; student parse failure → no fallback/fake reply persisted, raw excerpt recorded; the PCK and student notices each contain no technical details; a later successful turn clears both notices, works normally, and the log queue order is turn 1 → failures → turn 2.; **B22 / E1 PCK handling by turn type (6 tests)**: image-only turns (empty or whitespace text plus a drawing) skip the PCK call with no notice and no `failedAttempts` entry, students get the drawing unsteered, the turn is logged with the drawing and `pckFeedback: null`, and the lock behaves normally; text-only turns call PCK exactly as before; text + drawing turns call PCK with the text and send the drawing to the students; C4 still blocks empty submissions without a drawing.; **telemetry (6 tests)**: PCK + student telemetry logged with the turn; telemetry stays with the correct turn; image-only → PCK `skipped` / `image_only`, no failure; PCK failure → enriched failure record, and any logged turn marks PCK `failed` (B2-neutral); student failure → enriched failure record, no turn; no teacher/student text or drawing in telemetry.; **retry policy / B2 (5 tests)**: B2 DECIDED (students generated unsteered after a final PCK failure, turn logged with null feedback and `telemetry.pck.status = failed`, attempts 2); a call that succeeded on retry creates no `failedAttempts` and logs `attempts: 2`; a final student failure logs no turn and records attempts / latency; client hard timeouts on PCK or students release the lock and are recorded as `ClientTimeoutError`.; **C5 (2 tests)**: a multi-line teacher message reaches PCK (text and history), the student agent (text and AI format) and the log unchanged; the bubble shows it with `pre-wrap` inside the RTL column, and the student reply still renders. |
-| `src/__tests__/studentAgent.test.js` | 15 | B3 / B4 inputs. One system prompt + history in order; personas, topic and Hebrew requirement in the prompt; PCK impact block present iff provided (B1); `{student, message}` → assistant `ChatMessage`s in order, trimmed; no fabricated messages on backend failure; `ChatMessage.toAIformat` text and image forms.; `callAI` returns a promise that settles after `onResponse` and rejects when the request cannot be built (the completion signal for the turn lock).; **C7**: request failure rejects with the tagged error and calls no `onResponse`; invalid JSON / missing `responses` reject as `stage: parse` with the raw output and **no fallback message**; `responses: []` is still a normal empty reply.; student telemetry passed to `onResponse` (4th argument); parse failures carry the call's telemetry. |
+| `src/__tests__/studentAgent.test.js` | 16 | B3 / B4 inputs. One system prompt + history in order; personas, topic and Hebrew requirement in the prompt; PCK impact block present iff provided (B1); `{student, message}` → assistant `ChatMessage`s in order, trimmed; no fabricated messages on backend failure; `ChatMessage.toAIformat` text and image forms.; `callAI` returns a promise that settles after `onResponse` and rejects when the request cannot be built (the completion signal for the turn lock).; **C7**: request failure rejects with the tagged error and calls no `onResponse`; invalid JSON / missing `responses` reject as `stage: parse` with the raw output and **no fallback message**; `responses: []` is still a normal empty reply.; student telemetry passed to `onResponse` (4th argument); parse failures carry the call's telemetry.; a student `ChatMessage` keeps the client format `{role, content, name}` and its stored text has no prefix (C8 is server-side only). |
 | `src/__tests__/pckSkillsDisplay.test.js` | 12 | A5, B11. The duplicated skill-name maps (sidebar, Excel export, ConversationLogs, AdminConversationLogs, server prompt) equal the contract; score labels; the sidebar shows nothing without feedback (exact placeholder text not asserted, B10), legend, per-score text, irrelevant skills hidden, and legacy fallback.; failure notice (`errorMessage`, role=alert) replaces skills. |
 | `src/__tests__/configContracts.test.js` | 7 | A6 (semver + the DECIDED process rule: a changelog entry in `version.js` for the current version), A7 (persona id/version/uniqueness), A15 DECIDED (`participation.baseline ∈ {low, medium, high}`), B5 (≥3 personas, NUM_STUDENTS ≥ 3), A8 (unique non-empty scenario titles; title stability A9 not asserted; snapshotted fields present), B20 (all teacher-initiated). |
 | `src/__tests__/turnDiagnostics.test.js` | 12 | A16 / C7. `buildFailedAttempt`: PCK http (endpoint, status, timestamp); the server's PCK JSON-parse error → `parse`; network; student parse with bounded raw excerpt; untagged → `client`; no teacher text, image, stack or `undefined` values, and no `turnNumber`; missing inputs handled.; the C10 validation error is classified as `parse`.; failure records are enriched with model / latency / client latency / finish reason / attempts when available (no content), and are null otherwise.; the server's student output failure is classified `parse` with the server-reported raw length; a client timeout is a `network`-stage failure. |
@@ -54,14 +54,14 @@ Both suites are fully offline:
 | `server/test/api_retry_policy.test.mjs` | 18 | B24 / B2 (endpoints, short env policy). SDK per-attempt timeout on the per-turn model; PCK timeout / parse / schema / 429 → success on attempt 2; PCK two timeouts → `timeout` within budget; invalid twice → B23 shape; safety / 4xx → one attempt; 400 input → no model call; student malformed / schema / 5xx / empty → success on attempt 2; student malformed twice → `parse` with a bounded raw excerpt; silence valid on attempt 1; student safety → one attempt; no request exceeds 2 attempts for any failure mix. |
 | `src/__tests__/messageLineBreaks.test.js` | 7 | C5. Teacher `ChatMessage` keeps line breaks and internal whitespace exactly (also in the multimodal format); the teacher bubble shows them with `white-space: pre-wrap`, as plain text (no `<br>`, markup-like text not interpreted); `ChatBubble` uses no `dangerouslySetInnerHTML`; student bubbles keep their label and text; a drawing still renders. |
 | `server/test/pck_feedback_contract.test.mjs` | 34 | B23 / C10. The schema covers the production contract (required fields, skill-id enum = contract, integer score, nullable trigger); valid analyses parse and validate unchanged; a whole-output fence is accepted; optional per-skill text may be omitted or null; each of 30 B200-based malformed fixtures fails parsing or validation (`server/test-support/pckFixtures.mjs`). |
-| `server/test/api_generate.test.mjs` | 12 | B3. Model text returned verbatim as `{success, text}`; JSON mode + `responses[{student, message}]` schema requested; system and teacher text reach the model; user/model roles; a teacher drawing is forwarded as inline PNG; 400 on bad input; model failure is never a successful reply.; **telemetry (5 tests)**: success meta (agent / model / latency / finish reason / attempts); attempts count the existing quota retries; blocked candidate → `SAFETY` in the failure meta; thrown error → timing + attempts; meta has no prompt or content. The verbatim-text test now allows the additive `meta`. |
+| `server/test/api_generate.test.mjs` | 19 | B3. Model text returned verbatim as `{success, text}`; JSON mode + `responses[{student, message}]` schema requested; system and teacher text reach the model; user/model roles; a teacher drawing is forwarded as inline PNG; 400 on bad input; model failure is never a successful reply.; **telemetry (5 tests)**: success meta (agent / model / latency / finish reason / attempts); attempts count the existing quota retries; blocked candidate → `SAFETY` in the failure meta; thrown error → timing + attempts; meta has no prompt or content. The verbatim-text test now allows the additive `meta`.; **C8 (7 tests)**: a past student reply reaches the model as `name: text`; several students across turns keep pairing and order (incl. the same student twice); teacher messages unchanged (no prefix; system prompt only on the first; multi-line kept); Hebrew and punctuation exact; image history unchanged; nameless / empty-name (legacy) messages unchanged; no metadata beyond the student name (contents keep only `role` / `parts`). |
 | `server/test/api_pck_feedback.test.mjs` | 43 | A5, B7. A valid analysis passes through intact (skills, scores, decision, student-impact hints); a ```json fence is parsed; a no-feedback decision stays no-feedback with an empty message; the prompt contains the teacher message, scenario context, **named** history and all skill ids; the prompt contains Gate 0 exclusions; 400 on bad input.; **C10 (34 tests)**: JSON mode + response schema requested (temperature / max tokens unchanged); a valid analysis passes through unchanged; `should_provide_feedback: true` with an empty message gets no placeholder; fixture sanity; each of 30 malformed outputs → `500`, `success: false`, no `analysis`, error prefixed `Failed to parse AI response`, the right `errorKind`, no placeholder.; **telemetry (3 tests)**: success meta; parse failure meta with `MAX_TOKENS`; thrown error meta. The pass-through test now allows the additive `meta`.; since 1.3.6 the malformed fixtures assert `attempts: 2`, and empty output is `errorKind: empty`. |
 | `server/test/api_pck_summary.test.mjs` | 9 | A12. `{success, summary (trimmed string), analyzed_turns, session_id}`; the prompt contains every logged teacher message and named student reply plus scenario context; 400 without turns.; **C1 (6 tests)**: a logged `pckFeedback` without `should_provide_feedback` is a moment; the moment carries skill name/id, score label + number, evidence, suggestion and stored feedback text (no `undefined`, irrelevant skills omitted); `pckFeedback: null` turns are not moments; multiple moments in turn order; legacy feedback without `skills_assessment` is passed without invented scores; no displayed feedback keeps the no-moments path. |
 
 ### 0.4 Deliberately not protected
 
 Each test file's header lists what it intentionally does **not** assert. In short:
-- No test preserves any §C behaviour of `invariants.md`: C8 dropped names, C9 `thinking` vs schema, C12 hard-coded tiers.
+- No test preserves any §C behaviour of `invariants.md`: C9 `thinking` vs schema, C12 hard-coded tiers.
 - Nothing preserves B12 (hidden score-1 suggestion).
 - Nothing asserts the B8 row cap.
 - **Invariants alignment pass (2026-10-05):** the baseline protects only PROTECT / DECIDED items. The following REVIEW items are deliberately untested:
@@ -120,7 +120,7 @@ Whether the live model *follows* Gate 0 belongs in the behavioural suite (§5). 
 | **B2 PCK failure behaviour (open product decision)** | `chatTurnOrchestration`: PCK reject → the decided behaviour (students unsteered / retry / blocked turn), plus a visible failure state and a failure log entry. |
 | **B10 empty / waiting / failure sidebar states** | `pckSkillsDisplay` / `chatTurnOrchestration`: each state has its own distinct, decided text. |
 | ~~C7 silent failures; failed turns unlogged~~ | **Phase 1 done (§0.12).** Still to add with phase 2: retry / timeout tests, the B2-decided behaviour, and server-side diagnostics (model, `finishReason`, PCK raw output). |
-| **C8 speaker names dropped from student history** | `api_generate`: prior student turns reach the model with speaker attribution (per the chosen format); the parser strips any name prefix the model echoes back. Behavioural replay (§5.1) for repetition. |
+| ~~C8 speaker names dropped from student history~~ | **Done (§0.19).** Still open: check in the live replay whether the model echoes the `name: ` prefix inside its messages (parser stripping would then be a separate change); re-measure repetition after C9. |
 | **C9 `thinking` required by prompt but excluded by schema** | `api_generate`: schema and prompt agree (either `thinking` is in the schema with a raised `maxOutputTokens`, or the prompt no longer asks for it). |
 | ~~C10 PCK JSON mode / parser / validation (fix 0.5)~~ | **Done (§0.15).** Still open: re-ask on parse failure (§0.13), and B200's consistency checks (decision == any(relevant), etc.), which need a semantic decision first. |
 | **B8 cap on displayed skills** | sidebar / server: at most N rows for an input with 5 relevant skills; selection rule per spec. |
@@ -619,6 +619,53 @@ No prompt, model, temperature, rubric, repair, UI or summary changes.
 - student and other non-teacher messages, which still have newlines removed;
 - history, annotation and Excel viewers, which display stored text as before and may collapse line breaks visually;
 - pilot records before 1.3.7, which keep the joined text.
+
+### 0.19 Fixed: C8 student speaker identity in the model-facing history (2026-10-07, version 1.3.8)
+
+**Root cause (confirmed):**
+- `ChatMessage.toAIformat` already sends `name` for every message (`callAI` → `/api/generate`).
+- The server's `convertMessagesToGenAI` built Gemini `contents` from `role` and `content` only, so past student replies became anonymous `model` turns.
+- Gemini `Content` has no speaker field.
+
+**Old format** (`user` / `model` turns):
+
+```
+user : "<system prompt>\n\n<teacher 1>"
+model: "<student A text>"
+model: "<student B text>"
+user : "<teacher 2>"
+model: "<student B text>"
+```
+
+**New format:**
+
+```
+user : "<system prompt>\n\n<teacher 1>"
+model: "<A name>: <student A text>"
+model: "<B name>: <student B text>"
+user : "<teacher 2>"
+model: "<B name>: <student B text>"
+```
+
+The full Hebrew example is in `student_agent_findings.md` §1.1.
+
+**Why a text prefix:** Gemini `Content` is `{role, parts}` with no speaker or name field, so the only carrier is the text. The `"name: text"` convention matches the PCK history and summary transcript. It is applied **server-side when deriving the model history**, so no client, storage or prompt change was needed.
+
+**Production change:** `server/server.js` `convertMessagesToGenAI`, assistant branch: `text = name.trim() ? `${name.trim()}: ${content}` : content`.
+
+**Unchanged:**
+- teacher messages (no prefix), images, the system prompt;
+- nameless or empty-name messages;
+- `ChatMessage` and `toAIformat`;
+- stored conversations;
+- personas, casting and the student prompt;
+- PCK, retries and timeouts.
+
+**Persisted data:** unchanged. Only the model-facing request is affected.
+
+**Caveats:**
+- This restores speaker identity only. Repetition must be re-measured after C9.
+- Watch in the live replay whether the model echoes the `name: ` prefix in its own `message` values.
 
 ## Original proposal (kept for reference; see §0.6 for what is still open)
 

@@ -192,6 +192,12 @@ describe("ChatMessage AI format (drawing path to the student model)", () => {
 		expect(m.toAIformat()).toEqual({ role: "user", content: "שלום", name: "Teacher" });
 	});
 
+	it("a student message keeps the client format {role, content, name} (C8: the server adds the speaker prefix)", () => {
+		const m = new ChatMessage("נועה", "מרובע עם ארבע זוויות ישרות", "assistant");
+		expect(m.toAIformat()).toEqual({ role: "assistant", content: "מרובע עם ארבע זוויות ישרות", name: "נועה" });
+		expect(m.text).toBe("מרובע עם ארבע זוויות ישרות"); // stored/displayed text has no prefix
+	});
+
 	it("message with drawing becomes multimodal text + inline PNG", () => {
 		const m = new ChatMessage("Teacher", "הסתכלו", "user", "iVBORbase64");
 		expect(m.toAIformat()).toEqual({

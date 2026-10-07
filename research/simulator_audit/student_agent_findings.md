@@ -15,6 +15,8 @@ exported 2026-07-27; read-only aggregate script, no names printed) · **[HYPOTHE
 
 ### What the model actually sees as history [CONFIRMED-CODE]
 
+> **Update 2026-10-07 (1.3.8, C8 fixed):** speaker identity is now preserved; see §1.1 below. The description in this section is the audited pre-1.3.8 state.
+
 `ChatMessage.toAIformat` → `{role, content: text, name}`. `convertMessagesToGenAI` (`server.js:180-251`) uses only `role` and `content`:
 
 ```
@@ -29,6 +31,30 @@ Consequences:
 1. **The model cannot tell which student said what earlier.** Student names reach the model only through its own JSON output, which is never shown back to it. Rules such as "compare each student's draft to what *that same student* said" (`ai.js:404-407`) and "What does this student currently KNOW based on their previous responses?" (`ai.js:443`) cannot be applied reliably. [CONFIRMED-CODE; effect on behaviour is HYPOTHESIS]
 2. Prior model turns are bare Hebrew sentences, but the required output is JSON. Several consecutive `model` turns with no `user` in between are an unusual pattern for chat models. [CONFIRMED-CODE]
 3. The CoT `thinking` field that the prompt requires is **excluded by the response schema**, so the STEP 0-4 decision procedure, including the "is this the same as my last message?" check, is never written out. The client logs a warning on every turn (`ai.js:285-287`). [CONFIRMED-CODE]
+
+### 1.1 C8 fix: speaker identity in the model-facing history (1.3.8, 2026-10-07) [CONFIRMED-CODE]
+
+- **Root cause (confirmed):** the client already sends each student message as `{role: "assistant", content, name: <student name>}`. The server's `convertMessagesToGenAI` dropped `name` when building Gemini `contents`, and Gemini `Content` has no speaker field (only `role` and `parts`).
+- **Fix:** derived representation only, in the server conversion. Each past student reply's text is prefixed with its speaker as `"<name>: <text>"`, the same convention the PCK history (`formatConversationHistory`) and the summary transcript already use. Not changed:
+  - teacher messages, images and the system prompt;
+  - messages without a name (legacy);
+  - the client, `ChatMessage`, stored conversations, personas, random casting and the student prompt.
+
+Exact model-facing history for a synthetic conversation (captured from `/api/generate` with a fake model):
+
+```
+before C8                                         after C8
+user : "<system prompt>\n\nמה ההגדרה של מלבן?"     user : "<system prompt>\n\nמה ההגדרה של מלבן?"
+model: "מרובע עם ארבע זוויות ישרות"                model: "נועה: מרובע עם ארבע זוויות ישרות"
+model: "אבל ריבוע זה לא מלבן"                     model: "תמר: אבל ריבוע זה לא מלבן"
+user : "תמר, למה את חושבת כך?"                    user : "תמר, למה את חושבת כך?"
+model: "כי הוא נראה אחרת"                         model: "תמר: כי הוא נראה אחרת"
+```
+
+- **What it does and does not do:**
+  - It restores the information the per-student prompt rules depend on, e.g. "compare each student's draft to what *that same student* said".
+  - It does **not** by itself fix repetition (§2). Consequences 2 and 3 above are still open: consecutive plain-text model turns vs JSON output, and the `thinking` vs schema conflict (C9). Repetition should be re-measured after C8 and C9 (replay, `regression_test_plan.md` §5.1).
+- **Risk to watch:** the model may echo the `"name: "` prefix inside its own `message` output, which would then show in the bubble. Not observed or tested with the live model yet; check it in the replay, and if it appears, strip an echoed own-name prefix in the parser (a separate change). [HYPOTHESIS]
 
 ## 2. Student response repetition (pilot issue)
 

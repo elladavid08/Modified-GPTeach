@@ -1,8 +1,9 @@
 // Student agent endpoint: invariant B3 (student output interface) and the drawing path to the
 // student model. Uses the real server.js with a fake Vertex model (no network).
 //
-// Deliberately NOT asserted (defects, invariants.md §C): that speaker names are dropped from
-// history (C8), that the schema forbids a `thinking` field (C9), or any fallback text (C6).
+// C8 (fixed, 1.3.8): past student replies reach the model attributed to their speaker.
+// Deliberately NOT asserted (defects, invariants.md §C): that the schema forbids a `thinking`
+// field (C9), or any fallback text (C6).
 import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer, postJson, promptText } from '../test-support/startServer.mjs';
@@ -157,5 +158,104 @@ test('telemetry: meta contains no prompt, response text or message content', asy
   assert.ok(!json.includes('SYSTEM-PROMPT-MARKER'));
   assert.ok(!json.includes('שלום כיתה'));
   assert.ok(!json.includes('נועה'));
+});
+
+// ─── C8: student speaker identity in the model-facing history ────────────────
+
+const turnsOf = (request) => request.contents.map((c) => ({ role: c.role, text: c.parts.map((p) => p.text).join('|') }));
+
+test('C8: a past student reply reaches the model with that student\'s name', async () => {
+  srv.fakeModel.respond = () => textResult(STUDENT_JSON);
+  await postJson(srv.baseUrl, '/api/generate', {
+    messages: [...baseMessages, { role: 'assistant', content: 'מרובע עם ארבע זוויות ישרות', name: 'נועה' }, { role: 'user', content: 'ומה עם ריבוע?', name: 'Teacher' }],
+  });
+  const contents = srv.fakeModel.calls[0].contents;
+  assert.deepEqual(contents[1], { role: 'model', parts: [{ text: 'נועה: מרובע עם ארבע זוויות ישרות' }] });
+});
+
+test('C8: several students across turns keep their name-message pairing and order', async () => {
+  srv.fakeModel.respond = () => textResult(STUDENT_JSON);
+  await postJson(srv.baseUrl, '/api/generate', {
+    messages: [
+      { role: 'system', content: 'SYS' },
+      { role: 'user', content: 'מה ההגדרה של מלבן?', name: 'Teacher' },
+      { role: 'assistant', content: 'מרובע עם ארבע זוויות ישרות', name: 'נועה' },
+      { role: 'assistant', content: 'אבל ריבוע זה לא מלבן', name: 'תמר' },
+      { role: 'user', content: 'תמר, למה את חושבת כך?', name: 'Teacher' },
+      { role: 'assistant', content: 'כי הוא נראה אחרת', name: 'תמר' },
+      { role: 'assistant', content: 'אני חושב שהוא כן מלבן', name: 'יובל' },
+      { role: 'user', content: 'נבדוק ביחד.', name: 'Teacher' },
+    ],
+  });
+  assert.deepEqual(turnsOf(srv.fakeModel.calls[0]), [
+    { role: 'user', text: 'SYS\n\nמה ההגדרה של מלבן?' },
+    { role: 'model', text: 'נועה: מרובע עם ארבע זוויות ישרות' },
+    { role: 'model', text: 'תמר: אבל ריבוע זה לא מלבן' },
+    { role: 'user', text: 'תמר, למה את חושבת כך?' },
+    { role: 'model', text: 'תמר: כי הוא נראה אחרת' },
+    { role: 'model', text: 'יובל: אני חושב שהוא כן מלבן' },
+    { role: 'user', text: 'נבדוק ביחד.' },
+  ]);
+});
+
+test('C8: teacher messages are unchanged (no speaker prefix, system prompt only on the first)', async () => {
+  srv.fakeModel.respond = () => textResult(STUDENT_JSON);
+  await postJson(srv.baseUrl, '/api/generate', {
+    messages: [
+      { role: 'system', content: 'SYS' },
+      { role: 'user', content: 'שורה ראשונה\nשורה שנייה', name: 'Teacher' },
+      { role: 'assistant', content: 'כן', name: 'נועה' },
+      { role: 'user', content: 'יפה', name: 'Teacher' },
+    ],
+  });
+  const t = turnsOf(srv.fakeModel.calls[0]);
+  assert.equal(t[0].text, 'SYS\n\nשורה ראשונה\nשורה שנייה');
+  assert.equal(t[2].text, 'יפה');
+  assert.ok(!JSON.stringify(srv.fakeModel.calls[0].contents).includes('Teacher'));
+});
+
+test('C8: Hebrew text and punctuation are preserved exactly after the speaker prefix', async () => {
+  srv.fakeModel.respond = () => textResult(STUDENT_JSON);
+  const text = 'רגע, אז "ריבוע" הוא גם מלבן?! (לפי ההגדרה)';
+  await postJson(srv.baseUrl, '/api/generate', { messages: [...baseMessages, { role: 'assistant', content: text, name: 'הילה' }] });
+  assert.equal(srv.fakeModel.calls[0].contents[1].parts[0].text, `הילה: ${text}`);
+});
+
+test('C8: image (drawing) history is unchanged', async () => {
+  srv.fakeModel.respond = () => textResult(STUDENT_JSON);
+  await postJson(srv.baseUrl, '/api/generate', {
+    messages: [
+      { role: 'system', content: 'SYS' },
+      { role: 'user', name: 'Teacher', content: [{ text: 'הסתכלו' }, { inline_data: { mime_type: 'image/png', data: 'iVBORx' } }] },
+      { role: 'assistant', content: 'זה מעוין', name: 'נועה' },
+      { role: 'user', name: 'Teacher', content: [{ text: '' }, { inline_data: { mime_type: 'image/png', data: 'iVBORy' } }] },
+    ],
+  });
+  const c = srv.fakeModel.calls[0].contents;
+  assert.deepEqual(c[0], { role: 'user', parts: [{ text: 'SYS\n\nהסתכלו' }, { inline_data: { mime_type: 'image/png', data: 'iVBORx' } }] });
+  assert.deepEqual(c[2], { role: 'user', parts: [{ inline_data: { mime_type: 'image/png', data: 'iVBORy' } }] });
+});
+
+test('C8: messages without a speaker name (legacy) are converted as before', async () => {
+  srv.fakeModel.respond = () => textResult(STUDENT_JSON);
+  await postJson(srv.baseUrl, '/api/generate', {
+    messages: [...baseMessages, { role: 'assistant', content: 'בלי שם' }, { role: 'assistant', content: 'שם ריק', name: '' }, { role: 'assistant', content: 'שם רווחים', name: '   ' }],
+  });
+  const t = turnsOf(srv.fakeModel.calls[0]);
+  assert.deepEqual(t.slice(1).map((x) => x.text), ['בלי שם', 'שם ריק', 'שם רווחים']);
+});
+
+test('C8: no metadata beyond the simulated student name enters the model context', async () => {
+  srv.fakeModel.respond = () => textResult(STUDENT_JSON);
+  await postJson(srv.baseUrl, '/api/generate', {
+    messages: [
+      ...baseMessages,
+      { role: 'assistant', content: 'תשובה', name: 'נועה', userId: 'SECRET-UID', email: 'secret@x', timestamp: 123, agent: 'נועה' },
+    ],
+  });
+  const c = srv.fakeModel.calls[0].contents[1];
+  assert.deepEqual(Object.keys(c).sort(), ['parts', 'role']);
+  assert.deepEqual(c.parts, [{ text: 'נועה: תשובה' }]);
+  assert.ok(!JSON.stringify(srv.fakeModel.calls[0].contents).match(/SECRET|secret@|123/));
 });
 
