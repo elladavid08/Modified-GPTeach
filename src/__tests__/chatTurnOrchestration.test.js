@@ -19,7 +19,8 @@
 //   C7 phase 1 (fixed) PCK / student failures are shown to the teacher (concise Hebrew, no
 //       technical detail), recorded as failedAttempts diagnostics (A16), never logged as turns
 //
-// Deliberately NOT asserted (defects, invariants.md §C): newline handling (C5).
+//   C5 (fixed, 1.3.7) a multi-line teacher message reaches PCK, the students, the log and the bubble
+//       unchanged (line breaks preserved); student-message handling is not asserted here.
 //   B22 (DECIDED) an image-only submit (opt-in ticked + a real drawing, no text) is a valid turn.
 //       Until the PCK agent is multimodal, image-only turns skip the PCK call silently (E1).
 //       Summary handling of drawings is NOT asserted (B17, future design).
@@ -1008,6 +1009,44 @@ describe("retry policy and B2 at the turn level", () => {
 		expect(logger().addFailedAttempt.mock.calls[0][0]).toEqual(expect.objectContaining({ agent: which, stage: "network", errorName: "ClientTimeoutError" }));
 		await sendTeacherMessage("שאלה שנייה");
 		expect(getPCKFeedback).toHaveBeenCalledTimes(2);
+	});
+});
+
+// ─── C5: multi-line teacher messages end-to-end ───────────────────────────────
+
+describe("multi-line teacher messages (C5)", () => {
+	const MULTILINE = "שורה ראשונה\nשורה שנייה\n\nשורה רביעית";
+
+	it("the original text, with its line breaks, reaches PCK, the students and the log", async () => {
+		getPCKFeedback.mockResolvedValue(NO_FEEDBACK_ANALYSIS);
+		await startLesson();
+		await sendTeacherMessage(MULTILINE);
+
+		expect(getPCKFeedback.mock.calls[0][0]).toBe(MULTILINE);
+		const pckHistory = getPCKFeedback.mock.calls[0][1];
+		expect(pckHistory[pckHistory.length - 1].text).toBe(MULTILINE);
+		expect(studentCalls[0].messages[0].text).toBe(MULTILINE);
+		expect(studentCalls[0].messages[0].toAIformat().content).toBe(MULTILINE);
+		expect(logger().addTurn.mock.calls[0][0]).toBe(MULTILINE);
+	});
+
+	it("the chat shows the message with the same line breaks, inside the RTL chat column", async () => {
+		getPCKFeedback.mockResolvedValue(NO_FEEDBACK_ANALYSIS);
+		await startLesson();
+		await sendTeacherMessage(MULTILINE);
+
+		const bubble = view.container.querySelector(".chatBubbleUser");
+		expect(bubble.textContent).toContain(MULTILINE);
+		expect(bubble.style.whiteSpace).toBe("pre-wrap");
+		let el = bubble;
+		let rtl = false;
+		while (el) {
+			if (el.style && el.style.direction === "rtl") rtl = true;
+			el = el.parentElement;
+		}
+		expect(rtl).toBe(true);
+		// Student reply still rendered
+		expect(view.container.querySelector(".chatBubbleOther").textContent).toContain("STUDENT-REPLY");
 	});
 });
 

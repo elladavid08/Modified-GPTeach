@@ -13,10 +13,16 @@
  * - Z: Patch version (bug fixes, minor improvements)
  */
 
-export const SYSTEM_VERSION = "1.3.6";
+export const SYSTEM_VERSION = "1.3.7";
 
 /**
  * Version History:
+ * 
+ * 1.3.7 (2026-10-07):
+ * - Multi-line teacher messages (C5): line breaks typed by the teacher are now kept. The
+ *   message is shown in the chat with its original line breaks, and the same original text
+ *   (previously with lines glued together without a space) is sent to the PCK and student
+ *   agents and saved in the conversation log. Student messages are unchanged.
  * 
  * 1.3.6 (2026-10-05):
  * - Retry / timeout policy for the per-turn LLM calls (PCK feedback and student generation):
