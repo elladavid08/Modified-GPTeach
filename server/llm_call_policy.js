@@ -102,15 +102,20 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * @param {{generateContent: Function}} args.model
  * @param {string} args.modelId
  * @param {object} args.request  generateContent request
- * @param {(result) => ({ok: true, value}|{ok: false, kind, retryable, message})} args.interpret
- *        endpoint-specific output validation (parse / schema)
- * @returns {Promise<{ok: true, value, telemetry}|{ok: false, failure, telemetry}>}
+ * @param {(result, {attempt, isFinalAttempt}) => ({ok: true, value}|{ok: false, kind, retryable, message})} args.interpret
+ *        endpoint-specific output validation (parse / schema). Since 1.3.11 a failed outcome may also carry:
+ *        - `nextRequest`: the request to use for the next attempt (the student duplicate re-ask);
+ *        - `fallback: {value}`: a usable value to return if no later attempt succeeds.
+ *        Neither adds attempts: the loop still stops at `policy.maxAttempts`.
+ * @returns {Promise<{ok: true, value, telemetry, usedFallback?, failure?}|{ok: false, failure, telemetry}>}
  *   telemetry = {agent, model, latencyMs, finishReason, attempts}; latencyMs covers all attempts + back-off
  */
 export async function callModelWithPolicy({ agent, model, modelId, request, interpret, policy = LLM_CALL_POLICY }) {
   const started = Date.now();
   const telemetry = { agent, model: modelId, latencyMs: null, finishReason: null, attempts: 0 };
   let lastFailure = null;
+  let currentRequest = request;
+  let fallback = null;
 
   for (let attempt = 1; attempt <= policy.maxAttempts; attempt++) {
     if (attempt > 1) {
@@ -127,9 +132,9 @@ export async function callModelWithPolicy({ agent, model, modelId, request, inte
 
     let outcome;
     try {
-      const result = await withTimeout(Promise.resolve().then(() => model.generateContent(request)), attemptTimeoutMs);
+      const result = await withTimeout(Promise.resolve().then(() => model.generateContent(currentRequest)), attemptTimeoutMs);
       telemetry.finishReason = finishReasonOf(result);
-      outcome = interpret(result);
+      outcome = interpret(result, { attempt, isFinalAttempt: attempt >= policy.maxAttempts });
     } catch (error) {
       telemetry.finishReason = null;
       outcome = classifyModelError(error);
@@ -140,6 +145,12 @@ export async function callModelWithPolicy({ agent, model, modelId, request, inte
       return { ok: true, value: outcome.value, telemetry };
     }
     lastFailure = outcome;
+    if (outcome.fallback) {
+      fallback = outcome.fallback;
+    }
+    if (outcome.nextRequest) {
+      currentRequest = outcome.nextRequest;
+    }
     console.warn(`⚠️ ${agent} attempt ${attempt}/${policy.maxAttempts} failed (${outcome.kind}${outcome.retryable ? ', retryable' : ''}): ${String(outcome.message).slice(0, 200)}`);
     if (!outcome.retryable) {
       break;
@@ -147,5 +158,9 @@ export async function callModelWithPolicy({ agent, model, modelId, request, inte
   }
 
   telemetry.latencyMs = Date.now() - started;
+  if (fallback) {
+    // An earlier attempt produced usable output; a later failure must not turn it into a failed call
+    return { ok: true, value: fallback.value, telemetry, usedFallback: true, failure: lastFailure };
+  }
   return { ok: false, failure: lastFailure, telemetry };
 }

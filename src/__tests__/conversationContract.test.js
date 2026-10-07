@@ -32,6 +32,9 @@ describe("conversation document contract validator", () => {
 		};
 		doc.turns[0].telemetry = null;
 		expect(validateConversationDoc(doc)).toEqual([]);
+		// 1.3.11: optional, content-free duplicate-guard fields on the student entry
+		doc.turns[1].telemetry.student = { ...doc.turns[1].telemetry.student, attempts: 2, duplicateRetries: 1, duplicateRepliesDropped: 0, duplicateRepliesKept: 0, duplicateOutcome: "resolved" };
+		expect(validateConversationDoc(doc)).toEqual([]);
 		expect(validateConversationDoc(legacyFormatConversation(), { legacy: true })).toEqual([]);
 	});
 
@@ -40,6 +43,8 @@ describe("conversation document contract validator", () => {
 		["telemetry with non-whitelisted content", (t) => { t.telemetry = { pck: { status: "ok", prompt: "x" }, student: null }; }],
 		["telemetry with an unknown agent key", (t) => { t.telemetry = { summary: { status: "ok" } }; }],
 		["telemetry with a negative latency", (t) => { t.telemetry = { pck: { status: "ok", latencyMs: -1 }, student: null }; }],
+		["telemetry with an unknown duplicate outcome", (t) => { t.telemetry = { pck: null, student: { status: "ok", duplicateOutcome: "some student text" } }; }],
+		["telemetry with a negative duplicate count", (t) => { t.telemetry = { pck: null, student: { status: "ok", duplicateRepliesDropped: -1 } }; }],
 	])("rejects %s", (_label, mutate) => {
 		const doc = currentFormatConversation();
 		mutate(doc.turns[1]);

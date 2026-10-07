@@ -15,6 +15,7 @@ import { formatSkillsForPrompt, formatConversationHistory, getPCKSkillById } fro
 import { PCK_RESPONSE_SCHEMA, PCK_PARSE_ERROR, PCK_INVALID_ERROR, parsePckModelText, validatePckAnalysis } from './pck_feedback_contract.js';
 import { LLM_CALL_POLICY, callModelWithPolicy, interpretCandidate } from './llm_call_policy.js';
 import { validateStudentOutputText, STUDENT_PARSE_ERROR, STUDENT_INVALID_ERROR, MAX_RAW_OUTPUT_EXCERPT_CHARS } from './student_output_contract.js';
+import { findSelfDuplicates, buildRegenerationNote, appendRegenerationNote, dropDuplicateReplies } from './student_duplicate_guard.js';
 import { saveConversation, saveMessage, createUserProfile, getUserProfile, saveTestSubmission, checkTestSubmission, verifyAnnotator, verifyAdmin, getTestSubmissions, getTestSubmission, saveTestAnnotation, getTestAnnotation, getAllAnnotationsForSubmission, getAllUsersAdmin, getResearchParticipantsAdmin, updateUserResearchStatusAdmin, getConversationsByUserAdmin, getConversationsMeta, getFullConversationForAnnotation, createAnnotationAssignments, getAnnotationAssignments, getAnnotatorAssignments, getConvAnnotation, saveConvAnnotation, submitConvAnnotation, exportConvAnnotations, cancelAnnotationAssignment, getEligibleAgreementConversations, getAgreementReports, getAgreementReport, computeAndSaveAgreementReport, getConversationsWithCompletedPairs, createComparisonSet, updateComparisonSet, deleteComparisonSet, getComparisonSets, getComparisonSetDetail, getComparisonData, getConsensusAnnotation, saveConsensusAnnotation, submitConsensusAnnotation } from './services/firebaseAdmin.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -350,13 +351,16 @@ app.post('/api/generate', async (req, res) => {
 
     console.log('📤 Calling Vertex AI with config:', generationConfig);
     
-    // Retry / timeout policy (1.3.6): at most 2 attempts; malformed structured output is retried
+    // Retry / timeout policy (1.3.6): at most 2 attempts; malformed structured output is retried.
+    // Same-student duplicate guard (1.3.11): if attempt 1 repeats a student's earlier reply, attempt 2
+    // of the same loop is the one re-ask (same request + the regeneration note). Still at most 2 attempts.
+    const duplicateGuard = { firstAttemptDuplicates: 0, outcome: 'none', dropped: 0, kept: 0 };
     const call = await callModelWithPolicy({
       agent: 'student',
       model: turnModel,
       modelId: MODEL_ID,
       request: { contents, generationConfig },
-      interpret: (result) => {
+      interpret: (result, { attempt, isFinalAttempt }) => {
         const candidate = interpretCandidate(result);
         if (!candidate.ok) return candidate;
         const checked = validateStudentOutputText(candidate.text);
@@ -373,10 +377,48 @@ app.post('/api/generate', async (req, res) => {
             rawOutputChars: candidate.text.length
           };
         }
-        return { ok: true, value: candidate.text };
+        const duplicates = findSelfDuplicates(checked.value.responses, messages);
+        if (duplicates.length === 0) {
+          duplicateGuard.outcome = attempt > 1 && duplicateGuard.firstAttemptDuplicates > 0 ? 'resolved' : 'none';
+          return { ok: true, value: candidate.text };
+        }
+        if (!isFinalAttempt) {
+          // Re-ask with the validated note; attempt 1 stays usable if the re-ask fails technically
+          duplicateGuard.firstAttemptDuplicates = duplicates.length;
+          return {
+            ok: false,
+            kind: 'duplicate',
+            retryable: true,
+            message: `same-student duplicate (${duplicates.length} ${duplicates.length === 1 ? 'reply' : 'replies'})`,
+            nextRequest: { contents: appendRegenerationNote(contents, buildRegenerationNote(duplicates)), generationConfig },
+            fallback: { value: candidate.text }
+          };
+        }
+        // Final attempt still duplicates: drop only those replies, unless that would leave none
+        const final = dropDuplicateReplies(checked.value, duplicates);
+        duplicateGuard.outcome = final.dropped > 0 ? 'dropped' : 'kept';
+        duplicateGuard.dropped = final.dropped;
+        duplicateGuard.kept = final.kept;
+        return { ok: true, value: final.dropped > 0 ? JSON.stringify(final.value) : candidate.text };
       }
     });
     telemetry = call.telemetry;
+    if (call.ok) {
+      if (call.usedFallback) {
+        // The re-ask did not produce usable output (technical failure or no budget): attempt 1 as is
+        duplicateGuard.outcome = 'reask_failed';
+        duplicateGuard.dropped = 0;
+        duplicateGuard.kept = duplicateGuard.firstAttemptDuplicates;
+      }
+      // Content-free duplicate-guard telemetry (A17, additive)
+      telemetry = {
+        ...telemetry,
+        duplicateRetries: duplicateGuard.firstAttemptDuplicates > 0 && telemetry.attempts >= 2 ? 1 : 0,
+        duplicateRepliesDropped: duplicateGuard.dropped,
+        duplicateRepliesKept: duplicateGuard.kept,
+        duplicateOutcome: duplicateGuard.outcome
+      };
+    }
 
     if (!call.ok) {
       console.error('❌ Student generation failed after', telemetry.attempts, 'attempt(s):', call.failure.kind, call.failure.message);

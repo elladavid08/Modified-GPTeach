@@ -7,7 +7,7 @@
 // extensions must be additive (A2). It returns a list of violations (empty = valid).
 
 import contract from "./contracts/pckSkillsContract.json";
-import { TELEMETRY_KEYS, TELEMETRY_STATUSES } from "../services/callTelemetry";
+import { TELEMETRY_KEYS, TELEMETRY_STATUSES, DUPLICATE_OUTCOMES } from "../services/callTelemetry";
 
 export const SESSION_ID_RE = /^session_\d+_[a-z0-9]+$/;
 export const PERSONA_REF_RE = /^v[^_]+_[a-z0-9]+$/;
@@ -29,7 +29,10 @@ function validateTelemetryEntry(entry, where, errors) {
 		if (!TELEMETRY_KEYS.includes(key)) errors.push(`${where}.${key} is not an allowed telemetry field`);
 	}
 	if (!TELEMETRY_STATUSES.includes(entry.status)) errors.push(`${where}.status invalid`);
-	for (const key of ["latencyMs", "clientLatencyMs", "attempts"]) {
+	if ("duplicateOutcome" in entry && entry.duplicateOutcome !== null && !DUPLICATE_OUTCOMES.includes(entry.duplicateOutcome)) {
+		errors.push(`${where}.duplicateOutcome invalid`);
+	}
+	for (const key of ["latencyMs", "clientLatencyMs", "attempts", "duplicateRetries", "duplicateRepliesDropped", "duplicateRepliesKept"]) {
 		if (key in entry && !isNullableInt(entry[key])) errors.push(`${where}.${key} must be a non-negative integer or null`);
 	}
 	for (const key of ["reason", "model", "finishReason"]) {

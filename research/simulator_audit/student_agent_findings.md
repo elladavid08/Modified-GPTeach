@@ -233,6 +233,23 @@ The full-replay recount here is 26, against 25 in §2.1. The difference comes fr
 
 No special `?` handling is planned on this evidence.
 
+
+### 2.6 Same-student duplicate guard (1.3.11, 2026-10-07)
+
+- **Why:** after the 1.3.10 rule, verbatim self-copying remained the most visible student failure. It was 5.4% of replies in the 1.3.10 replay, appeared after acknowledgements, re-asked questions and `?`, and occurred under every PCK level (`student_stability_replay.md` §9).
+- **Criterion:** validated offline (`student_duplicate_guard_study.md`):
+  - same student only;
+  - replies ≥ 30 normalized characters;
+  - equal after whitespace / trailing-punctuation normalization, or edit similarity ≥ 0.90.
+- **Re-ask:** validated live (`student_duplicate_reask_experiment.md`): one re-ask resolved 95% of triggered calls without "fixing" misconceptions.
+- **Implemented in 1.3.11 on the server** (`server/student_duplicate_guard.js`, `/api/generate`; invariant B26, DECIDED / PROTECT):
+  - the re-ask is the existing second attempt of the B24 loop, so there are still at most 2 model attempts;
+  - if a reply still duplicates on the last attempt, only that reply is dropped; if no reply would remain, the replies are kept;
+  - if the re-ask fails technically, the usable first response is returned.
+- **Telemetry:** four content-free counters on the student call (`duplicateRetries`, `duplicateRepliesDropped`, `duplicateRepliesKept`, `duplicateOutcome`).
+- **Unchanged:** prompt, PCK steering, personas, model, settings, stored message format.
+- **Not addressed:** semantic repetition (about 44% of re-asked replies are close rewordings), cross-student copies, regressions of resolved misconceptions, B6. Explicit student state is the candidate for the semantic issues.
+
 ## 3. Student consistency
 
 ### 3.1 Misconception re-emerging after apparent resolution

@@ -13,10 +13,22 @@
  * - Z: Patch version (bug fixes, minor improvements)
  */
 
-export const SYSTEM_VERSION = "1.3.10";
+export const SYSTEM_VERSION = "1.3.11";
 
 /**
  * Version History:
+ * 
+ * 1.3.11 (2026-10-07):
+ * - Student duplicate guard: if a generated student reply repeats, word for word or almost, an
+ *   earlier reply by the same student in the conversation (replies of 30+ characters; equal after
+ *   whitespace / trailing-punctuation normalization, or edit similarity >= 0.90), the server asks
+ *   the model once more, with a short regeneration note, as the existing second attempt of the
+ *   same request (still at most 2 model attempts). If a reply is still a duplicate, only that
+ *   reply is dropped, unless no reply would remain (then the replies are kept). If the second
+ *   attempt fails technically, the first, usable response is returned. Other students' earlier
+ *   replies are not compared. Prompt, PCK guidance, personas, model and settings are unchanged.
+ *   Student-call telemetry gains four content-free fields (duplicateRetries,
+ *   duplicateRepliesDropped, duplicateRepliesKept, duplicateOutcome).
  * 
  * 1.3.10 (2026-10-07):
  * - Short teacher messages: the student prompt has one new instruction. When the teacher's

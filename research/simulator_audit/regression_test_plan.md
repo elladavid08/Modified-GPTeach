@@ -123,6 +123,7 @@ Whether the live model *follows* Gate 0 belongs in the behavioural suite (§5). 
 | ~~C8 speaker names dropped from student history~~ | **Done (§0.19).** Still open: check in the live replay whether the model echoes the `name: ` prefix inside its messages (parser stripping would then be a separate change); re-measure repetition after C9. |
 | ~~C9 `thinking` required by prompt but excluded by schema~~ | **Done (1.3.9, §0.20).** The sequential replay was run on 2026-10-07 (`student_stability_replay.md`). B6 is separate. |
 | ~~Repetition after short teacher messages (acknowledgement / praise / thanks / closing)~~ | **Done (1.3.10, §0.21, B25).** Still open: re-run the sequential replay on 1.3.10. Bare `?` is not handled; it is absent from the pilot data (`student_agent_findings.md` §2.5). Duplicate detection / re-ask and explicit student state are not designed yet. When built, use the duplicate-detector cases in §3. |
+| ~~Verbatim same-student repetition (duplicate guard)~~ | **Done (1.3.11, §0.22, B26).** Still open: semantic repetition and regressions (explicit student state, not designed); cross-student copies (not detected by design); B6. |
 | ~~C10 PCK JSON mode / parser / validation (fix 0.5)~~ | **Done (§0.15).** Still open: re-ask on parse failure (§0.13), and B200's consistency checks (decision == any(relevant), etc.), which need a semantic decision first. |
 | **B8 cap on displayed skills** | sidebar / server: at most N rows for an input with 5 relevant skills; selection rule per spec. |
 | **B12 score-1 shows evidence and suggestion** | `pckSkillsDisplay`: score-1 row shows both `evidence` and `what_could_be_better` (the format per spec); the Excel export likewise if changed. |
@@ -735,6 +736,64 @@ No schema change and no rationale field. Implementing it needs a `SYSTEM_VERSION
 - re-run the sequential replay (`student_stability_replay.md` method) on 1.3.10 to measure the effect over full conversations;
 - B6;
 - semantic loops, regression of resolved misconceptions, and contamination (explicit student state is not designed yet).
+
+
+### 0.22 Same-student duplicate guard and one re-ask (2026-10-07, version 1.3.11)
+
+**Evidence:**
+- `student_duplicate_guard_study.md`: the criterion was validated on the pilot export and both replays. It caught 86% of manually judged replays, flagged 0 natural replies, and would trigger on about 5% of turns.
+- `student_duplicate_reask_experiment.md`: live test, 38 triggered calls. 95% were resolved by one re-ask; student state was kept; 2 calls needed the fallback.
+
+**Implementation:**
+- `server/student_duplicate_guard.js` is a new pure module: detector, regeneration note, note placement and final rule.
+- Two generic, opt-in hooks were added to `callModelWithPolicy` in `server/llm_call_policy.js`:
+  - a failed outcome may supply `nextRequest` (the re-ask request);
+  - it may supply `fallback: {value}` (attempt 1's usable output).
+  - The loop and its `maxAttempts` cap are unchanged.
+- `/api/generate` runs the detector after the structural check (C10/B24) and maps outcomes to telemetry.
+- Client: `callTelemetry.js` whitelists the four optional fields; the contract helper validates them.
+- No change to the student prompt, PCK steering, model or config, or the stored message format.
+
+**Flow** (at most 2 model attempts, B24):
+
+| attempt 1 | attempt 2 | returned | `duplicateOutcome` / `duplicateRetries` |
+|---|---|---|---|
+| valid, no duplicate | — | attempt 1 | `none` / 0 |
+| valid, duplicate(s) | re-ask (same request + note), valid, no duplicate | attempt 2 verbatim | `resolved` / 1 |
+| valid, duplicate(s) | re-ask, some replies still duplicate | attempt 2 without those replies (JSON re-serialized) | `dropped` / 1 |
+| valid, duplicate(s) | re-ask, every usable reply still duplicate | attempt 2 unchanged | `kept` / 1 |
+| valid, duplicate(s) | re-ask fails technically (timeout, model error, empty, parse/schema, safety) or no budget | attempt 1 unchanged | `reask_failed` / 1 (0 if no budget) |
+| technical failure | valid, duplicate(s): the final attempt, so no re-ask | final rule (drop / keep) | `dropped` or `kept` / 0 |
+| technical failure | technical failure | 500, as before (no duplicate fields) | — |
+
+**Tests added (48; 42 server, 6 client):**
+
+| file | tests | covers (task items) |
+|---|---:|---|
+| `server/test/student_duplicate_guard.test.mjs` (new) | 19 | 1–7: constants; normalization; exact, variant, ≥ 0.90 (including exactly 0.90), just below 0.90, < 30 characters (including 29 and padded), natural short repeats, other student, teacher / legacy messages, all earlier turns, malformed entries. Exact single and plural note wording, quote normalization / 150-character cut, note placement on a copy. Fallback: drop-one, keep-all, unusable remaining entry. |
+| `server/test/api_generate_duplicate_guard.test.mjs` (new; short policy values) | 18 | 1, 2/3, 5–7, 8–10 (one regeneration for several students, attempt 2 verbatim, output format), 19 (attempt 2 = same system prompt, C8 history, config, no thinking config; only the note added), 11, 12, 13 (×5 kinds of failure on the re-ask), 14/15 (429 or parse failure then duplicate: 2 calls, no re-ask; duplicate on every attempt: 2 calls), the double technical failure is unchanged, 16 / 17 (counters per outcome; meta keys; no student, teacher or note text) |
+| `server/test/llm_call_policy.test.mjs` | +5 | interpret receives `{attempt, isFinalAttempt}`; `nextRequest`; fallback after a failed next attempt; fallback when the budget leaves no room; never more than `maxAttempts` |
+| `server/test/api_generate.test.mjs` | 1 updated | the success meta now includes the four duplicate keys (failure meta unchanged) |
+| `src/__tests__/callTelemetry.test.js` | +3, 2 updated | fields kept when reported; omitted otherwise (backward compatible, PCK unchanged); only known outcomes and non-negative integers. The two existing whitelist tests now compare against `TELEMETRY_BASE_KEYS`. |
+| `src/__tests__/conversationContract.test.js` | +2, 1 extended | a stored student entry with the new fields is valid (18); an unknown outcome or a negative count is rejected |
+| `src/__tests__/chatTurnOrchestration.test.js` | +1 | server counters are logged with the turn; the PCK entry is unchanged |
+
+**Before the fix:**
+- 23 server checks failed: the new unit file (missing module), 17 of the 18 endpoint tests, 4 of the 5 policy tests, and the updated meta test.
+- 7 client tests failed.
+- Already passing, by design:
+  - the double-technical-failure test (unchanged behaviour);
+  - the "never more than `maxAttempts`" policy test (existing cap);
+  - the 2 new contract-rejection cases (the fields were not yet whitelisted at all).
+
+**Unchanged and still covered:** C8 (`api_generate.test.mjs`), C9 and the 1.3.10 rule plus the PCK fingerprint (`studentAgent.test.js`).
+
+**Results:** `npm run test:all` was run twice. Both runs passed: 190 frontend and 192 backend tests.
+
+**Follow-up:**
+- a sequential replay (the `student_stability_replay.md` method) as the acceptance test;
+- watch `duplicateOutcome` in production telemetry; the experiment expects about 5% of re-asks to need the fallback;
+- explicit student state for semantic loops and regressions.
 
 ## Original proposal (kept for reference; see §0.6 for what is still open)
 

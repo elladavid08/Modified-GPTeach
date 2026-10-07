@@ -7,7 +7,11 @@
  */
 
 export const TELEMETRY_STATUSES = ["ok", "failed", "skipped"];
-export const TELEMETRY_KEYS = ["status", "reason", "model", "latencyMs", "clientLatencyMs", "finishReason", "attempts"];
+export const TELEMETRY_BASE_KEYS = ["status", "reason", "model", "latencyMs", "clientLatencyMs", "finishReason", "attempts"];
+// Student duplicate guard (1.3.11): optional, content-free; present only when the server reports them
+export const TELEMETRY_DUPLICATE_KEYS = ["duplicateRetries", "duplicateRepliesDropped", "duplicateRepliesKept", "duplicateOutcome"];
+export const TELEMETRY_KEYS = [...TELEMETRY_BASE_KEYS, ...TELEMETRY_DUPLICATE_KEYS];
+export const DUPLICATE_OUTCOMES = ["none", "resolved", "dropped", "kept", "reask_failed"];
 const MAX_STRING_CHARS = 64;
 
 const nonNegativeInt = (value) => (Number.isInteger(value) && value >= 0 ? value : null);
@@ -35,6 +39,20 @@ export function buildCallTelemetry(status, meta = null, reason = null) {
 		status: TELEMETRY_STATUSES.includes(status) ? status : null,
 		reason: status === "skipped" ? shortString(reason) : null,
 		...timingFields(meta),
+		...duplicateFields(meta),
+	};
+}
+
+/** Duplicate-guard counters (student calls since 1.3.11), only if the server reported any of them. */
+function duplicateFields(meta) {
+	if (!meta || typeof meta !== "object" || !TELEMETRY_DUPLICATE_KEYS.some((key) => key in meta)) {
+		return {};
+	}
+	return {
+		duplicateRetries: nonNegativeInt(meta.duplicateRetries),
+		duplicateRepliesDropped: nonNegativeInt(meta.duplicateRepliesDropped),
+		duplicateRepliesKept: nonNegativeInt(meta.duplicateRepliesKept),
+		duplicateOutcome: DUPLICATE_OUTCOMES.includes(meta.duplicateOutcome) ? meta.duplicateOutcome : null,
 	};
 }
 

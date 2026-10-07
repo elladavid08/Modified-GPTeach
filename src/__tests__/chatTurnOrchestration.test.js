@@ -838,6 +838,19 @@ describe("LLM call telemetry", () => {
 		expect(loggedTelemetry(0)).toEqual({ pck: expectedTelemetry(pckMeta), student: expectedTelemetry(studentMeta) });
 	});
 
+	it("student duplicate-guard counters from the server are logged with the turn (1.3.11); PCK entry unchanged", async () => {
+		const pckMeta = META("pck", 2100);
+		const studentMeta = META("student", 2400, { attempts: 2, duplicateRetries: 1, duplicateRepliesDropped: 1, duplicateRepliesKept: 0, duplicateOutcome: "dropped" });
+		pckWithMeta(pckMeta);
+		studentsWithMeta(studentMeta);
+		await startLesson();
+		await sendTeacherMessage("נכון");
+		expect(loggedTelemetry(0)).toEqual({
+			pck: expectedTelemetry(pckMeta),
+			student: { ...expectedTelemetry(studentMeta), duplicateRetries: 1, duplicateRepliesDropped: 1, duplicateRepliesKept: 0, duplicateOutcome: "dropped" },
+		});
+	});
+
 	it("telemetry stays with the correct turn across turns", async () => {
 		pckWithMeta(META("pck", 100));
 		studentsWithMeta(META("student", 110));

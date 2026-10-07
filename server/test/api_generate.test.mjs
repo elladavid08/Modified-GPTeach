@@ -108,12 +108,14 @@ test('model failure is reported as success:false (never as a successful empty re
 // ─── Telemetry (latency / model / finish reason / attempts) ───────────────────
 
 const META_KEYS = ['agent', 'attempts', 'finishReason', 'latencyMs', 'model'];
+// 1.3.11: a successful student call also reports the content-free duplicate-guard counters (A17)
+const SUCCESS_META_KEYS = [...META_KEYS, 'duplicateOutcome', 'duplicateRepliesDropped', 'duplicateRepliesKept', 'duplicateRetries'].sort();
 
 test('telemetry: a successful call reports agent, model, latency, finish reason and attempts', async () => {
   srv.fakeModel.respond = () => delayed(40, textResult(STUDENT_JSON, 'STOP'));
   const res = await postJson(srv.baseUrl, '/api/generate', { messages: baseMessages });
   const { meta } = res.body;
-  assert.deepEqual(Object.keys(meta).sort(), META_KEYS);
+  assert.deepEqual(Object.keys(meta).sort(), SUCCESS_META_KEYS);
   assert.equal(meta.agent, 'student');
   assert.equal(meta.model, 'gemini-2.5-flash-lite');
   assert.equal(meta.finishReason, 'STOP');

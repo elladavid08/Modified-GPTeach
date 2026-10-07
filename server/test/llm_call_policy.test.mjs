@@ -212,3 +212,70 @@ test('student output validation: minimal {responses:[{student, message}]} struct
     assert.equal(v.kind, kind, bad);
   }
 });
+
+// ─── 1.3.11 hooks for the student duplicate re-ask (generic; still at most maxAttempts) ───
+
+function recordingModel(responders) {
+  const model = { requests: [] };
+  model.generateContent = async (request) => {
+    model.requests.push(request);
+    return responders[Math.min(model.requests.length - 1, responders.length - 1)]();
+  };
+  return model;
+}
+
+test('interpret receives the attempt number and whether it is the final attempt', async () => {
+  const seen = [];
+  const model = recordingModel([() => result('a'), () => result('b')]);
+  await callModelWithPolicy({
+    agent: 'student', model, modelId: 'm', request: { id: 1 }, policy: FAST,
+    interpret: (r, ctx) => { seen.push(ctx); return ctx.attempt === 1 ? { ok: false, kind: 'x', retryable: true, message: 'x' } : { ok: true, value: 'v' }; },
+  });
+  assert.deepEqual(seen, [{ attempt: 1, isFinalAttempt: false }, { attempt: 2, isFinalAttempt: true }]);
+});
+
+test('a failed outcome may supply the request for the next attempt (nextRequest)', async () => {
+  const model = recordingModel([() => result('a'), () => result('b')]);
+  const res = await callModelWithPolicy({
+    agent: 'student', model, modelId: 'm', request: { id: 'first' }, policy: FAST,
+    interpret: (r, { attempt }) => (attempt === 1 ? { ok: false, kind: 'duplicate', retryable: true, message: 'dup', nextRequest: { id: 'second' } } : { ok: true, value: 'v' }),
+  });
+  assert.equal(res.ok, true);
+  assert.deepEqual(model.requests, [{ id: 'first' }, { id: 'second' }]);
+});
+
+test('a usable fallback from an earlier attempt is returned when the next attempt fails', async () => {
+  const model = recordingModel([() => result('a'), () => { throw new Error('UNAVAILABLE'); }]);
+  const res = await callModelWithPolicy({
+    agent: 'student', model, modelId: 'm', request: {}, policy: FAST,
+    interpret: (r) => { const c = interpretCandidate(r); return c.ok ? { ok: false, kind: 'duplicate', retryable: true, message: 'dup', fallback: { value: 'attempt-1' } } : c; },
+  });
+  assert.equal(res.ok, true);
+  assert.equal(res.value, 'attempt-1');
+  assert.equal(res.usedFallback, true);
+  assert.equal(res.failure.kind, 'model_error');
+  assert.equal(res.telemetry.attempts, 2);
+});
+
+test('the fallback is also returned when the budget leaves no room for another attempt', async () => {
+  const model = recordingModel([() => later(60, result('a')), () => result('b')]);
+  const res = await callModelWithPolicy({
+    agent: 'student', model, modelId: 'm', request: {}, policy: { ...FAST, totalBudgetMs: 100, minAttemptMs: 50 },
+    interpret: () => ({ ok: false, kind: 'duplicate', retryable: true, message: 'dup', fallback: { value: 'attempt-1' } }),
+  });
+  assert.equal(res.ok, true);
+  assert.equal(res.value, 'attempt-1');
+  assert.equal(model.requests.length, 1);
+  assert.equal(res.telemetry.attempts, 1);
+});
+
+test('retryable outcomes on every attempt never exceed maxAttempts', async () => {
+  const model = recordingModel([() => result('a')]);
+  const res = await callModelWithPolicy({
+    agent: 'student', model, modelId: 'm', request: {}, policy: FAST,
+    interpret: () => ({ ok: false, kind: 'duplicate', retryable: true, message: 'dup', nextRequest: {} }),
+  });
+  assert.equal(res.ok, false);
+  assert.equal(model.requests.length, 2);
+  assert.equal(res.telemetry.attempts, 2);
+});
