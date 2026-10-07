@@ -338,3 +338,147 @@ This is one replay per version, so it is a behavioural acceptance check, not a s
 **Keep the 1.3.10 rule.** It eliminated closing replays in both the experiment and this replay without damaging student state.
 
 **Optional before deciding:** a second 1.3.10 replay would show whether the longer-message replays (§9.7.4) recur, given the large PCK-steering difference between the two runs.
+
+---
+
+## 10. Rerun on 1.3.11 (same-student duplicate guard), 2026-10-07
+
+Acceptance test for the 1.3.11 duplicate guard and its single re-ask (invariant B26, `regression_test_plan.md` §0.22). This was an evaluation only: no production code changed, no version bump, synthetic data only, no Firestore. §1–§9 are unchanged.
+
+### 10.1 Method
+
+- **Harness:** the same `replay.bench.js` as 1.3.9 and 1.3.10. The only addition is that it also records the four content-free duplicate-guard fields from the student call's telemetry.
+- **Kept the same:** the 6 scenarios, 12-turn scripts, 2 casts per scenario (same deterministic rotation), 4 drawing turns, the real `getPCKFeedback` → `callAI` path, and the model and settings.
+- **Code under test:** the committed 1.3.11 tree (`5184c24`, clean), on a local unmodified `server/server.js`.
+- **The acceptance metric is the FINAL output returned to the teacher.**
+  - Attempt-1 drafts are not exposed by the API, by design.
+  - The number of flagged replies per triggered turn comes from the server's content-free log line ("same-student duplicate (n replies)").
+- **PCK steering this run:** positive on 41 turns (1.3.9: 9, 1.3.10: 53); `improved` on 41 turns. PCK code is unchanged, but its trajectory again differs from the earlier runs.
+
+### 10.2 1.3.9 vs 1.3.10 vs 1.3.11 (final output)
+
+| measure | 1.3.9 | 1.3.10 | **1.3.11** |
+|---|---|---|---|
+| conversations / teacher turns | 12 / 144 | 12 / 144 | 12 / 144 |
+| student responses (per turn) | 280 (1.94) | 260 (1.81) | 269 (1.87) |
+| turns with no reply | 2 | 3 | **0** |
+| **exact same-student repeats** | 10 (3.6%) | 14 (5.4%) | **0 (0%)** |
+| exact repeats of any student | 10 | 14 | **0** |
+| replies flagged by the production detector (≥ 30 characters; equal or edit ≥ 0.90) | 12 | 16 | **0** |
+| near-duplicates (`difflib` ≥ 0.8, same student) | 15 | 22 | 1 |
+| full or near-full replay turns | 5 | 8 | **0** |
+| after short (≤ 20 characters) teacher messages | 10/106 (9.4%) | 8/96 (8.3%) | **0/105** |
+| after longer teacher messages | 0/174 | 6/164 | **0/164** |
+| closings (T12) | 3/30 | 0/26 | **0/30** (22 thanks/goodbye replies) |
+| acknowledgements (`אוקיי` / `נכון`) | 5/51 | 6/47 | **0/50** |
+| re-asked content questions (T7 revisits) | 0 | 4 (2b T7, 3a T7) | **0** |
+| bare `?` (synthetic only) | 2/15 | 2/13 | **0/12** |
+| early / mid / late turns | 0 · 2 · 8 | 0 · 10 · 4 | **0 · 0 · 0** |
+| invalid student names | 0 | 0 | 0 |
+| addressed student replied | 58/60 | 58/60 | 58/60 (2b T10 נועה silent while דנה and מעיין answered; 3a T2 יונתן addressed, עדי and תמר answered) |
+
+**The five 1.3.9 repeat events** (1a T12, 3a T6, 3b T9, 4a T9, 4b T12) and **the 1.3.10 events** (2a T6, 2b T7–T9, 3a T7, 3b T9, 4a T6, 5a T6) have no exact or detector-level copy in the final output.
+
+### 10.3 Duplicate-guard telemetry
+
+| measure | value |
+|---|---|
+| turns with `duplicateRetries = 1` | **4 / 144 (2.8%)**: 2a T6 `נכון`, 3b T9 `?`, 4a T6 `נכון`, 4a T12 `יפה, תודה.` |
+| replies that triggered regeneration (attempt 1) | **9** (3 + 2 + 2 + 2). In every triggered turn, every replying student had copied. |
+| `duplicateOutcome` | none **140** · resolved **4** · dropped **0** · kept **0** · reask_failed **0** |
+| `duplicateRepliesDropped` / `duplicateRepliesKept` | 0 / 0 |
+| re-ask competing with a technical retry | **0.** No student or PCK call needed a technical retry (student `attempts`: 1 ×140, 2 ×4, all four being re-asks; PCK `attempts`: 1 ×144). |
+| maximum model attempts per call | **2** (never exceeded) |
+| student latency on re-ask turns | 2,457 · 2,569 · 3,037 · 3,314 ms, against p50 1,257 / p90 1,571 ms on other turns. That is **about +1.2 to 2 s** on the 2.8% of turns that re-ask. |
+| failures | student 0 · PCK 0; all finishReason STOP |
+| overall latency | student p50 1,269 / p90 1,710 / max 3,314 ms; PCK p50 3,255 / p90 4,102 / max 10,539 ms |
+
+The guard triggered less often than attempt-1 duplicates occurred in earlier runs (1.3.10: 8 replay turns). Duplicates on attempt 1 vary from run to run, and this run's conversations took different paths. The fallback branches did not occur. Their expected rate from the live re-ask experiment is about 5% of re-asks.
+
+### 10.4 Manual review of the regenerated turns
+
+All 9 regenerated replies (the final versions) were read against the history. Labels are one reviewer's judgement.
+
+| turn (teacher, PCK level) | final reply | natural reaction | state kept | not too correct | no semantic loop | no invented attribution | no transfer | sounds natural |
+|---|---|---|---|---|---|---|---|---|
+| 2a T6 `נכון` (misconception_reinforced): יובל | "אז אם האלכסונים מאונכים זה לא מספיק. הבנתי. אבל מה עוד צריך?" | ✓ | ✓ | ✓ | ✓ at this turn | ✓ | ✓ | ✓ |
+| 2a T6: הילה | "…אז מה ההבדל המדויק בין מעויין לדלתון?" | ✓ | ✓ | ✓ | ✓ at this turn (the same question returns at T9) | ✓ | ✓ | ✓ |
+| 2a T6: רועי | "אה, אז מה שציירת זה לא מעויין? חשבתי שכן." | ✓ | ✓ (low-baseline persona, slightly behind) | ✓ | ✓ | ✓ ("ציירת" is correct) | ✓ | ✓ |
+| 3b T9 `?` (improved): הילה | "אז אני צריכה לבדוק שהזוויות ישרות, כמו שדיברנו, גם אם הצורה נראית מוטה?" | ✓ | ✓ | ✓ | ✗ restates T8 as a question | ✓ | ✓ | ✓ |
+| 3b T9: רועי | "כן, אני אבדוק את הפינות. אם הן ישרות, אז זה מלבן." | ✓ | ✓ | ✓ | ✗ restates T8 | ✓ | ✓ | ✓ |
+| 4a T6 `נכון` (confused): דנה | "אז זה אומר שרק במעוין וריבוע האלכסונים חוצים את הזוויות? אבל למה דווקא בהם?" | ✓ | ✓ | ✓ | ✗ the same "why only rhombus and square?" as T5 | ✓ | ✓ | ✓ |
+| 4a T6: מעיין | "אוקיי, אז לא בכל מרובע האלכסונים חוצים זוויות. זה יותר ברור לי עכשיו. אבל אני עדיין תוהה למה במלבן זה לא קורה." | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 4a T12 `יפה, תודה.` (same): דנה | "אז אני מבינה שזה לא נכון להכליל את זה לכל המרובעים. אבל למה דווקא במעוין ובריבוע זה כן מתקיים?" | weak (closing → content question) | ✓ | ✓ | ✗ her fourth "why rhombus and square?" (T5, T6, T10, T12) | ✓ | ✓ | ✓ |
+| 4a T12: מעיין | "אוקיי, אז זה לא קורה במלבן ובמקבילית. אני מבינה שזה רק במעוין וריבוע. אבל למה?" | weak | ✓ | ✓ | ✗ same loop | ✓ | ✓ | ✓ |
+
+**Summary:**
+- **Exact duplication fixed with a genuinely new reply:** 4 / 9 (2a T6 ×3, 4a T6 מעיין).
+- **Mechanically fresh wording but the same semantic content or loop:** 5 / 9 (3b T9 ×2, 4a T6 דנה, 4a T12 ×2).
+- None of the 9 became prematurely correct, invented a teacher statement, took over another student's misconception, or showed the regeneration note or any meta language.
+- **Why the 4a loop persists:** the scripted teacher never answers the students' "why only rhombus and square?", so the question keeps returning. A real teacher would answer it.
+
+### 10.5 Qualitative review of all 12 conversations
+
+| category | 1.3.9 | 1.3.10 | 1.3.11 | 1.3.11 instances |
+|---|---:|---:|---:|---|
+| Resolved-misconception regression | 2 | 2 | 2 (+1 harness artefact) | **2b T6** דנה: after "צריך שגם יחצו, נכון?" at T5, she asks whether perpendicular and bisecting is "still not enough"; she recovers at T7. **6a T6** תמר: after a correct "כל מעוין הוא דלתון, אבל לא כל דלתון הוא מעוין", she misapplies it ("אז … כל מלבן הוא גם ריבוע?"); she recovers at T7. *Artefact:* 5a T9 יובל is confused again after stating the full rule at T6. The T8 drawing is the rotated **square** image while the script says the diagonals do not bisect, so the confusion is reasonable. |
+| Semantic repetition loop | 3 | 3 | **4** | **4a T5–T12** דנה and מעיין: "למה דווקא במעוין וריבוע?" 4–5 times, including both guard turns. **2a T6–T10:** הילה "מה ההבדל בין דלתון למעוין", רועי "לא זוכר / אין לי מושג", יובל "אמרת שזה לא מספיק". **2b T7–T9:** "צריך גם שיחצו" restated by both students each turn. **5b T8–T11:** "זה נראה כמו ריבוע, איך הם לא חוצים?", partly driven by the same square-image artefact. |
+| Persona-consistent persistence (not counted as a defect) | 3 | 2 | 3 | 3a עדי (visual prototype through T12), 5b דנה (equal + perpendicular = square), 1b עדי (cannot give an example) |
+| Cross-student contamination | 2 | 1 | **0** | Peer references were accurate (3a T2 תמר quoting יונתן's T1). |
+| Prompt-example leakage (new category) | — | — | 1 | **6a T6** עדי: "אוקיי, אז אם אני רואה מרובע שהאלכסונים שלו מאונכים, אני יודע שזה מעויין, נכון?" This is almost verbatim the prompt's EXAMPLE 3, including its masculine "יודע", although עדי speaks in the feminine elsewhere. It is also off-topic for the kite lesson. |
+| Invented teacher attribution | 4 (+1 mixed) | 3 (+2 mixed) | **1** | **2b T8** מעיין: "אני זוכרת שאמרת שצריך שאלכסונים יחצו זה את זה". The teacher never said this. The other 17 "אמרת / ציירת / אמרתם…" hits are accurate or refer to the student's own words. 5b T4 "שנה שעברה לימדו אותנו…" refers to a previous year, not to this teacher, and was not counted. |
+| Third-person teacher reference | 2 | 1 | **0** | |
+| Premature correctness | 1 | 2 (mild) | 2 (mild) | 1a T2 דנה and 4b T2 יונתן answer correctly at once, while another student carries the misconception. 3b רועי drops his "like a square but longer" idea at T3 after הילה's remark, without teaching. |
+| Speaker continuity / participation | good | good | good | Low-baseline personas speak less, as their personas imply. |
+
+**Closings:**
+- 9 of 12 were farewells or brief closing reactions (1a, 1b, 2a, 2b, 4b, 5a, 5b, 6a, 6b). 1b's is a closing reaction: "איזה כיף! אז ההבנה שלי הייתה נכונה!"
+- 3a, 3b and 4a continued with content. In 3a and 3b this is short and on-topic. In 4a it is the semantic loop above.
+
+### 10.6 Interpretation
+
+1. **Is word-for-word same-student repetition solved?** **Yes, in the final output of this run.**
+   - 0 exact repeats, 0 detector-level near-copies and 0 replay turns in 269 replies.
+   - The comparable figures were 10/280 (1.3.9) and 14/260 (1.3.10).
+   - This is one run, but it agrees with the live re-ask test (95% resolved in one re-ask) and with the deterministic tests.
+2. **How often did the guard trigger?** On 4 of 144 turns (2.8%), with 9 flagged replies. Each was a whole-turn copy.
+3. **How often did the fallback branches occur?** None did (dropped 0, kept 0, reask_failed 0). No re-ask competed with a technical retry, and no call exceeded 2 model attempts.
+4. **Did regeneration introduce a meaningful new problem?** No.
+   - No meta leakage, invented attributions, premature correctness or contamination appeared in the regenerated replies.
+   - The cost is about 1.2–2 s on 2.8% of turns.
+   - The one new observation, prompt-example leakage at 6a T6, is in a turn where the guard did not trigger, so it is unrelated to the guard.
+5. **Did semantic repetition and regression remain?** **Yes.**
+   - 4 semantic loops, 2 mild regressions (+1 artefact), 1 invented attribution.
+   - 5 of the 9 regenerated replies are fresh wording of the same content.
+   - The guard turned verbatim loops into paraphrased loops, as expected.
+6. **Should the 30-character / 0.90 criterion change?** No.
+   - There is no evidence of misses at the verbatim level (0 detector flags, 1 `difflib` ≥ 0.8 pair in the final output) and no evidence of false triggers.
+   - A more aggressive threshold would start catching paraphrases. Those are the semantic loops above, which string similarity cannot handle without also flagging legitimate restatements.
+7. **Is duplicate detection complete enough to stop tuning?** **Yes.** Keep monitoring `duplicateOutcome` in production telemetry, especially `dropped`, `kept` and `reask_failed`, which this run never exercised live. Stop tuning the threshold.
+
+### 10.7 The most important remaining student-behaviour problem
+
+**State-unaware semantic repetition.** A student keeps asking the same open question, or restating the same position, in new words, turn after turn (4a, 2a, 2b, 5b). Related are the smaller regressions of something the student had already resolved (2b T6, 6a T6).
+
+These share a cause: the student model has no explicit memory of each student's state. It does not track what the student has already asked, whether the teacher answered it, what the student has already understood, or what they still hold. It reconstructs all of that from the raw history every turn. Exact-copy prevention cannot address this.
+
+**Does this justify investigating explicit per-student state?** **Yes, as an investigation, not yet an implementation.** A minimal design would keep, per student and per session, a few structured facts:
+- open question asked / answered;
+- resolved claims;
+- persisting misconception;
+
+These would be updated after each turn and passed to the student prompt. The design would need to decide:
+- who updates the state (the PCK step, the student step, or a separate small call);
+- how it interacts with the PCK `student_reaction_hints`;
+- how it is stored (A-section contracts);
+- how it is evaluated.
+
+**Caveat for evaluating it:** part of the remaining looping is produced by **the harness, not the model.**
+- The scripted teacher never answers the students' questions ("why only rhombus and square?").
+- Scenario 5's drawing (the rotated square) contradicts the script's text.
+
+Before measuring an explicit-state change, the replay needs either a teacher that answers questions (scripted answers or an adaptive teacher model) or a loop metric that discounts unanswered questions. Otherwise a state mechanism could be penalised for loops the script forces.
+
+**Smaller items worth a separate look** (not the next target):
+- prompt-example leakage (6a T6, EXAMPLE 3 copied with the wrong grammatical gender);
+- the remaining invented attribution (2b T8).
