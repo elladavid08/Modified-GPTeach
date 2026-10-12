@@ -795,6 +795,25 @@ No schema change and no rationale field. Implementing it needs a `SYSTEM_VERSION
 - watch `duplicateOutcome` in production telemetry; the experiment expects about 5% of re-asks to need the fallback;
 - explicit student state for semantic loops and regressions.
 
+### 0.23 Content-neutral student-prompt examples (2026-10-12, version 1.3.12)
+
+**Evidence:** `student_prompt_examples_experiment.md` (live A/B, 150 calls). Under the current examples, 2 replies echoed EXAMPLE 1 and both were by the student in the slot it names; under the neutral examples there were none. There was no schema, participation, PCK-fidelity, length or latency regression.
+
+**Change:** only the three example lines in `makeProsePrompt` (`src/utils/ai.js`). The new examples have a placeholder name and bracketed slots, with no geometry and no gendered first-person forms; they are added verbatim as tested. The WRONG example and the rule phrases are unchanged (follow-up).
+
+**Tests** (`studentAgent.test.js`, +3; 1 updated):
+- the exact three examples, once each, under their labels;
+- no cast name, old message, geometry word or masculine form in the examples;
+- the rest of the prompt is byte-identical to 1.3.11 (SHA-256 of the prompt with the old lines restored, with and without PCK).
+
+Before the fix, 4 tests failed. The harness has a version-aware example set and placeholder / invalid-name labels (HARNESS_VERSION 1.1.0, 55 unit tests).
+
+**Results:** `npm run test:all` was run twice and passed both times (193 frontend, 192 backend). A live Mode A smoke run (s2 and s6, 24 turns) had 0 failures, 0 invalid names, 0 placeholder leaks, 0 example copies and ≤ 1 attempt; see the experiment doc §9.
+
+**Follow-up:**
+- the Mode B baseline on 1.3.12;
+- a separate check of the WRONG example and the geometry / masculine rule phrases.
+
 ## Original proposal (kept for reference; see §0.6 for what is still open)
 
 ## 1. Starting state (before the baseline)

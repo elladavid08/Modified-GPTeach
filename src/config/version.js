@@ -13,10 +13,19 @@
  * - Z: Patch version (bug fixes, minor improvements)
  */
 
-export const SYSTEM_VERSION = "1.3.11";
+export const SYSTEM_VERSION = "1.3.12";
 
 /**
  * Version History:
+ * 
+ * 1.3.12 (2026-10-12):
+ * - Student prompt examples: the three example outputs in the student prompt (understood /
+ *   still confused / confident misconception) are replaced with content-neutral examples. They
+ *   keep the same labels, JSON format, one-student-per-example form and sentence shapes, but
+ *   no longer name a cast member (EXAMPLE 1-3 were bound to students[0..2]), contain no lesson
+ *   geometry, and use no gendered first-person forms; the content is shown as bracketed slots.
+ *   Added verbatim as live-tested (student_prompt_examples_experiment.md, condition B). The
+ *   "WRONG" example, the rule phrases, PCK steering, personas, model and settings are unchanged.
  * 
  * 1.3.11 (2026-10-07):
  * - Student duplicate guard: if a generated student reply repeats, word for word or almost, an

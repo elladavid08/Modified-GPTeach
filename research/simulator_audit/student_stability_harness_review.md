@@ -1,6 +1,8 @@
 # Student-stability replay harness: review and corrected design
 
 Status: evaluation-method review, 2026-10-07. No production code or `SYSTEM_VERSION` was changed, and nothing was committed. No benchmark was re-run.
+
+> **Update (2026-10-07):** implemented as [`replay_harness/`](replay_harness/README.md); Mode A / Mode B, corrected drawings, labels and a 13-conversation live smoke test. See §10.
 - **Mechanics check (offline):** the adaptive-teacher logic proposed here was dry-run against the saved 1.3.9–1.3.11 transcripts, with no model calls.
 - **Corrected drawings:** generated as benchmark-only prototypes in the session scratchpad.
 
@@ -296,6 +298,10 @@ Matching criterion: edit similarity ≥ 0.6 to an example, or a shared 5-word se
   - mark them "structure only; never reuse wording";
   - validate with a small A/B on the copy metric and on premature correctness in s1;
   - meanwhile, the harness reports the prompt-example copy metric (§4) and excludes copies from regression and contamination counts.
+- **Update (2026-10-12):**
+  - the three examples were replaced with content-neutral ones in **1.3.12**, after a live A/B (`student_prompt_examples_experiment.md`). The placeholder-and-slot form makes verbatim reuse unnatural, so no separate "never reuse wording" note was added;
+  - the harness now selects the example set by the run's `SYSTEM_VERSION` (HARNESS_VERSION 1.1.0);
+  - the Mode B baseline (§7, step 3) should run on 1.3.12, not 1.3.11.
 
 ## 7. Recommended replay protocol for explicit-state experiments
 
@@ -345,3 +351,101 @@ Supporting scratchpad files (not in the repo):
 - `c17/adaptive_teacher.py` (rules, answer bank, dry run);
 - `c17/assets/*.svg|png` (corrected drawings);
 - `c16/example_copy.py` (example-copy search).
+
+---
+
+## 10. Implementation and smoke test (2026-10-07)
+
+The harness now lives in [`replay_harness/`](replay_harness/README.md), a research-only tool that does not depend on scratchpad state. Production code, the student prompt, `SYSTEM_VERSION` and Firestore were not touched.
+
+### 10.1 What was built
+
+- **Historical configuration** (`config/scenarios.js`):
+  - The 6 × 12 scripts with move tags, the historical casts and the commits of the three runs.
+  - Verified turn by turn against all 432 teacher turns of the 1.3.9–1.3.11 outputs, then pinned by a fingerprint test.
+  - Designed casts per §3.5. Deterministic conversation ids (`B-s2-d0-r1`).
+  - The historical outputs were imported locally (git-ignored) with `scripts/import_historical.js`. The new labels reproduce the earlier counts: exact repeats 10 / 14 / 0 and guard matches 12 / 16 / 0.
+- **Mode A:** fixed scripts and corrected drawings, never adaptive. Valid only for duplication, short messages, closings, guard telemetry and calls.
+- **Mode B:** the §3.2 rules, plus changes found necessary in the smoke tests (§10.2). Every decision is logged per turn: questions detected, category, action, answer used, probe replaced, neutralization, antecedent fallback, reason, and answered-category state.
+- **Assets** (`assets/`, generated from `lib/assets.js`, geometry asserted by tests):
+  - the s2 kite;
+  - the s4 non-rectangular parallelogram with its diagonal;
+  - the s5 quadrilateral with equal, perpendicular, non-bisecting diagonals, now **labelled A–D with "AC = BD"**, because students could not judge the equality by eye;
+  - `rotated-rectangle.png`, a byte copy of the production image.
+
+  Production `public/images` and `testConfig.js` are unchanged (a test checks this against HEAD).
+- **Labels** (`lib/labels.js`, `analyze.js`): automatic duplicate, guard, question-status, restatement and prompt-example labels; a per-student ledger of resolution, regression, persistence and premature-correctness candidates; and a manual-review queue in `review.md` with a verdict column.
+- **Tests:** 52 `node:test` cases, no model calls:
+  - routing and staging;
+  - answer at most once;
+  - neutralization and antecedent fallback;
+  - Mode A fixed;
+  - drawing geometry and SVG/PNG freshness;
+  - historical fingerprint and casts;
+  - labels;
+  - isolation: no Firestore or logger imports, an allow-list of read-only production imports, writes only under `results/`, production assets unchanged, and the `Chat.jsx` addendum and prompt examples still in sync.
+
+### 10.2 Changes to the §3 design found by the smoke tests
+
+Each was reproduced as a failing test before it was fixed.
+
+| smoke run | problem seen live | change |
+|---|---|---|
+| B-1 | s4 "יפה" confirmed "במלבן… הוא כן חוצה את הזווית?" | Claim detectors became keyword co-occurrence with negations ruled out, plus reply-level context (s4, s5) |
+| B-1 | "Not long" (s3, T3), "how to check angles" (s3, T6) and a generic answer (s2, T3, revealing the kite) were answered before the planned discovery | Core-misconception and discovery categories are staged (hint first): s1 DIFF, s2 NEC_SUF / KITE_RHOMBUS, s3 LONG / HOW_CHECK, s4 PARALLELOGRAM, s5 WHAT_SHAPE, s6 DIFF. Generic answers are staged too (acknowledgement before T5). A test requires a hint for every delayed category. |
+| B-1 | A generic answer was prepended to the s4 explanation it duplicated; s4 "why?" stayed unanswered when the student asked at T10 was unsure | **Nothing is added to the explanation turn.** New `answerIfUnsure` on the T10 questions of s2, s3, s4 and s5. |
+| B-2 | MEANING_PERP matched "מה שקובע… מאונכים"; "מה המיוחד בריבוע…" went to PARALLELOGRAM; "למה צריך גם לחצות?" went to WHAT_ELSE; "לחצות" was not a meaning question | Proximity-bounded meaning triggers; WHY triggers include "מה המיוחד / מה גורם / מה הסיבה"; new s5 WHY category; "לחצות / חציה" added |
+| B-2 | Context routing borrowed keywords for full questions (false loop candidates); "…, נכון?" counted as an open question | Context routing only for purely deictic questions; confirmation questions are claims |
+| B-3 | s6 ADJ_OPP fired on any "צלעות סמוכות" (two false loop candidates); no s6 definition / converse / inclusion categories | Narrow ADJ_OPP; new s6 DEF, INCLUSION, CONVERSE and WHY_INCLUSION categories |
+| B-3 | s5 drawing: "one diagonal is long, one short" | Vertex labels and "AC = BD" on the drawing |
+| B-4 | s5 claims "שווים וגם מאונכים… בוודאות ריבוע", "כבר מספיק בשבילי", "equal ⇒ square" missed | Broader s5 detector |
+| — | The answer bank evolves | `HARNESS_VERSION` and a harness-modified flag are recorded in every run manifest |
+
+### 10.3 Smoke-test conversations
+
+**Totals:** 13 Mode B conversations across 4 runs, plus 1 Mode A conversation. That is 168 teacher turns, all on 1.3.11 (`c3a59c2`), on a local unmodified server, with synthetic data and no Firestore.
+
+| run | conversations | turns with a pending question | probes replaced | neutralized "נכון/יפה" | antecedent fallbacks | guard outcomes (student calls) |
+|---|---|---:|---:|---:|---:|---|
+| B-1 | s2, s3, s4, s5 (designed cast 0) | 9 | 4 | 0* | 0 | none 46, resolved 2 |
+| B-2 | s2, s4, s5, s6 (cast 1) | 15 | 2 | 2 | 0 | none 46, resolved 2 |
+| B-3 | s4, s5, s6 (cast 0) | 10 | 3 | 1 | 0 | none 36 |
+| B-4 | s5, s6 (cast 0) | 10 | 3 | 0 | 1 | none 21, resolved 2, **dropped 1** |
+| A-1 | s5 (historical cast 0) | n/a | n/a | n/a | n/a | none 11, resolved 1 |
+
+\* B-1 missed a neutralization (s4 T3). That led to the detector fix in §10.2.
+
+**Checks across all smoke runs:**
+- No PCK or student failures. **No call exceeded 2 model attempts** (student max 2, PCK max 1).
+- Duplicate-guard telemetry was captured on every turn. The `dropped` fallback occurred live for the first time (B-4, s5 T8).
+- The final output had **0 exact duplicates and 0 guard matches**.
+- Mode A output equals the scripted text on every turn.
+- The corrected drawings were described consistently with the teacher text: "the diagonal does not bisect the angle" (s4); "the meeting point is not in the middle of both" (s5).
+
+**Manual review of all smoke transcripts** (one reviewer):
+- **Question answers:** direct questions got relevant deterministic answers once the routing fixes were in. For example, s5 "מה זה אומר 'חוצים זה את זה'?" received the MEANING answer, and s4 "למה דווקא במעוין?" got a hint at T6 and the full answer at T10.
+- **Repeats are now separable.** B-4 s5: רועי asked "why do we need all the conditions?" at T6–T7 (justified: only the hint had been given), then at T9, T10 and T12 after the full answer at T8. Those three are `repeat_after_answered` loop candidates, the signal the harness was built to isolate. Whether they are a defect or persona-consistent persistence (רועי: "ignores conditions") is a manual verdict.
+- **The planned progression resumed** after every adaptation (the scripted move follows the answer).
+- **Gate:** every neutralization in B-2 and B-3 followed a stated misconception (s2 "אם הם מאונכים, זה מעוין"; s4 "…זה אומר שהם גם חוצים את הזוויות?").
+- **Remaining teacher-text artefacts are minor:**
+  - generic answers are sometimes vague ("נחזור להגדרה: …" to "איך זה יכול להיות?");
+  - the re-asked T7 question still makes some students say "אתה שואל אותי שוב". That is expected; restatement after T7 is labelled as requested.
+
+### 10.4 Remaining harness limitations
+
+- **Regex-based routing and claim detection.** It is tuned on 13 live conversations and the historical outputs; the first baseline will hit unseen phrasings.
+  - `review.md` shows every adaptation with its reason. The first baseline's adaptations should be read before its labels are trusted.
+  - Bank or rule changes require a `HARNESS_VERSION` bump.
+- **Only partly validated live.** The final teacher logic (after the B-4 fixes) was validated offline: unit tests, plus re-labelling all runs. The last two fixes (the s5 detector breadth and s6 "איך זה יכול להיות?") have not yet run live.
+- **The ledger is heuristic.** Target-idea regexes miss paraphrases (for example "אז כן, הוא דלתון"), so resolution, regression and premature-correctness verdicts remain manual.
+- **Contamination candidates are noisy.** After lesson-vocabulary filtering they are still about 1–1.5 per conversation, and most are dismissed manually.
+- **Prompt-example copying is unchanged in production.** The harness measures it (6-gram or edit ≥ 0.6).
+- **Generation is not seeded.** The server exposes no seed, so run-to-run variance (PCK trajectories) remains. Use ≥ 2 runs per cast.
+
+### 10.5 Readiness
+
+**Mode B is ready for the planned 1.3.11 baseline** (2 runs × 6 scenarios × 2 designed casts, `HARNESS_MODE=B HARNESS_REPEATS=2`), on two conditions:
+1. Read the baseline's `review.md` adaptations and fix any routing misfire, with a `HARNESS_VERSION` bump and a re-run of the affected conversations, before labelling.
+2. Do the manual verdicts per §4 and §7.4, with a second annotator on a sample.
+
+**Mode A is ready** as the per-version regression check.

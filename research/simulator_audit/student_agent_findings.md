@@ -250,6 +250,15 @@ No special `?` handling is planned on this evidence.
 - **Unchanged:** prompt, PCK steering, personas, model, settings, stored message format.
 - **Not addressed:** semantic repetition (about 44% of re-asked replies are close rewordings), cross-student copies, regressions of resolved misconceptions, B6. Explicit student state is the candidate for the semantic issues.
 
+### 2.7 Content-neutral prompt examples (1.3.12, 2026-10-12)
+
+- **Why:** the three student-prompt examples named cast positions (`students[0..2]`), carried lesson geometry from scenarios 1 and 2, and used masculine forms. In the 1.3.11 replay, all three students at 6a T6 copied the example bound to their position (`student_stability_harness_review.md` §6).
+- **Evidence:** live A/B, `student_prompt_examples_experiment.md`. With the old examples, 2 replies echoed the example bound to the speaker's slot; with the neutral examples, 0. There was no regression in schema, participation, confusion under PCK, length or latency.
+- **Implemented in 1.3.12:**
+  - the three examples were replaced verbatim with the tested neutral set (placeholder name, bracketed slots);
+  - the rest of the prompt is byte-identical to 1.3.11, pinned by a test.
+- **Not yet addressed:** the WRONG example (still bound to `students[0]`, square/rectangle) and the geometry / masculine phrases in the conversation rules.
+
 ## 3. Student consistency
 
 ### 3.1 Misconception re-emerging after apparent resolution

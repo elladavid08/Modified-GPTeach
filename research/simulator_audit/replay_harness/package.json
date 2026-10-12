@@ -1,0 +1,6 @@
+{
+  "name": "rambam-replay-harness",
+  "private": true,
+  "description": "Research-only student-stability replay harness (not part of the app build). See README.md.",
+  "type": "module"
+}

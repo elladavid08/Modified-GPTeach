@@ -1,0 +1,9 @@
+{
+  "rootDir": "../../..",
+  "roots": ["<rootDir>/research/simulator_audit/replay_harness/bench"],
+  "testEnvironment": "node",
+  "testMatch": ["**/*.bench.js"],
+  "transform": { "^.+\\.(js|jsx)$": "<rootDir>/node_modules/react-scripts/config/jest/babelTransform.js" },
+  "transformIgnorePatterns": ["[/\\\\]node_modules[/\\\\]"],
+  "setupFiles": ["<rootDir>/research/simulator_audit/replay_harness/bench/setup.js"]
+}

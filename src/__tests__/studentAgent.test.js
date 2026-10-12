@@ -119,7 +119,7 @@ describe("C9: reasoning is not requested in the output (1.3.9)", () => {
 		for (const label of ["EXAMPLE 1 - Student understood the explanation:", "EXAMPLE 2 - Student still confused after explanation:", "EXAMPLE 3 - Student THINKS understood but has misconception:"]) {
 			expect(system).toContain(label);
 		}
-		expect(system).toContain(`"responses": [{"student": "${students[0].name}", "message": "אה עכשיו הבנתי!`);
+		expect(system).toContain(`"responses": [{"student": "<שם של אחד מהתלמידים ברשימה>", "message": "אה, עכשיו הבנתי!`);
 	});
 
 	it("the browser no longer expects or warns about a missing `thinking` field", async () => {
@@ -224,6 +224,75 @@ describe("conversational-move rule for short teacher messages (1.3.10)", () => {
 		// C8: the client still sends {role, content, name}; the server adds the "<name>: " prefix.
 		const student = new ChatMessage(students[1].name, "כי הוא נראה אחרת", "assistant");
 		expect(student.toAIformat()).toEqual({ role: "assistant", content: "כי הוא נראה אחרת", name: students[1].name });
+	});
+});
+
+describe("content-neutral prompt examples (1.3.12)", () => {
+	// Condition B of research/simulator_audit/student_prompt_examples_experiment.md, added verbatim.
+	const NAME = "<שם של אחד מהתלמידים ברשימה>";
+	const NEUTRAL = [
+		"אה, עכשיו הבנתי! אז [המסקנה מההסבר] כי [הסיבה שהמורה נתן/ה]?",
+		"רגע, עדיין לא ברור לי למה דווקא [החלק המסוים שלא הובן]. מה מיוחד ב[מה שהמורה הזכיר]?",
+		"אוקיי, אז בכל פעם ש[תכונה אחת מתקיימת], זה בטוח [מסקנה רחבה מדי], נכון?",
+	];
+	// The 1.3.11 examples, each bound to a cast position.
+	const OLD = [
+		"אה עכשיו הבנתי! אז כל ריבוע הוא גם מלבן כי יש לו 4 זוויות ישרות?",
+		"רגע, אני עדיין לא מבין למה דווקא במעויין האלכסונים מאונכים. מה המיוחד במעויין?",
+		"אוקיי, אז אם אני רואה מרובע שהאלכסונים שלו מאונכים, אני יודע שזה מעויין, נכון?",
+	];
+	const LABELS = ["EXAMPLE 1 - Student understood the explanation:", "EXAMPLE 2 - Student still confused after explanation:", "EXAMPLE 3 - Student THINKS understood but has misconception:"];
+	const line = (name, message) => `\n  "responses": [{"student": "${name}", "message": "${message}"}]`;
+	const PCK_IMPACT = {
+		pedagogical_quality: "problematic",
+		addressed_misconception: false,
+		how_addressed: "",
+		misconception_risk: "high",
+		demonstrated_skills: [{ skill_id: "error-identification", evidence: "E" }],
+		missed_opportunities: [{ skill_id: "counterexample", what_could_have_been_done: "W" }],
+		predicted_student_state: {
+			understanding_level: "more_confused",
+			response_tone: "confused",
+			student_reaction_hints: [{ student: "נועה", reaction_type: "persistent_confusion", likelihood: "high", reason: "R" }],
+		},
+	};
+	const sha256 = (s) => require("crypto").createHash("sha256").update(s, "utf8").digest("hex");
+	async function systemPrompt(opts) {
+		generateWithGenAI.mockResolvedValue(JSON.stringify({ responses: [] }));
+		await runCallAI(opts);
+		return generateWithGenAI.mock.calls[generateWithGenAI.mock.calls.length - 1][0][0].content;
+	}
+
+	it("contains exactly the three tested neutral examples, once each, under their unchanged labels", async () => {
+		const system = await systemPrompt();
+		NEUTRAL.forEach((message, i) => {
+			expect(system.split(`\n${LABELS[i]}\n{${line(NAME, message)}\n}`)).toHaveLength(2);
+		});
+	});
+
+	it("no example interpolates a cast name or keeps the old geometry content", async () => {
+		const system = await systemPrompt();
+		const examples = system.slice(system.indexOf("✅ CORRECT EXAMPLES"), system.indexOf("❌ WRONG - Repeating question"));
+		for (const s of students) expect(examples).not.toContain(s.name);
+		for (const message of OLD) expect(system).not.toContain(message);
+		for (const word of ["ריבוע", "מלבן", "מעויין", "מעוין", "אלכסונים", "מרובע", "זוויות", "מבין", "יודע"]) {
+			expect(examples).not.toContain(word);
+		}
+		// The WRONG example is deliberately unchanged (still bound to students[0]).
+		expect(system).toContain(line(students[0].name, "אבל ריבוע זה מלבן?"));
+	});
+
+	it("leaves the rest of the student prompt byte-identical to 1.3.11, with and without PCK guidance", async () => {
+		// Fingerprints of the 1.3.11 prompt for these inputs; restoring the three old example lines must give them back.
+		const expected = new Map([[null, "1a8839ec0c51c6da93aa1f326b00976c20baca7ad67e4ac93991b0d2418885a1"], [PCK_IMPACT, "1be5d8307a0a18b3528b25d80225494776f3a9b34817a51eb7b80414aab74ea4"]]);
+		for (const [impact, hash] of expected) {
+			let system = await systemPrompt({ impact });
+			NEUTRAL.forEach((message, i) => {
+				expect(system.split(line(NAME, message))).toHaveLength(2);
+				system = system.replace(line(NAME, message), line(students[i].name, OLD[i]));
+			});
+			expect(sha256(system)).toBe(hash);
+		}
 	});
 });
 
