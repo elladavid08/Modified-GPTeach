@@ -11,7 +11,8 @@
     "pm2:restart": "pm2 restart gpteach-backend",
     "pm2:logs": "pm2 logs gpteach-backend",
     "pm2:status": "pm2 status",
-    "pm2:monit": "pm2 monit"
+    "pm2:monit": "pm2 monit",
+    "test": "node --import ./test-support/register.mjs --test test/"
   },
   "dependencies": {
     "@google-cloud/vertexai": "^1.1.0",

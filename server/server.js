@@ -11,6 +11,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { VertexAI } from '@google-cloud/vertexai';
 import { GoogleAuth } from 'google-auth-library';
+import { STUDENT_MODEL_ID, GENERAL_MODEL_ID, MODEL_IDS, VERTEX_LOCATION, VERTEX_API_ENDPOINT, baseGenerationConfig } from './model_config.js';
 import { formatSkillsForPrompt, formatConversationHistory, getPCKSkillById } from './universal_pck_skills.js';
 import { saveConversation, saveMessage, createUserProfile, getUserProfile, saveTestSubmission, checkTestSubmission, verifyAnnotator, verifyAdmin, getTestSubmissions, getTestSubmission, saveTestAnnotation, getTestAnnotation, getAllAnnotationsForSubmission, getAllUsersAdmin, getResearchParticipantsAdmin, updateUserResearchStatusAdmin, getConversationsByUserAdmin, getConversationsMeta, getFullConversationForAnnotation, createAnnotationAssignments, getAnnotationAssignments, getAnnotatorAssignments, getConvAnnotation, saveConvAnnotation, submitConvAnnotation, exportConvAnnotations, cancelAnnotationAssignment, getEligibleAgreementConversations, getAgreementReports, getAgreementReport, computeAndSaveAgreementReport, getConversationsWithCompletedPairs, createComparisonSet, updateComparisonSet, deleteComparisonSet, getComparisonSets, getComparisonSetDetail, getComparisonData, getConsensusAnnotation, saveConsensusAnnotation, submitConsensusAnnotation } from './services/firebaseAdmin.js';
 
@@ -35,7 +36,11 @@ if (NODE_ENV === 'production') {
 console.log('🔧 Initializing Vertex AI with Service Account...');
 
 const PROJECT_ID = process.env.GOOGLE_CLOUD_PROJECT || 'cloud-run-455609';
-const LOCATION = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
+// Gemini 3 migration (1.3.0-gemini3): the 3.x models are served only from the global endpoint (model_config.js)
+const LOCATION = VERTEX_LOCATION;
+if (process.env.GOOGLE_CLOUD_LOCATION && process.env.GOOGLE_CLOUD_LOCATION !== LOCATION) {
+  console.warn(`⚠️ GOOGLE_CLOUD_LOCATION=${process.env.GOOGLE_CLOUD_LOCATION} is ignored: the Gemini 3.x models use the ${LOCATION} endpoint`);
+}
 const ENABLE_CREDENTIAL_DEBUG = process.env.ENABLE_DEBUG_CREDENTIALS === 'true';
 
 // Service Account Key Path (from environment variable or default location)
@@ -48,13 +53,19 @@ console.log('🔑 Using service account key from:', keyPath);
 const vertexAI = new VertexAI({
   project: PROJECT_ID,
   location: LOCATION,
+  apiEndpoint: VERTEX_API_ENDPOINT,
   googleAuthOptions: {
     keyFilename: keyPath
   }
 });
 
+// Split models (model_config.js): the student agent on STUDENT_MODEL_ID; PCK feedback, summary,
+// completion and test on GENERAL_MODEL_ID.
 const model = vertexAI.getGenerativeModel({
-  model: 'gemini-2.5-flash-lite'
+  model: GENERAL_MODEL_ID
+});
+const studentModel = vertexAI.getGenerativeModel({
+  model: STUDENT_MODEL_ID
 });
 
 console.log('✅ Vertex AI initialized successfully with service account');
@@ -275,9 +286,8 @@ app.post('/api/generate', async (req, res) => {
     }
 
     const generationConfig = {
+      ...baseGenerationConfig(),
       maxOutputTokens: 512,
-      temperature: 0.7,
-      topP: 1,
       responseMimeType: "application/json",
       responseSchema: {
         type: "object",
@@ -311,7 +321,7 @@ app.post('/api/generate', async (req, res) => {
 
     console.log('📤 Calling Vertex AI with config:', generationConfig);
     
-    const result = await withRetry(() => model.generateContent({
+    const result = await withRetry(() => studentModel.generateContent({
       contents,
       generationConfig
     }));
@@ -781,9 +791,8 @@ Return JSON only, no additional text:`;
     }];
 
     const generationConfig = {
-      maxOutputTokens: 2000,
-      temperature: 0.7,
-      topP: 1
+      ...baseGenerationConfig(),
+      maxOutputTokens: 2000
     };
 
     console.log('📤 Calling Vertex AI for comprehensive PCK analysis...');
@@ -1092,9 +1101,8 @@ Write the summary now IN HEBREW:`;
     }];
 
     const generationConfig = {
-      maxOutputTokens: 2048, // Longer output for comprehensive feedback
-      temperature: 0.7,
-      topP: 0.95
+      ...baseGenerationConfig(),
+      maxOutputTokens: 2048 // Longer output for comprehensive feedback
     };
 
     console.log('📤 Calling Vertex AI for comprehensive PCK analysis...');
@@ -1160,10 +1168,10 @@ app.post('/api/completion', async (req, res) => {
       parts: [{ text: prompt }]
     }];
 
+    // Gemini 3 migration: client temperature / top_p are not sent to the 3.x model (model_config.js)
     const generationConfig = {
+      ...baseGenerationConfig(),
       maxOutputTokens: options.max_tokens || 256,
-      temperature: options.temperature || 0.7,
-      topP: options.top_p || 1,
     };
 
     if (options.stop && options.stop.length > 0) {
@@ -1233,7 +1241,7 @@ app.get('/api/health', async (req, res) => {
     timestamp: new Date().toISOString(),
     project: PROJECT_ID,
     location: LOCATION,
-    model: 'gemini-2.5-flash-lite',
+    models: MODEL_IDS,
     ai: aiStatus,
     ...(aiError ? { ai_error: aiError } : {})
   });
@@ -1250,8 +1258,8 @@ app.get('/api/test', async (req, res) => {
 				parts: [{ text: "Say hello from Teaching Simulator backend!" }]
       }],
       generationConfig: {
-        maxOutputTokens: 50,
-        temperature: 0.5
+        ...baseGenerationConfig(),
+        maxOutputTokens: 50
       }
     }));
 
@@ -2197,7 +2205,8 @@ app.listen(PORT, () => {
   console.log('🔑 Key file:', keyPath);
   console.log('🎯 Project:', PROJECT_ID);
   console.log('🌍 Location:', LOCATION);
-  console.log('🤖 Model: gemini-2.5-flash-lite');
+  console.log('🤖 Student model:', STUDENT_MODEL_ID);
+  console.log('🤖 PCK / summary / completion / test model:', GENERAL_MODEL_ID);
   console.log('');
   console.log('Available endpoints:');
   console.log('  GET  /api/health - Health check');
