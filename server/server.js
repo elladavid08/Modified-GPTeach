@@ -18,6 +18,7 @@ import { validateStudentOutputText, STUDENT_PARSE_ERROR, STUDENT_INVALID_ERROR, 
 import { findSelfDuplicates, buildRegenerationNote, appendRegenerationNote, dropDuplicateReplies } from './student_duplicate_guard.js';
 import { countSuspectedQuoteCuts, isSpacePaddedTokenLimit } from './student_quote_cut.js';
 import { STUDENT_MODEL_ID, GENERAL_MODEL_ID, MODEL_IDS, VERTEX_LOCATION, VERTEX_API_ENDPOINT, baseGenerationConfig } from './model_config.js';
+import { applyBareAcknowledgementGuard } from './pck_bare_ack_guard.js';
 import { saveConversation, saveMessage, createUserProfile, getUserProfile, saveTestSubmission, checkTestSubmission, verifyAnnotator, verifyAdmin, getTestSubmissions, getTestSubmission, saveTestAnnotation, getTestAnnotation, getAllAnnotationsForSubmission, getAllUsersAdmin, getResearchParticipantsAdmin, updateUserResearchStatusAdmin, getConversationsByUserAdmin, getConversationsMeta, getFullConversationForAnnotation, createAnnotationAssignments, getAnnotationAssignments, getAnnotatorAssignments, getConvAnnotation, saveConvAnnotation, submitConvAnnotation, exportConvAnnotations, cancelAnnotationAssignment, getEligibleAgreementConversations, getAgreementReports, getAgreementReport, computeAndSaveAgreementReport, getConversationsWithCompletedPairs, createComparisonSet, updateComparisonSet, deleteComparisonSet, getComparisonSets, getComparisonSetDetail, getComparisonData, getConsensusAnnotation, saveConsensusAnnotation, submitConsensusAnnotation } from './services/firebaseAdmin.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -584,6 +585,9 @@ Use student_reaction_hints to specify which students are most likely to respond 
 **⚠️ IMPORTANT — Questions as pedagogical moves:**
 A teacher message that contains a question is NOT automatically excluded. If the teacher is using a question as their pedagogical response to a student's incorrect claim (e.g. redirecting the student to examine a definition, posing a counter-example question, asking "is this always true?"), that question IS a PCK move and must be evaluated in Gate 1. Gate 0 only excludes questions that are topic-openers with no preceding student error.
 
+**⚠️ IMPORTANT — A bare acknowledgement of a student's incorrect claim is not a procedural message:**
+A student's mathematically incorrect claim counts as a student error even when it is phrased tentatively or hedged (e.g. "נראה לי ש...", "אני חושב ש...", "אז אולי...") or as a tag question that asserts the wrong idea (e.g. "...אז זה ריבוע, לא?"). This is different from a genuine information-seeking question, which contains no claim. If the most recent student turn contains such an incorrect claim and the teacher's current message is only a bare acknowledgement or confirmation such as "אוקיי", "יפה" or "נכון", without identifying or addressing the error, do not stop at Gate 0: this is a missed error-identification opportunity. error-identification is relevant (it must be evaluated) and receives score 0, pedagogical_quality is "problematic", and should_provide_feedback is true (feedback_trigger: "student_misconception_not_addressed"). A bare acknowledgement after a correct answer or a genuine question remains a procedural message with no feedback.
+
 If the current message is any of the above ❌ categories → should_provide_feedback: false. Stop here.
 
 ---
@@ -948,8 +952,12 @@ Return JSON only, no additional text:`;
       return res.status(500).json(failureBody(call.failure, telemetry, { error: 'PCK analysis failed' }));
     }
 
-    const analysis = call.value;
+    // Bare-acknowledgement guard (1.4.1): for an exact "אוקיי" / "יפה" / "נכון", feedback is displayed only
+    // for a missed error-identification; any other display decision on it is suppressed. Nothing else changes.
+    const guarded = applyBareAcknowledgementGuard(teacherMessage, call.value);
+    const analysis = guarded.analysis;
     console.log('✅ PCK analysis parsed and validated');
+    if (guarded.suppressed) console.log('🔇 PCK feedback display suppressed for a bare acknowledgement (not a missed error-identification)');
     
     // No feedback decided: the message is not shown and must not be recorded as "given" (prompt contract)
     if (!analysis.should_provide_feedback) {

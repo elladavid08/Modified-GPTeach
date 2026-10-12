@@ -235,3 +235,38 @@ This was not run live. The guard is deterministic post-processing of the returne
 - The clarification's Hebrew examples cover the forms seen here; other hedges ("אולי…", "יכול להיות ש…") were not tested separately.
 
 **Files** (scratchpad `c33/`): `clarification.txt`, `pck_arm.cjs` (arm preload), `bench/pck_ab.bench.js`, `contexts.main.json`, `results-{A,B}.jsonl`, `results-{A,B}-extra.jsonl`, `calls-{A,B}.jsonl`, `analyze.py`.
+
+## 8. Implementation in 1.4.1 and live confirmation (2026-10-12)
+
+**Implemented** (not yet committed):
+- the clarification block of §2, verbatim, in the same position (the production prompt is exactly the tested B prompt: 32,187 characters for the first context);
+- the bare-acknowledgement guard of §4.3 (`server/pck_bare_ack_guard.js`, invariant B27). As decided, it covers exact trimmed "אוקיי" / "יפה" / "נכון" only, with **no "?"**. It shows feedback only when EI is relevant with score 0 and quality is "problematic"; otherwise only the display is suppressed.
+
+**Live rerun of the same 51 contexts on the unmodified 1.4.1 server** (288 calls; controls 6 repeats, explanations 3):
+
+| | A (1.4.0) | B (prompt only) | **1.4.1** (prompt + guard) |
+|---|---:|---:|---:|
+| formerly silent (48) | 2 | 48 | **48** |
+| formerly shown (60) | 57 | 60 | **60** |
+| correct answer + bare probe (84) | 15 | 24 | **3** (all on the "?" context, outside the rule by decision) |
+| genuine question + bare probe (30) | 0 | 3 | **1** |
+| explanations (18) | 16 | 16 | 16 |
+| greeting / closing / procedural (48) | 4 | 9 | 9 |
+
+- **Validity:** all 288 valid, all `STOP`, PCK p50 / p90 2.34 / 2.94 s.
+- **The guard** kept 18 positive outputs on bare acknowledgements from being displayed.
+- **Remaining false-positive patterns:**
+  1. **Non-bare deferral praised (6 of 6):** "הילה, שאלה טובה, נבדוק את זה עוד רגע. הילה, את או אתה מסכים?" is praised as APR. Its frozen history contains the formerly silent T3, so it must be re-checked dynamically (Mode B).
+  2. **Converse hypothesis flagged:** "אוקיי" after "אולי גם ההפך נכון? כלומר שכל דלתון הוא מעוין?" was flagged as a missed error-identification (1 of 6). This is borderline: a hedged wrong hypothesis in question form, which the clarification explicitly counts.
+  3. **Bare "?" praised** after correct statements (3 of 6), outside the rule by decision. Bare "?" did not occur in the pilot.
+  4. **Closings praised**, as in A (3 of 48).
+
+**Mode B rerun on 1.4.1** (24 conversations, `student_stability_replay.md` §13):
+- the critical "bare acknowledgement after a misconception" feedback was shown in **15 of 16** cases (1.4.0: 10 of 18);
+- the guard suppressed 21 positive-praise displays on bare acknowledgements, and none remain;
+- carriers no longer drift toward the answer after an unflagged acknowledgement (3 → 0);
+- every carrier who held the misconception resolves after the explanation (18 of 18);
+- no loops, regressions or persistence; 0 failures.
+
+Deferral praise (pattern 1 above) also occurs in 1.4.0 Mode B (4 of 5), so it is not introduced by 1.4.1.
+

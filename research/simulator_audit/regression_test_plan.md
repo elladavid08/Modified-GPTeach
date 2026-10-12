@@ -879,6 +879,53 @@ Before the fix, 4 tests failed. The harness has a version-aware example set and 
 - the B24 `requestOptions` argument;
 - the SDK migration to `@google/genai`.
 
+### 0.26 Missed-misconception PCK fix: prompt clarification and bare-acknowledgement guard (2026-10-12, version 1.4.1)
+
+**Defect:** in the 1.4.0 Mode B baseline, 8 of 18 "student states a wrong idea → teacher replies only 'אוקיי' / 'יפה'" moments got no PCK feedback (`student_stability_replay.md` §12.4). The 8 are systematic: 7 of 8 show 0 of 6 under the 1.4.0 prompt (`pck_missed_misconception_experiment.md`).
+
+**Change:**
+- **PCK prompt:** one clarification block in Gate 0, verbatim as tested (condition B). The rest of the prompt is byte-identical to 1.4.0 (SHA-256 test).
+- **Server, `server/pck_bare_ack_guard.js` (B27):** for an exact trimmed "אוקיי" / "יפה" / "נכון", feedback is displayed only for a missed error-identification (EI relevant, score 0, quality "problematic"); otherwise only the display is suppressed.
+  - It does not apply to "?" or to any other message.
+  - It does not detect errors.
+  - It never changes scores, skills, quality or student steering.
+- **Unchanged:** student prompt, models and routing, schema, validation, retry policy, telemetry.
+
+**Tests:** new `pck_bare_ack_guard.test.mjs` (40):
+- the module (the exact acknowledgement set without "?"; the missed-EI definition; no mutation of the input);
+- for each of the three acknowledgements:
+  - missed misconception → shown, unchanged;
+  - praise after a correct answer → suppressed, APR score unchanged;
+  - criticism after a genuine question → suppressed;
+  - error-leveraging praise after a self-correction → suppressed;
+  - a no-feedback decision → unchanged;
+- whitespace; inconsistent EI-0 without "problematic"; another skill problematic;
+- 9 non-bare messages unaffected (longer acknowledgements, punctuation, "?", explanation, opening, closing, redirecting question);
+- response shape and telemetry keys unchanged;
+- structured-output validation unchanged on a bare acknowledgement;
+- the prompt block verbatim, once, in position, and the rest byte-identical to 1.4.0.
+
+**Before the change:** 13 of the 40 failed (with the module present but not wired).
+
+**Results:** `npm run test:all` was run twice and passed both times (202 frontend, 263 backend); the harness has 74 tests.
+
+**Live check** (the 51 frozen contexts of the experiment, on the unmodified 1.4.1 server, 288 calls):
+- formerly silent cases shown 48 of 48;
+- formerly shown cases 60 of 60;
+- bare-acknowledgement controls: 1 of 102 (a borderline "maybe the converse is true?" question flagged as a missed error);
+- explanations unchanged;
+- one remaining non-bare false positive (a Mode B deferral, 6 of 6).
+
+**Mode B rerun** (24 conversations, `student_stability_replay.md` §13):
+- missed-misconception feedback shown in 15 of 16 critical moments (1.4.0: 10 of 18);
+- 21 invalid praise displays suppressed;
+- no carrier drift after unflagged acknowledgements;
+- resolution 18 of 18; 0 loops, regressions or failures.
+
+**Follow-up:**
+- watch the PCK feedback rate on bare acknowledgements in production;
+- the deferral and peer-redirect praise is a rubric question (pre-existing).
+
 ## Original proposal (kept for reference; see §0.6 for what is still open)
 
 ## 1. Starting state (before the baseline)

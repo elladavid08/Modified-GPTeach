@@ -13,10 +13,28 @@
  * - Z: Patch version (bug fixes, minor improvements)
  */
 
-export const SYSTEM_VERSION = "1.4.0";
+export const SYSTEM_VERSION = "1.4.1";
 
 /**
  * Version History:
+ * 
+ * 1.4.1 (2026-10-12):
+ * - Real-time PCK feedback after a bare acknowledgement of a misconception
+ *   (pck_missed_misconception_experiment.md). In the 1.4.0 baseline, 8 of 18 moments where a
+ *   student stated a wrong idea and the teacher replied only "אוקיי" / "יפה" got no feedback,
+ *   when the wrong idea was hedged, implicit or phrased as "…, לא?".
+ * - PCK prompt: one clarification block in Gate 0 (verbatim as tested): an incorrect claim counts
+ *   even when hedged or phrased as a tag question, and a bare acknowledgement of it is a missed
+ *   error-identification (relevant, score 0, problematic, feedback shown). The rest of the prompt
+ *   is unchanged.
+ * - Bare-acknowledgement guard (server): when the teacher's trimmed message is exactly "אוקיי",
+ *   "יפה" or "נכון", feedback is displayed only if the analysis is a missed error-identification
+ *   (error-identification relevant with score 0, quality "problematic"). Any other feedback on such
+ *   a message (praise, or criticism of another skill) is not displayed. The guard only changes the
+ *   display decision; scores, skills, quality and the student-steering fields are returned
+ *   unchanged. It does not apply to any other message ("?" and longer messages are unaffected).
+ * - Unchanged: student prompt, models and routing, schemas, validation, retry policy, telemetry,
+ *   the stored conversation format.
  * 
  * 1.4.0 (2026-10-12):
  * - Model migration (gemini-2.5-flash-lite retires on Vertex AI on 2026-10-20), split by agent as

@@ -769,3 +769,84 @@ The 1.3.12 PCK (2.5) showed feedback on almost every turn and rated most turns p
 - the T3 analysis rests on 18 cases;
 - the harness misses some claim forms (s6 tags, s1 anaphora in the ledger);
 - PCK and student outputs are not deterministic.
+
+## 13. Mode B rerun on 1.4.1 (missed-misconception PCK fix), 2026-10-12
+
+> **Separate from §12.** Same harness (1.3.2, Mode B, designed casts, 6 scenarios × 2 casts × 2 runs = 24 conversations), same models and procedure as §12. The only production difference is 1.4.1 (`pck_missed_misconception_experiment.md`):
+> - the PCK prompt clarification for hedged or tag-question claims followed by a bare acknowledgement;
+> - the B27 bare-acknowledgement display guard.
+>
+> The 1.4.1 files were uncommitted when this ran (manifest `gitDirtyProductionFiles` lists `server/server.js`, `src/config/version.js`, `server/pck_bare_ack_guard.js` and its test; base commit `3816521`). Outputs: `replay_harness/results/B-baseline-1.4.1-run{1,2}` (git-ignored); scratchpad `c36/`.
+
+### 13.1 Counts (1.4.1 vs 1.4.0)
+
+| measure | 1.4.0 (§12) | **1.4.1** |
+|---|---:|---:|
+| conversations / turns / replies | 24 / 288 / 512 | 24 / 288 / **518** |
+| turns without a reply; student / PCK failures | 0; 0 / 0 | **0; 0 / 0** |
+| calls with 2 attempts (max attempts) | 2 student (2) | **0** (1) |
+| duplicate re-asks / quote cuts / prompt-example or placeholder leaks / invalid names | 0 / 0 / 0 / 1 | **0 / 0 / 0 / 0** |
+| repeated questions (unanswered / after the answer) | 0 / 0 | **0 / 0** |
+| PCK shown | 180 | **186** |
+| PCK quality + / 0 / − | 176 / 102 / 10 | **199 / 74 / 15** |
+| PCK levels improved / same / misconception_reinforced / confused | 197 / 81 / 10 / 0 | **225 / 48 / 13 / 2** |
+| bare "אוקיי" / "יפה" / "נכון" turns: shown / display suppressed by the guard | — | **57 turns: 15 shown (all missed error-identification) / 21 suppressed** (all *positive* praise: 17 "נכון" after the explanation, 4 "יפה" after a correct T2) |
+| latency student p50 / p90 | 1.22 / 1.60 s | **1.25 / 1.60 s** |
+| latency PCK p50 / p90 | 2.49 / 2.99 s | **2.38 / 2.76 s** |
+| latency whole turn p50 / p90 (max) | 3.69 / 4.46 s (6.1) | **3.60 / 4.30 s** (5.0) |
+
+The raw PCK outputs (capture) agree with the logged display decisions on all 288 turns once the B27 rule is applied, so the guard acted exactly where specified.
+
+### 13.2 The critical moment: bare acknowledgement after a misconception (T3)
+
+| | genuine cases | feedback shown |
+|---|---:|---:|
+| 1.4.0 (§12.4) | 18 | 10 |
+| **1.4.1** | **16** | **15** |
+
+- **Shown:** every case uses the validated shape (`problematic`, error-identification score 0, mostly `misconception_reinforced`).
+- **Still silent:**
+  - r2 s2 cast 1: a self-contradictory claim, "אם הם מאונכים אז לא? … זה נשמע לי בדיוק כמו מעוין", followed by "יפה"; PCK `neutral` / `same`.
+  - One more ambiguous context, not counted as genuine (r2 s4 cast 0): a hedged hypothesis question ("אולי גם הם חוצים את הזווית? לא בטוחה") next to a peer's correct reasoning.
+- **Correct answers:** the guard stopped "יפה" praise after a correct T2 four times (r1 s4 cast 0, r1 s6 cast 0, r2 s4 cast 1, r2 s6 cast 1).
+
+### 13.3 Downstream effect on students (manual review of all carriers)
+
+| | 1.4.0 | **1.4.1** |
+|---|---:|---:|
+| carrier holds the misconception before the explanation | 17 / 24 | **18 / 24** (1 tentative question) |
+| premature correctness (correct before the explanation) | 7 / 24 (2 firm) | **6 / 24** (r1 s3 cast 1, r1 s4 cast 0, r1 s4 cast 1, r1 s6 cast 0, r2 s4 cast 1, r2 s6 cast 1); all reason it out at T2, before any PCK steering |
+| carriers drifting toward the answer at T3 after a bare acknowledgement | 3 (all after *silent* PCK) | **0** |
+| resolution after teaching (holders) | 17 / 17 | **18 / 18** (one keeps appearance wording with a correct conclusion, as in §12) |
+| persistence / regressions / loops | 0 / 0 / 0 | **0 / 0 / 0** (1 persistence and 5 semantic candidates, all false) |
+| contamination | 0 of 6 | **0 of 12** (shared definition wording) |
+| teacher attributions: invented / mixed | 2 / 10 | **0 / about 5** (mostly a question premise turned into a statement; 63 candidates, the rest accurate, prior-lesson, about "אוקיי", or peer address) |
+| garbled surface text | about 10 | **9** ("לגmרי" ×3, Arabic / Cyrillic / Korean characters inside words, "את את" ×2) |
+
+- **What the recovered feedback does to students:** it steers the carrier to `misconception_reinforced`, and the carrier now *keeps* the misconception at T3, with realistic reactions:
+  - "אז צדקתי! אם האלכסונים שווים זה לגמרי ריבוע.";
+  - "כן, אמרת אוקיי אז חשבתי שזה בסדר מה שאמרתי.";
+  - "אז אתה אומר שזה נכון?".
+- **In 1.4.0** the silent cases drifted toward the answer instead.
+- **Peers** in the same turn often question it ("רגע, אז ריבוע לא נחשב מלבן בכלל? למרות שיש לו ארבע זוויות ישרות?").
+- **The stronger steering does not block learning:** every holder resolves after the explanation.
+
+### 13.4 Remaining PCK false-positive patterns (1.4.1)
+
+1. **Praise for a Mode B deferral** ("X, שאלה טובה, נבדוק את זה עוד רגע. X, מה דעתך…?"): 4 of 4 shown as positive APR. This already happened in 1.4.0 (4 of 5), so it is not introduced by 1.4.1. It occurs only in Mode B's scripted deferrals (not a pilot pattern).
+2. **Positive feedback on peer questions and check questions after a misconception** (T4 "X, מה דעתך?"): shown as positive APR, as in 1.4.0. This is a rubric question (is a peer redirect an adapted response?), not a regression.
+3. **Closings and "?" probes:** occasional praise, as in 1.4.0. These are outside the B27 rule by decision.
+4. **No praise or criticism on bare "אוקיי" / "יפה" / "נכון"** remains; all 21 such outputs were suppressed.
+
+### 13.5 Conclusion
+
+- **The fix works dynamically:**
+  - the critical missed-misconception feedback is shown in 15 of 16 cases (10 of 18 before);
+  - the guard removes all invalid praise on bare acknowledgements;
+  - carriers no longer drift toward the answer after a silent acknowledgement;
+  - learning after the explanation is unchanged (18 of 18 resolve).
+- **No new student-side problems:** no loops, regressions or persistence; attributions are not worse; failures and latency are unchanged or better.
+- **1.4.1 becomes the new reference baseline.** Remaining items, in order:
+  1. 3.5 surface garbling (about 2% of replies; telemetry counter first);
+  2. premature correctness of reasoning-type carriers (6 of 24, mostly s4 and s6, where the direct question invites self-correction);
+  3. the rubric question of praise for peer redirects and deferrals.
