@@ -1,5 +1,7 @@
 # LLM pipelines: trigger → prompt → model → output → parsing → retry/fallback → state/DB → UI
 
+> **Since 1.4.0:** the student agent uses `gemini-3.5-flash-lite` and every other call uses `gemini-3.1-flash-lite` (`server/model_config.js`), through the Vertex `global` endpoint, with thinking explicitly MINIMAL and no temperature / topP. The rest of this note describes the earlier state.
+
 All calls use the one shared `gemini-2.5-flash-lite` model object (`server/server.js:56-58`, Vertex AI, `us-central1`, service-account auth).
 No call sets a system instruction, safety settings, a thinking budget, or a request/session id.
 

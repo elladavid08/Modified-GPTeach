@@ -105,7 +105,9 @@ test('19. attempt 2 differs only by the note: same system prompt, C8-labelled hi
   const note = lastUserText(second).slice('נכון\n\n'.length);
   assert.equal(lastUserText(second), `נכון\n\n${note}`);
   assert.ok(note.startsWith(NOTE_HEAD));
-  assert.equal(second.generationConfig.thinkingConfig, undefined);
+  // 1.4.0: both attempts on the student model, thinking explicitly MINIMAL (not a re-ask-specific setting)
+  assert.deepEqual(second.generationConfig.thinkingConfig, { thinkingLevel: 'MINIMAL' });
+  assert.deepEqual(srv.fakeModel.callModels, ['gemini-3.5-flash-lite', 'gemini-3.5-flash-lite']);
 });
 
 test('11. one student still duplicate on attempt 2: only that reply is dropped', async () => {

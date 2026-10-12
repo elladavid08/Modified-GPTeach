@@ -12,7 +12,7 @@ These variables must be set on the Windows Server in the `server/.env` file.
 |----------|----------|---------|-------------|
 | `GOOGLE_APPLICATION_CREDENTIALS` | **Yes** | `./service-account-key.json` | Path to Google Cloud service account JSON key file. Can be relative (to server directory) or absolute. |
 | `GOOGLE_CLOUD_PROJECT` | **Yes** | `cloud-run-455609` | Google Cloud project ID |
-| `GOOGLE_CLOUD_LOCATION` | **Yes** | `us-central1` | Google Cloud region for Vertex AI |
+| `GOOGLE_CLOUD_LOCATION` | No (ignored since 1.4.0) | `global` | Not used for model calls since 1.4.0: the Gemini 3.x models are served only from the `global` endpoint (`server/model_config.js`). If set to another value, the server logs a warning and ignores it. |
 | `PORT` | No | `3001` | Port for backend server to listen on |
 | `NODE_ENV` | **Yes** | `development` | Set to `production` for production deployment |
 | `ENABLE_DEBUG_CREDENTIALS` | No | `false` | Set to `true` to enable `/api/debug/credentials` endpoint for troubleshooting |

@@ -843,6 +843,42 @@ Before the fix, 4 tests failed. The harness has a version-aware example set and 
 
 **Follow-up:** watch `quoteCutSuspected` in production (quoted-word cuts are not prevented).
 
+### 0.25 Split-model migration (2026-10-12, version 1.4.0)
+
+**Reason:** `gemini-2.5-flash-lite` retires on Vertex AI on 2026-10-20 (`student_model_options.md`). The split configuration was validated in `student_model_bakeoff.md` §9.
+
+**Change:**
+- `server/model_config.js`: student agent `gemini-3.5-flash-lite`; PCK, summary, completion and test `gemini-3.1-flash-lite`; Vertex `global` location with `apiEndpoint: aiplatform.googleapis.com`; `thinkingConfig: { thinkingLevel: 'MINIMAL' }` on every call; no temperature / topP (the completion endpoint no longer forwards the client's).
+- `server.js`: two per-turn model instances (student / PCK) and one general instance; telemetry `model` per agent; `/api/health` reports `models` per agent; the startup log names both models; `GOOGLE_CLOUD_LOCATION` is ignored, with a warning.
+- Unchanged: prompts, schemas, `maxOutputTokens`, the B24 policy, B26, the quote-cut telemetry, the SDK, the stored conversation format.
+
+**Tests** (server):
+- new `api_model_routing.test.mjs` (17):
+  - Vertex client options;
+  - model instances;
+  - each endpoint's model and settings;
+  - retries and the duplicate re-ask on the same model;
+  - telemetry per agent on success and failure;
+  - health and the startup log;
+  - no `gemini-2`, temperature, topP or regional location in `server.js`;
+- updated: the C9 config test (thinking is now explicitly MINIMAL), the PCK config test, the model in telemetry assertions, and duplicate-guard test 19;
+- test support: the fake SDK records client options and the model per call; `startServer` keeps the startup log.
+- **Before the change:** 21 server tests failed.
+
+**Results:** `npm run test:all` was run twice and passed both times (202 frontend, 223 backend); the harness has 74 tests.
+
+**Live check:** one Mode B conversation and the summary / test / completion endpoints on the real server.
+- Every call was served by the configured model (Vertex `modelVersion`).
+- MINIMAL thinking, 0 thinking tokens, all `STOP`, 1 attempt, telemetry `model` correct per agent.
+
+**Found, not changed:** SDK 1.10.0 ignores `requestOptions` inside the model params, so the SDK-level per-attempt abort (B24) has not been in effect since 1.3.6. The policy's own timer still bounds each attempt; an abandoned HTTP request is not cancelled.
+
+**Follow-up:**
+- the 24-conversation Mode B baseline on 1.4.0;
+- PCK feedback visibility after a missed misconception;
+- the B24 `requestOptions` argument;
+- the SDK migration to `@google/genai`.
+
 ## Original proposal (kept for reference; see §0.6 for what is still open)
 
 ## 1. Starting state (before the baseline)

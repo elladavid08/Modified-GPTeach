@@ -353,3 +353,14 @@ Each call keeps the original model instance's request options (timeouts). A one-
    - **(c)** fix the PCK missed-misconception visibility.
 
 **Analysis files:** scratchpad `c29/`: `model_split.cjs`, `usage-D.jsonl`, `pck-D.jsonl`, `summary_smoke.mjs`, `summary_smoke.json`, `usage-D-summary.jsonl`. **Run** (git-ignored): `replay_harness/results/bakeoff-D-split`, plus `bakeoff-D-split-smoke`.
+
+### 9.5 Implementation status: **implemented in 1.4.0** (2026-10-12, not yet committed or deployed)
+
+The configuration in §9.4 (answer 5) is implemented as `SYSTEM_VERSION` **1.4.0** (`src/config/version.js`; `regression_test_plan.md` §0.25):
+- `server/model_config.js` holds `STUDENT_MODEL_ID` (`gemini-3.5-flash-lite`), `GENERAL_MODEL_ID` (`gemini-3.1-flash-lite`, used for PCK, summary, completion and test), `VERTEX_LOCATION` (`global`), `VERTEX_API_ENDPOINT` and `baseGenerationConfig()` (`thinkingLevel: MINIMAL`).
+- Unchanged: prompts, schemas, token limits, the retry policy, the duplicate guard, the quote-cut telemetry, the SDK and the stored conversation format. Not changed: the PCK feedback rate (follow-up).
+- **Live smoke check on the real server** (one Mode B conversation, s2 cast 0, plus summary / test / completion), observed with a capture-only preload:
+  - every call was served by the configured model (`modelVersion` in the Vertex response): 12 student calls on 3.5; 12 PCK and 3 other calls on 3.1;
+  - all calls used `global`, MINIMAL thinking and no temperature / topP;
+  - all `STOP`, 0 thinking tokens, 1 attempt each, telemetry `model` correct per agent.
+- The post-deployment items in §9.4 (answer 6) still apply.

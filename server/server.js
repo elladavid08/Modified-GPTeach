@@ -17,6 +17,7 @@ import { LLM_CALL_POLICY, callModelWithPolicy, interpretCandidate } from './llm_
 import { validateStudentOutputText, STUDENT_PARSE_ERROR, STUDENT_INVALID_ERROR, MAX_RAW_OUTPUT_EXCERPT_CHARS } from './student_output_contract.js';
 import { findSelfDuplicates, buildRegenerationNote, appendRegenerationNote, dropDuplicateReplies } from './student_duplicate_guard.js';
 import { countSuspectedQuoteCuts, isSpacePaddedTokenLimit } from './student_quote_cut.js';
+import { STUDENT_MODEL_ID, GENERAL_MODEL_ID, MODEL_IDS, VERTEX_LOCATION, VERTEX_API_ENDPOINT, baseGenerationConfig } from './model_config.js';
 import { saveConversation, saveMessage, createUserProfile, getUserProfile, saveTestSubmission, checkTestSubmission, verifyAnnotator, verifyAdmin, getTestSubmissions, getTestSubmission, saveTestAnnotation, getTestAnnotation, getAllAnnotationsForSubmission, getAllUsersAdmin, getResearchParticipantsAdmin, updateUserResearchStatusAdmin, getConversationsByUserAdmin, getConversationsMeta, getFullConversationForAnnotation, createAnnotationAssignments, getAnnotationAssignments, getAnnotatorAssignments, getConvAnnotation, saveConvAnnotation, submitConvAnnotation, exportConvAnnotations, cancelAnnotationAssignment, getEligibleAgreementConversations, getAgreementReports, getAgreementReport, computeAndSaveAgreementReport, getConversationsWithCompletedPairs, createComparisonSet, updateComparisonSet, deleteComparisonSet, getComparisonSets, getComparisonSetDetail, getComparisonData, getConsensusAnnotation, saveConsensusAnnotation, submitConsensusAnnotation } from './services/firebaseAdmin.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -40,7 +41,11 @@ if (NODE_ENV === 'production') {
 console.log('🔧 Initializing Vertex AI with Service Account...');
 
 const PROJECT_ID = process.env.GOOGLE_CLOUD_PROJECT || 'cloud-run-455609';
-const LOCATION = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
+// 1.4.0: the 3.x models are served only from the global endpoint (model_config.js)
+const LOCATION = VERTEX_LOCATION;
+if (process.env.GOOGLE_CLOUD_LOCATION && process.env.GOOGLE_CLOUD_LOCATION !== LOCATION) {
+  console.warn(`⚠️ GOOGLE_CLOUD_LOCATION=${process.env.GOOGLE_CLOUD_LOCATION} is ignored: the Gemini 3.x models use the ${LOCATION} endpoint`);
+}
 const ENABLE_CREDENTIAL_DEBUG = process.env.ENABLE_DEBUG_CREDENTIALS === 'true';
 
 // Service Account Key Path (from environment variable or default location)
@@ -53,22 +58,27 @@ console.log('🔑 Using service account key from:', keyPath);
 const vertexAI = new VertexAI({
   project: PROJECT_ID,
   location: LOCATION,
+  apiEndpoint: VERTEX_API_ENDPOINT,
   googleAuthOptions: {
     keyFilename: keyPath
   }
 });
 
-const MODEL_ID = 'gemini-2.5-flash-lite';
-
+// Split models (1.4.0, model_config.js): the student agent on STUDENT_MODEL_ID; PCK feedback,
+// summary, completion and test on GENERAL_MODEL_ID.
 const model = vertexAI.getGenerativeModel({
-  model: MODEL_ID
+  model: GENERAL_MODEL_ID
 });
 
-// Per-turn calls (PCK feedback, student generation) use their own model instance, so the SDK
+// Per-turn calls (PCK feedback, student generation) use their own model instances, so the SDK
 // aborts the underlying HTTP request at the per-attempt timeout (LLM_CALL_POLICY). The summary,
 // completion and test endpoints keep `model` and the legacy `withRetry`, unchanged.
-const turnModel = vertexAI.getGenerativeModel({
-  model: MODEL_ID,
+const studentTurnModel = vertexAI.getGenerativeModel({
+  model: STUDENT_MODEL_ID,
+  requestOptions: { timeout: LLM_CALL_POLICY.perAttemptTimeoutMs }
+});
+const pckTurnModel = vertexAI.getGenerativeModel({
+  model: GENERAL_MODEL_ID,
   requestOptions: { timeout: LLM_CALL_POLICY.perAttemptTimeoutMs }
 });
 
@@ -125,7 +135,7 @@ function failureBody(failure, telemetry, defaults) {
 
 /** Telemetry for an error response: what the failed call measured, or what is known statically. */
 function errorTelemetry(agent, telemetry, error) {
-  return telemetry || (error && error.telemetry) || { agent, model: MODEL_ID, latencyMs: null, finishReason: null, attempts: 0 };
+  return telemetry || (error && error.telemetry) || { agent, model: MODEL_IDS[agent], latencyMs: null, finishReason: null, attempts: 0 };
 }
 
 const auth = new GoogleAuth({
@@ -326,9 +336,8 @@ app.post('/api/generate', async (req, res) => {
     }
 
     const generationConfig = {
+      ...baseGenerationConfig(),
       maxOutputTokens: 512,
-      temperature: 0.7,
-      topP: 1,
       responseMimeType: "application/json",
       responseSchema: {
         type: "object",
@@ -370,8 +379,8 @@ app.post('/api/generate', async (req, res) => {
     let quoteCutPaddedAttempts = 0;
     const call = await callModelWithPolicy({
       agent: 'student',
-      model: turnModel,
-      modelId: MODEL_ID,
+      model: studentTurnModel,
+      modelId: STUDENT_MODEL_ID,
       request: { contents, generationConfig },
       interpret: (result, { attempt, isFinalAttempt }) => {
         const candidate = interpretCandidate(result);
@@ -890,9 +899,8 @@ Return JSON only, no additional text:`;
     }];
 
     const generationConfig = {
+      ...baseGenerationConfig(),
       maxOutputTokens: 2000,
-      temperature: 0.7,
-      topP: 1,
       // Structured output (C10): JSON mode constrained by the PCK response contract
       responseMimeType: "application/json",
       responseSchema: PCK_RESPONSE_SCHEMA
@@ -903,8 +911,8 @@ Return JSON only, no additional text:`;
     // Retry / timeout policy (1.3.6): at most 2 attempts; parse/schema failures (C10) are retried
     const call = await callModelWithPolicy({
       agent: 'pck',
-      model: turnModel,
-      modelId: MODEL_ID,
+      model: pckTurnModel,
+      modelId: GENERAL_MODEL_ID,
       request: { contents, generationConfig },
       interpret: (result) => {
         const candidate = interpretCandidate(result);
@@ -1174,9 +1182,8 @@ Write the summary now IN HEBREW:`;
     }];
 
     const generationConfig = {
-      maxOutputTokens: 2048, // Longer output for comprehensive feedback
-      temperature: 0.7,
-      topP: 0.95
+      ...baseGenerationConfig(),
+      maxOutputTokens: 2048 // Longer output for comprehensive feedback
     };
 
     console.log('📤 Calling Vertex AI for comprehensive PCK analysis...');
@@ -1242,10 +1249,10 @@ app.post('/api/completion', async (req, res) => {
       parts: [{ text: prompt }]
     }];
 
+    // 1.4.0: client temperature / top_p are not sent to the 3.x model (model_config.js)
     const generationConfig = {
+      ...baseGenerationConfig(),
       maxOutputTokens: options.max_tokens || 256,
-      temperature: options.temperature || 0.7,
-      topP: options.top_p || 1,
     };
 
     if (options.stop && options.stop.length > 0) {
@@ -1315,7 +1322,7 @@ app.get('/api/health', async (req, res) => {
     timestamp: new Date().toISOString(),
     project: PROJECT_ID,
     location: LOCATION,
-    model: 'gemini-2.5-flash-lite',
+    models: MODEL_IDS,
     ai: aiStatus,
     ...(aiError ? { ai_error: aiError } : {})
   });
@@ -1332,8 +1339,8 @@ app.get('/api/test', async (req, res) => {
 				parts: [{ text: "Say hello from Teaching Simulator backend!" }]
       }],
       generationConfig: {
-        maxOutputTokens: 50,
-        temperature: 0.5
+        ...baseGenerationConfig(),
+        maxOutputTokens: 50
       }
     }));
 
@@ -2279,7 +2286,8 @@ app.listen(PORT, () => {
   console.log('🔑 Key file:', keyPath);
   console.log('🎯 Project:', PROJECT_ID);
   console.log('🌍 Location:', LOCATION);
-  console.log('🤖 Model: gemini-2.5-flash-lite');
+  console.log('🤖 Student model:', STUDENT_MODEL_ID);
+  console.log('🤖 PCK / summary / completion / test model:', GENERAL_MODEL_ID);
   console.log('');
   console.log('Available endpoints:');
   console.log('  GET  /api/health - Health check');

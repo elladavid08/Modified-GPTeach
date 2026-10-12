@@ -13,10 +13,26 @@
  * - Z: Patch version (bug fixes, minor improvements)
  */
 
-export const SYSTEM_VERSION = "1.3.13";
+export const SYSTEM_VERSION = "1.4.0";
 
 /**
  * Version History:
+ * 
+ * 1.4.0 (2026-10-12):
+ * - Model migration (gemini-2.5-flash-lite retires on Vertex AI on 2026-10-20), split by agent as
+ *   validated in student_model_bakeoff.md §9: the student agent (/api/generate) runs on
+ *   gemini-3.5-flash-lite; PCK feedback (/api/pck-feedback), the summary (/api/pck-summary) and
+ *   the completion / test endpoints run on gemini-3.1-flash-lite (server/model_config.js).
+ * - Vertex AI is called through the `global` location and endpoint (aiplatform.googleapis.com),
+ *   where the 3.x models are served; GOOGLE_CLOUD_LOCATION no longer applies.
+ * - Every model call sets thinking explicitly to MINIMAL and sends no temperature / topP (the
+ *   3.x model defaults; previously temperature 0.7 with topP 1, or 0.95 for the summary).
+ * - Unchanged: prompts, personas, response schemas, maxOutputTokens (student 512, PCK 2000,
+ *   summary 2048), the retry / timeout policy (at most 2 attempts), the duplicate guard, the
+ *   quote-cut telemetry, the SDK (@google-cloud/vertexai) and the stored conversation format.
+ *   Telemetry `model` now reports each agent's own model; /api/health reports `models` per agent.
+ * - Expected behaviour differences (bakeoff §9): PCK feedback is shown on fewer turns (about 60%
+ *   vs 93%); student misconceptions persist before teaching about as often as on 2.5.
  * 
  * 1.3.13 (2026-10-12):
  * - Quote-safe abbreviations in student replies: one output rule in the student prompt (JSON

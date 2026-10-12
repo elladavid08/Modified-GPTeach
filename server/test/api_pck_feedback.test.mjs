@@ -152,9 +152,10 @@ test('C10: the model call uses JSON mode with the PCK response schema', async ()
   assert.equal(generationConfig.responseMimeType, 'application/json');
   assert.equal(generationConfig.responseSchema.type, 'object');
   assert.ok(generationConfig.responseSchema.properties.skills_assessment);
-  // Unchanged generation settings (model / temperature are out of scope)
-  assert.equal(generationConfig.temperature, 0.7);
+  // Token limit unchanged; 1.4.0: 3.x settings (MINIMAL thinking, no temperature / topP), see api_model_routing
   assert.equal(generationConfig.maxOutputTokens, 2000);
+  assert.deepEqual(generationConfig.thinkingConfig, { thinkingLevel: 'MINIMAL' });
+  assert.equal(generationConfig.temperature, undefined);
 });
 
 test('C10: a valid current-format analysis passes through unchanged', async () => {
@@ -208,7 +209,7 @@ test('telemetry: a successful PCK call reports agent, model, latency, finish rea
   const { meta } = res.body;
   assert.deepEqual(Object.keys(meta).sort(), ['agent', 'attempts', 'finishReason', 'latencyMs', 'model']);
   assert.equal(meta.agent, 'pck');
-  assert.equal(meta.model, 'gemini-2.5-flash-lite');
+  assert.equal(meta.model, 'gemini-3.1-flash-lite'); // 1.4.0: PCK runs on 3.1 Flash-Lite
   assert.equal(meta.finishReason, 'STOP');
   assert.equal(meta.attempts, 1);
   assert.ok(meta.latencyMs >= 35);

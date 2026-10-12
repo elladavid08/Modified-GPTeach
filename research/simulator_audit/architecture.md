@@ -27,7 +27,7 @@ Browser (React 18 SPA, CRA)                                   Node/Express backe
 
 - **Frontend:** CRA/React 18 (`src/index.js` uses `createRoot` + `StrictMode`). Routing is in `src/Router.js`. `/` and `/chat` render `pages/Chat.jsx`, the only production simulator page.
 - **Backend:** one Express file, `server/server.js` (2,220 lines). It holds the LLM endpoints (lines 254–1207) and about 40 annotation/research endpoints that use `server/services/firebaseAdmin.js`.
-- **Model:** a single module-level `vertexAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' })` (`server.js:56-58`) serves every LLM call. There is no per-endpoint model choice and no system instruction; system text is concatenated into the first user message.
+- **Model (since 1.4.0):** split by agent (`server/model_config.js`): the student agent runs on `gemini-3.5-flash-lite`; PCK, summary, completion and test run on `gemini-3.1-flash-lite`, through the Vertex `global` endpoint (`student_model_bakeoff.md` §9). *Before 1.4.0:* a single module-level `vertexAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' })` (`server.js:56-58`) serves every LLM call. There is no per-endpoint model choice and no system instruction; system text is concatenated into the first user message.
 - **Persistence:** the browser writes conversation records directly to Firestore through the client SDK (`firestoreService.saveConversation`, `setDoc(..., {merge:true})` keyed by `sessionId`). The backend's `/api/conversations*` endpoints exist but the simulator never calls them.
 - **Tests:** there are no frontend or backend tests. Only `research/pck_feedback/tests` (Python, research-only) exists. See `regression_test_plan.md`.
 

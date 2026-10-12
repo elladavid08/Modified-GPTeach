@@ -1,5 +1,7 @@
 # Student-agent model options on Vertex AI (research note)
 
+> **Update (2026-10-12):** the split configuration chosen in `student_model_bakeoff.md` §9 (student `gemini-3.5-flash-lite`; PCK / summary `gemini-3.1-flash-lite`; `global` endpoint, MINIMAL thinking) is **implemented in 1.4.0**. The configuration described in §2 below is the pre-1.4.0 state.
+
 Status: 2026-10-12, on committed **1.3.13**. Analysis only: no production change, no `SYSTEM_VERSION` bump. Model status is from the official Vertex AI (Gemini Enterprise Agent Platform) documentation, read today. Pricing is from third-party aggregators where marked; verify it in the Cloud console.
 
 ## 1. Bottom line

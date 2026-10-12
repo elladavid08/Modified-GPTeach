@@ -12,11 +12,18 @@ export async function startServer() {
   process.env.NODE_ENV = 'test';
 
   // server.js logs very verbosely; keep test output readable unless asked.
-  if (!process.env.TEST_VERBOSE) {
-    console.log = () => {};
-    console.warn = () => {};
-    console.error = () => {};
-  }
+  // Lines logged until the server is listening (configuration, startup banner) are kept in `startupLog`.
+  const startupLog = [];
+  const quiet = !process.env.TEST_VERBOSE;
+  const originalLog = console.log;
+  const originalWarn = console.warn;
+  const capture = (original) => (...args) => {
+    startupLog.push(args.map(String).join(' '));
+    if (!quiet) original(...args);
+  };
+  console.log = capture(originalLog);
+  console.warn = capture(originalWarn);
+  if (quiet) console.error = () => {};
 
   let captured;
   const listening = new Promise((resolve) => {
@@ -31,12 +38,15 @@ export async function startServer() {
 
   await import('../server.js');
   await listening;
+  console.log = quiet ? () => {} : originalLog;
+  console.warn = quiet ? () => {} : originalWarn;
 
   const { fakeModel } = await import('./fakes/vertexai.mjs');
   const { port } = captured.address();
   started = {
     baseUrl: `http://127.0.0.1:${port}`,
     fakeModel,
+    startupLog,
     close: () => new Promise((resolve) => captured.close(resolve)),
   };
   return started;
