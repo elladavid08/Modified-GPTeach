@@ -482,3 +482,135 @@ Before measuring an explicit-state change, the replay needs either a teacher tha
 **Smaller items worth a separate look** (not the next target):
 - prompt-example leakage (6a T6, EXAMPLE 3 copied with the wrong grammatical gender);
 - the remaining invented attribution (2b T8).
+
+---
+
+## 11. Clean Mode B baseline on 1.3.12 (corrected harness, neutral prompt examples), 2026-10-12
+
+> **Separate from §1–§10.** Those sections are Mode A–style sequential replays (the scripted teacher never answers students), and their loop and regression counts are not comparable with this section (`student_stability_harness_review.md` §2). This section is the first baseline from the corrected adaptive harness (Mode B).
+
+### 11.1 Method
+
+- **System:** committed **1.3.12** (`279721a`); production files unmodified (`gitDirtyProductionFiles` empty); local `server/server.js`; real PCK → student path; Gemini `gemini-2.5-flash-lite` with production settings. Synthetic personas and scripts only; no participant data; nothing written to Firestore.
+- **Harness:** `replay_harness/`, **Mode B** (deterministic adaptive teacher, no LLM teacher).
+- **Design:** designed casts (slot A = misconception carrier), 6 scenarios × 2 casts × **2 runs = 24 conversations**, 288 teacher turns.
+- **Review before trusting the labels:** the first run (on HARNESS 1.1.0) was read in full, with the teacher decision log and labels. It surfaced harness defects (§11.2), which were fixed test-first, harness only, through HARNESS_VERSION **1.3.2** (74 harness unit tests).
+- **Assembly of the final runs:**
+  - The Mode B teacher is deterministic given the student replies, so each recorded conversation was **re-simulated** under the final teacher logic (`scripts/resimulate_teacher.js`).
+  - **19 conversations** re-simulated identically and were kept.
+  - **5 conversations** whose teacher would differ were **rerun**: run 1 s4 cast 1, s5 cast 0, s5 cast 1; run 2 s4 cast 1, s5 cast 0.
+  - Final check: **all 288 teacher turns equal the 1.3.2 teacher**. Labels were computed with 1.3.2, and per-conversation provenance is in each `manifest.json`.
+- **Outputs** (git-ignored): `replay_harness/results/B-baseline-1.3.12-final-run{1,2}`.
+  - The superseded 1.1.0 run is kept as `superseded-h1.1.0-…`; 8 of its teacher turns differ from the final logic.
+- **Manual review:** every regression, resolution, premature-correctness, persistence, contamination, loop, semantic-repetition, attribution and prompt-example candidate was judged by one reviewer.
+  - The ambiguous and judgement-heavy cases are in the de-identified **second-review sample**, `mode_b_baseline_1.3.12_second_review.md` (23 cases).
+
+### 11.2 Harness defects found in the first run (fixed before the baseline)
+
+| # | defect | example (first run) | effect | fix (version) |
+|---|---|---|---|---|
+| H1 | A pending question got its full answer **prepended to the planned question that asks for exactly that answer** | s2 T8: "אם האלכסונים מאונכים וגם חוצים…, המרובע הוא מעוין. מה עוד צריך לדעת…?" | the student was confused by the contradiction; **4 false loop candidates** (T8–T11) | plan field `asks` (8 planned questions); such a question is not answered before it (`asked_by_planned_question`) (1.2.0) |
+| H2 | s2 hint referred to "הדלתון שבשרטוט" before the kite is drawn (T5) | s2 cast 1 T3 | a reference to a non-existent drawing | hint reworded (1.2.0) |
+| H3 | **Missed misconception claims, so the scripted "יפה" validated the misconception** | s6 cast 0 T2 "…אז לא, זה לא אותו דבר" (anaphora); s4 cast 1 T2 "…אז גם במלבן זה הגיוני"; s5 claim behind a "…, לא?" tag read as negation | the next student said "המורה אמרה 'יפה' לרועי, אז אולי הוא כן צודק?" (**harness-created confusion**) | s1/s6 anaphora, tag ≠ negation, s4 "גם במלבן" / "לחצות" (1.2.0–1.3.1) |
+| H4 | **False misconception claims** | open or challenged questions ("האם הוא באמת חוצה…?", "…? אבל…", "…? או ש…"), "צר" inside "צריך", an ellipsis splitting a sentence, properties of the square ("בריבוע…"), reported former beliefs ("חשבתי ש…"), the correct contrast ("…רק במעוין…"), bisecting synonyms ("נחצים", "להיפגש באמצע", "לא נפגשים באמצע") | **2 false regression candidates** and **2 false persistence candidates**; one false claim also neutralized a correct "נכון" | narrower detection (1.2.0–1.3.2) |
+| H5 | Answer-bank routing gaps left repeated questions unanswered | s5 "מה ההבדל בין מלבן לריבוע?" asked about 5 times (generic answer once); s3 "למה יש שני שמות?"; s5 "איך הם לא חוצים…?" routed to MEANING instead of WHY | artificial unanswered repeats and one false loop candidate | s5 `RECT_SQUARE`; s3 routing; s5 WHY routing (1.2.0, 1.3.0) |
+| H6 | Self-quotes ("אמרתי") counted as teacher attributions | — | label noise | regex (1.2.0) |
+
+**Remaining harness limitations (not fixed):**
+- Some recurring questions have no answer-bank category, so the student gets the scenario key fact once, as a generic answer: s4 "מה ההבדל בין 'חוצים זה את זה' ל'חוצים זוויות'?" and s1 "how can a square with extra properties be a rectangle?". Generic answers were **22 of 54** teacher answers.
+- Yes/no questions without an interrogative are not routed.
+- The scripted validating probes ("נכון" / "יפה") can still confirm an error **outside** the scenario's misconception list. Example: s5 "if they meet in the middle, they are equal".
+- These limitations produce *unanswered* repeats, which are counted as justified, never as loops.
+
+### 11.3 Baseline counts (final)
+
+| measure | run 1 | run 2 | total |
+|---|---:|---:|---:|
+| conversations / teacher turns / student replies | 12 / 144 / 284 | 12 / 144 / 275 | 24 / 288 / **559** |
+| turns without a reply | 2 | 2 | 4 |
+| **exact same-student duplicates (final output)** / production guard matches | 0 / 0 | 0 / 0 | **0 / 0** |
+| duplicate-guard re-asks (outcome) | 5 (resolved 5) | 10 (resolved 9, dropped 1) | **15** (14 resolved, 1 dropped) |
+| neutral prompt-example copies / placeholder leakage / invalid names | 0 / 0 / 0 | 0 / 0 / 0 | **0 / 0 / 0** |
+| echoes of the unchanged WRONG example ("אז ריבוע זה (כן) מלבן?", s3, on-topic) | 2 | 0 | 2 |
+| student / PCK failures | 0 / 0 | 0 / 0 | 0 / 0 |
+| calls with 2 attempts: student (all duplicate re-asks) / PCK | 5 / 0 | 10 / 1 | 15 / 1 (max 2) |
+| replies truncated at an ASCII `"` (see §11.5) | 3 | 1 | **4** |
+| PCK understanding: same / confused / improved / more_confused / misconception_reinforced | 23 / 16 / 46 / 50 / 9 | 20 / 16 / 34 / 52 / 22 | 43 / 32 / 80 / **102** / 31 |
+| Mode B teacher: turns with a pending question / answers given (generic) / probes replaced / validations neutralized | 33 / 25 (9) / 10 / 1 | 40 / 29 (13) / 7 / 2 | 73 / 54 (22) / 17 / 3 |
+
+**Latency:**
+- student: p50 1,238 ms, p90 1,807 ms, max 3,968 ms;
+- PCK: p50 3,303 ms, p90 4,104 ms, max 11,972 ms.
+
+Every student `finishReason` was `STOP`. Mean reply length was 77 characters, with 1.94 replies per turn.
+
+### 11.4 Manual review
+
+| label | candidates | genuine | not genuine / explained |
+|---|---:|---:|---|
+| **Repeated question, not yet answered** (justified) | 4 | — | all justified: the full answer had not been given |
+| **Repeated question after the full answer** (loop candidate) | 6 | **2** (both s5, under more_confused / misconception_reinforced PCK); 1 borderline (the given definition did not address "is it a separate condition?") | 3 not loops: applying the answer to the drawing, a deeper follow-up ("אבל למה שזה יקרה?"), a challenge to the answer |
+| **Semantic repetition** | 39 | **1** (mild: a third restatement of the same inclusion argument at T3/T5/T6, s6) | 22 progress, different content or a natural closing summary; 9 re-asks of unanswered questions (4 of them from harness answer-bank gaps); 4 restatements on a probe ("אוקיי" / "נכון"); 3 restatements of confusion that persists under negative PCK |
+| **Persistent misconception** | 2 | **2** confirmed (both s5 cast 0: B in run 1 and A in run 2), both under more_confused PCK on every turn after the explanation | — |
+| **Regression** (corrected definition) | 0 | **0** | Manual check of the only near case (run 1, s3 cast 1, [C] T10 → T11): the T10 "resolution" repeats the teacher's same-turn answer, so it is **not** a resolution. T11 is persistence, not regression. No student voiced a misconception after a target-idea turn. |
+| **Resolution** (carriers who voiced the misconception: 16) | — | **11** reached the target idea in their own words after the explanation | 5 still confused or partly resolved at the end, all under negative PCK (s3 cast 0 ×2, s5 cast 0 ×2, s5 cast 1 run 2) |
+| **Premature correctness** (carrier correct before the explanation) | 2 ledger candidates; carriers judged manually | **7 of 24 carriers** (3 firm, 4 tentative), plus 1 silent | both ledger candidates rejected: correctness driven by a peer, and an echo of the teacher's question. The firm cases are רועי (s1, false dichotomy) and תמר (s4, s5). |
+| **Cross-student contamination** | 27 | **0** | 24 are shared lesson wording, canonical statements or generic phrases; 3 ambiguous: a peer's *non-target* confusion taken up as a question ("bisecting ⇒ equal" ×2, appearance-based wording ×1), which is plausible classroom influence (second-review sample S10–S12) |
+| **Teacher attributions** | 33 | **4 invented** (3 original + 1 propagated to a peer, in 3 conversations); **3 mixed** (a peer's statement, or the premise of the teacher's question, presented as the teacher's) | 19 accurate; 7 "אמרת" that may address a peer |
+| **Prompt-example copying** | 2 | 0 | both are natural on-topic questions that resemble the unchanged WRONG example |
+
+### 11.5 Genuine problems vs harness- or persona-consistent behaviour
+
+- **Harness-created (fixed before the baseline, §11.2):**
+  - validations of undetected misconceptions;
+  - answers prepended to the questions that ask for them;
+  - false regression and persistence candidates;
+  - unanswered re-asks from routing gaps.
+
+  In the final runs, only the unanswered re-asks from the remaining answer-bank gaps are harness-related (4 semantic candidates), and they are counted as justified.
+- **Consistent with PCK steering or persona (not student-model defects):**
+  - both persistent misconceptions and both genuine re-asks after an answer happen under PCK more_confused / misconception_reinforced on every later turn;
+  - confusion restated at closings;
+  - הילה's / נועה's hedged, appearance-based doubts;
+  - low participation of low-baseline personas.
+  - **Observation:** PCK rated **167 of 288** teacher turns *problematic*, and 165 of 288 understanding levels are negative (confused, more_confused or misconception_reinforced). This is plausible for a minimal scripted teacher whose probes are "אוקיי" / "נכון" / "?". The students follow that steering, so much of the "persistent confusion" is PCK-driven rather than a failure to carry state.
+- **Genuine student-agent issues:**
+  1. **Invented or mixed teacher attributions:**
+     - 4 invented, in 3 of 24 conversations, plus 3 mixed;
+     - examples: "המורה אמרה שריבוע זה סוג נפרד" (the teacher never said it), and the premise of a question turned into a statement ("אבל אמרת שאם הם מאונכים זה מעוין");
+     - once **propagated** to a peer, who then reasoned from it.
+  2. **Premature correctness of the designed carrier:** 7 of 24 carriers were correct before the explanation, 3 firmly. This weakens the scenario's misconception for practice.
+  3. **Truncated replies (production output defect):**
+     - 4 of 559 replies stop at an ASCII `"` that the model meant as gershayim ("ס"מ") or a scare quote: "…מלבן שהצלע הארוכה היא 10 ס";
+     - under JSON-constrained output the quote ends the string, `finishReason` is `STOP`, and nothing fails;
+     - the reply is silently cut and is shown that way to the teacher.
+  4. Mild semantic self-restatement: 1 case.
+
+### 11.6 Is explicit per-student state justified?
+
+**Not on this evidence.** After correcting the harness and neutralizing the prompt examples, the baseline shows:
+- **no regressions** of resolved misconceptions;
+- **no exact repetitions** in the final output (the guard resolved 14 of 15 cases and dropped 1);
+- **no genuine semantic loops**;
+- only **2 re-asks after an answer**, both under confused PCK.
+
+Students carry their misconception state across turns: persistence and resolution follow the PCK steering and the teacher's answers.
+
+The remaining genuine issues are not about losing track of a student's state:
+- attributions are about **grounding who said what** in the history (teacher vs peer, question vs statement);
+- premature correctness is about the **initial expression** of the carrier's misconception (persona and scenario);
+- truncation is **output encoding**.
+
+Explicit per-student state would not address attributions or truncation. For premature correctness, a scenario-level carrier instruction would be a cheaper and more targeted test.
+
+**Caveats:**
+- the sample is 24 conversations with a scripted, minimal teacher;
+- one reviewer so far (the second-review sample is pending);
+- negative PCK dominates, so late regressions under positive steering are under-sampled;
+- with 0 observed regressions in about 16 carrier trajectories, a rare regression rate is not excluded.
+
+### 11.7 Highest-value next student-agent issue
+
+1. **Invented teacher attributions (highest value).** Students should only attribute to the teacher what the teacher actually said, and should not turn the teacher's question into a statement. A candidate is a prompt rule about attributions in the student prompt, tested live with the Mode B harness on the conversations above. A wrong attribution misleads the teacher about what they said, and peers then reason from it. That damages the feedback loop the simulator is for, in about 1 in 8 conversations.
+2. **Quick defect fix (separate, small):** prevent the gershayim and quote truncation, for example with an instruction to write abbreviations without ASCII `"` (or with ״), or by server-side detection. It is a correctness bug, not a behaviour question.
+3. **Then:** carrier misconception expression before the explanation (premature correctness, 7 of 24), possibly together with a check of the PCK level in the opening turns.

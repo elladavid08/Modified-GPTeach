@@ -82,7 +82,7 @@ export function lessonVocabulary(scenarioId) {
   return vocab;
 }
 const HEDGE = /(לא בטוח|עדיין|מבולבל|מתבלבל|לא מבין|לא הבנתי)/;
-const ATTRIBUTION = /(אמרת|הסברת|ציירת|שאלת|לימדת|אמרתם|המורה)/;
+const ATTRIBUTION = /(אמרת(?!י)|הסברת(?!י)|ציירת(?!י)|שאלת(?!י)|לימדת(?!י)|אמרתם|המורה)/; // not self-quotes ("אמרתי")
 const RESTATEMENT_MOVES = new Set([MOVES.CHECK, MOVES.SUMMARY, MOVES.PROBE_QMARK]);
 
 /**

@@ -4,6 +4,8 @@
 // (reconstructed verbatim from the session harness, see README "Provenance"). {A} {B} {C} are cast
 // slots: A = cast[0] (addressed at T2, T7), B = cast[1] (T4, T11), C = cast[2] (T10).
 // `move` tags each scripted turn's pedagogical function; Mode B uses it (lib/teacher.js).
+// `asks` (Mode B): answer-bank category the planned question itself asks for. A pending student question in
+// that category is not answered at this turn (the planned question is asked as scripted, not after its answer).
 // `answerIfUnsure` (Mode B): answer-bank category the planned question targets; if the addressed student
 // is unsure or silent, the teacher gives that answer before the next planned move.
 // `drawing` is the CORRECTED benchmark asset id (config/drawings in lib/assets.js);
@@ -13,7 +15,18 @@
 
 // Bump when the teacher plans, answer bank, rules, labels or assets change (recorded in every run manifest).
 // 1.1.0: prompt-example sets per SYSTEM_VERSION (1.3.12 neutral examples), placeholder / invalid-name labels.
-export const HARNESS_VERSION = '1.1.0';
+// 1.2.0: `asks` (no answer just before the planned question asking for it), s2 WHAT_ELSE hint without a drawing
+//        reference, open / challenged questions are not misconception claims, s1 anaphora, "צר" as a word (not in
+//        "צריך"), "…, לא?" tag is not a negation, an ellipsis does not split a claim, s5 square properties,
+//        s6 anaphora (gates "יפה"), former beliefs / alternatives not claims, s5 RECT_SQUARE and s3 "two names"
+//        routing, self-quotes not attributions.
+// 1.2.1: s2 "נחצים" (are bisected) is not the misconception (labels; teacher decisions of the 1.2.0 baseline
+//        runs re-simulated and unchanged).
+// 1.3.0: s4 "גם במלבן" / "לחצות" claims (gate a validating probe), s6 inclusion despite appearance not a claim.
+//        s5 "איך הם לא חוצים…?" routes to WHY (the drawing), not MEANING.
+// 1.3.1: the s4 "גם במלבן" pattern ignores the correct contrast ("…רק במעוין…", "…חוצים זה את זה…").
+// 1.3.2: s5 sufficiency claim not flagged when the reply uses the bisecting condition (also "לא נפגשים באמצע").
+export const HARNESS_VERSION = '1.3.2';
 
 export const MOVES = Object.freeze({
   OPEN: 'open',
@@ -44,7 +57,7 @@ export const SCENARIOS = [
       { text: 'בואו נבדוק לפי ההגדרה: מלבן הוא מרובע שכל זוויותיו ישרות. לריבוע יש ארבע זוויות ישרות, ולכן כל ריבוע הוא מלבן. המראה לא משנה, רק ההגדרה.', move: M.EXPLAIN },
       { text: 'נכון', move: M.PROBE_VALIDATE },
       { text: '{A}, אז עכשיו - האם ריבוע הוא מלבן?', move: M.CHECK },
-      { text: 'ומה לגבי ההפך - האם כל מלבן הוא ריבוע?', move: M.CONTENT_Q },
+      { text: 'ומה לגבי ההפך - האם כל מלבן הוא ריבוע?', move: M.CONTENT_Q, asks: 'RECT_SQUARE' },
       { text: '?', move: M.PROBE_QMARK },
       { text: '{C}, תן או תני דוגמה למלבן שאינו ריבוע.', move: M.CONTENT_Q },
       { text: '{B}, סכם או סכמי במשפט אחד מה למדנו היום.', move: M.SUMMARY },
@@ -63,9 +76,9 @@ export const SCENARIOS = [
       { text: 'שרטטתי על הלוח מרובע שהאלכסונים שלו מאונכים אבל הוא לא מעוין - זה דלתון. אז אלכסונים מאונכים הם תנאי הכרחי למעוין, אבל לא מספיק.', move: M.EXPLAIN, drawing: 'kite', historicalDrawing: 'rotated-square.png' },
       { text: 'נכון', move: M.PROBE_VALIDATE },
       { text: '{A}, אז האם אלכסונים מאונכים מספיקים כדי לקבוע שמרובע הוא מעוין?', move: M.CHECK },
-      { text: 'מה עוד צריך לדעת על האלכסונים כדי לקבוע שזה מעוין?', move: M.CONTENT_Q },
+      { text: 'מה עוד צריך לדעת על האלכסונים כדי לקבוע שזה מעוין?', move: M.CONTENT_Q, asks: 'WHAT_ELSE' },
       { text: 'אוקיי', move: M.PROBE_ACK },
-      { text: '{C}, מה ההבדל בין תכונה הכרחית לתכונה מספיקה?', move: M.CONTENT_Q, answerIfUnsure: 'NEC_SUF' },
+      { text: '{C}, מה ההבדל בין תכונה הכרחית לתכונה מספיקה?', move: M.CONTENT_Q, answerIfUnsure: 'NEC_SUF', asks: 'NEC_SUF' },
       { text: '{B}, אם האלכסונים מאונכים וגם חוצים זה את זה - זה מעוין?', move: M.CONTENT_Q },
       { text: 'יפה, תודה לכם.', move: M.CLOSING },
     ],
@@ -82,9 +95,9 @@ export const SCENARIOS = [
       { text: 'ההגדרה של מלבן היא מרובע שכל זוויותיו ישרות. אין שום דרישה שיהיה ארוך או צר. גם צורה שמסובבת על הצד היא מלבן אם כל זוויותיה ישרות.', move: M.EXPLAIN },
       { text: 'נכון', move: M.PROBE_VALIDATE },
       { text: '{A}, אז אם כל הצלעות שוות וכל הזוויות ישרות - זה מלבן?', move: M.CHECK },
-      { text: 'הנה צורה מסובבת על הלוח. איך תבדקו אם היא מלבן?', move: M.DRAWING_Q, drawing: 'rotated-rectangle', historicalDrawing: 'rotated-parallelogram.png' },
+      { text: 'הנה צורה מסובבת על הלוח. איך תבדקו אם היא מלבן?', move: M.DRAWING_Q, drawing: 'rotated-rectangle', historicalDrawing: 'rotated-parallelogram.png', asks: 'HOW_CHECK' },
       { text: '?', move: M.PROBE_QMARK },
-      { text: '{C}, מה צריך לבדוק כדי לדעת שמרובע הוא מלבן?', move: M.CONTENT_Q, answerIfUnsure: 'HOW_CHECK' },
+      { text: '{C}, מה צריך לבדוק כדי לדעת שמרובע הוא מלבן?', move: M.CONTENT_Q, answerIfUnsure: 'HOW_CHECK', asks: 'HOW_CHECK' },
       { text: '{B}, האם מראה של צורה יכול להטעות? תן או תני דוגמה.', move: M.CONTENT_Q },
       { text: 'יפה מאוד.', move: M.CLOSING },
     ],
@@ -103,7 +116,7 @@ export const SCENARIOS = [
       { text: '{A}, אז במלבן - האלכסונים חוצים את הזוויות או לא?', move: M.CHECK },
       { text: 'הנה מקבילית על הלוח. מה תגידו על האלכסון שלה?', move: M.DRAWING_Q, drawing: 'parallelogram', historicalDrawing: 'rotated-parallelogram.png' },
       { text: 'אוקיי', move: M.PROBE_ACK },
-      { text: '{C}, למה דווקא במעוין האלכסונים חוצים את הזוויות?', move: M.CONTENT_Q, answerIfUnsure: 'WHY' },
+      { text: '{C}, למה דווקא במעוין האלכסונים חוצים את הזוויות?', move: M.CONTENT_Q, answerIfUnsure: 'WHY', asks: 'WHY' },
       { text: '{B}, סכם או סכמי: באילו מרובעים האלכסונים חוצים את הזוויות?', move: M.SUMMARY },
       { text: 'יפה, תודה.', move: M.CLOSING },
     ],
@@ -122,7 +135,7 @@ export const SCENARIOS = [
       { text: '{A}, אז אלכסונים שווים לבד - מספיק לריבוע?', move: M.CHECK },
       { text: 'שרטטתי מרובע שהאלכסונים שלו שווים ומאונכים אבל לא חוצים זה את זה. מה דעתכם?', move: M.DRAWING_Q, drawing: 'equal-perpendicular-not-bisecting', historicalDrawing: 'rotated-square.png' },
       { text: '?', move: M.PROBE_QMARK },
-      { text: '{C}, מה הרשימה המלאה של תנאים על האלכסונים שמבטיחה ריבוע?', move: M.CONTENT_Q, answerIfUnsure: 'WHAT_ELSE' },
+      { text: '{C}, מה הרשימה המלאה של תנאים על האלכסונים שמבטיחה ריבוע?', move: M.CONTENT_Q, answerIfUnsure: 'WHAT_ELSE', asks: 'WHAT_ELSE' },
       { text: '{B}, איך היית מסביר או מסבירה את זה לחבר?', move: M.SUMMARY },
       { text: 'יפה מאוד, כל הכבוד.', move: M.CLOSING },
     ],
@@ -139,7 +152,7 @@ export const SCENARIOS = [
       { text: 'דלתון הוא מרובע עם שני זוגות של צלעות סמוכות שוות. במעוין כל הצלעות שוות, ולכן גם יש לו שני זוגות של צלעות סמוכות שוות. לכן כל מעוין הוא דלתון.', move: M.EXPLAIN },
       { text: 'נכון', move: M.PROBE_VALIDATE },
       { text: '{A}, אז עכשיו - האם מעוין הוא דלתון?', move: M.CHECK },
-      { text: 'והאם כל דלתון הוא מעוין?', move: M.CONTENT_Q },
+      { text: 'והאם כל דלתון הוא מעוין?', move: M.CONTENT_Q, asks: 'CONVERSE' },
       { text: 'אוקיי', move: M.PROBE_ACK },
       { text: '{C}, תן או תני דוגמה לדלתון שאינו מעוין.', move: M.CONTENT_Q },
       { text: '{B}, סכם או סכמי את הקשר בין דלתון למעוין.', move: M.SUMMARY },

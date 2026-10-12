@@ -309,7 +309,7 @@ Matching criterion: edit similarity ≥ 0.6 to an example, or a shared 5-word se
    - Contents: the bench, Mode A and Mode B scripts, the answer bank, assets, analysis and label tooling, and a README with the exact commands.
    - Today it exists only in a session scratchpad.
 2. **Implement Mode B** as in §3.2–§3.3, with the decision log. Then do one **smoke run** (2 conversations) to check templates, gating and logs live.
-3. **Baseline:** Mode B on the current production version (1.3.11), **2 runs × 12 conversations** (6 scenarios × 2 designed casts). Report:
+3. **Baseline:** Mode B on the current production version (1.3.11), **2 runs × 12 conversations** (6 scenarios × 2 designed casts). **Done on 1.3.12, 2026-10-12: `student_stability_replay.md` §11** (harness fixes found while reviewing the first run: §11.2; HARNESS_VERSION 1.3.2). Report:
    - the §4 labels per conversation and per student: exact duplicates, unjustified semantic loops, justified repetitions, resolved / persistent / regressed misconceptions, premature correctness, contamination, attributions, prompt-example copies;
    - template usage and `repeat_of_answered` counts;
    - PCK level distribution;

@@ -143,3 +143,10 @@ test('canonical lesson statements (plan, answer bank, key facts) are shared voca
   ] };
   assert.equal(labelConversation(conv).replies[1].contamination_candidate, null);
 });
+
+test('baseline-1.3.12 run 1: a student quoting themselves ("אמרתי") is not a teacher-attribution candidate', () => {
+  const conv = { conversationId: 'x', scenarioId: 1, cast: ['תמר', 'דנה', 'נועה'], turns: [
+    turn(5, MOVES.EXPLAIN, [['דנה', 'נכון! אמרתי את זה קודם.'], ['תמר', 'כמו שאמרת, כל ריבוע הוא מלבן.'], ['נועה', 'זה מה שהמורה אמר.'], ['תמר', 'שאלתי את זה כבר.']]),
+  ] };
+  assert.deepEqual(labelConversation(conv).replies.map((r) => Boolean(r.attribution_candidate)), [false, true, true, false]);
+});

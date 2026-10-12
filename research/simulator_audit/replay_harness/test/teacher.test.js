@@ -50,19 +50,24 @@ test('Mode B: a question before its planned discovery gets the hint; later the f
   assert.equal(t7.decision.answered, null);
   assert.equal(t7.decision.questions[0].action, 'hint_already_given');
   assert.equal(t7.text, t7.scriptedText);
-  const t10 = teacherTurnB(p, 9, CAST, why, state); // T10: full answer, then the planned question
-  assert.equal(t10.decision.answered.stage, 'full');
-  assert.equal(t10.text, `דנה, ${ANSWER_BANK[4][0][2]} ${t10.scriptedText}`);
-  const t11 = teacherTurnB(p, 10, CAST, why, state); // after the full answer: not answered again
-  assert.equal(t11.decision.answered, null);
-  assert.equal(t11.decision.questions[0].action, 'repeat_after_answered');
-  assert.equal(t11.text, t11.scriptedText);
-  assert.equal(t11.decision.stateAfter.WHY, 'full');
+  const t10 = teacherTurnB(p, 9, CAST, why, state); // T10 itself asks "למה דווקא במעוין…?": no answer before it (1.2.0)
+  assert.equal(t10.decision.answered, null);
+  assert.equal(t10.decision.questions[0].action, 'asked_by_planned_question');
+  assert.equal(t10.text, t10.scriptedText);
+  const t11 = teacherTurnB(p, 10, CAST, why, state); // T11: full answer (to the silent addressee of T10), then the planned move
+  assert.deepEqual([t11.decision.answered.category, t11.decision.answered.stage, t11.decision.answered.student], ['WHY', 'full', 'מעיין']);
+  assert.equal(t11.text, `מעיין, ${ANSWER_BANK[4][0][2]} ${t11.scriptedText}`);
+  const t12 = teacherTurnB(p, 11, CAST, why, state); // after the full answer: not answered again
+  assert.equal(t12.decision.answered, null);
+  assert.equal(t12.decision.questions[0].action, 'repeat_after_answered');
+  assert.equal(t12.text, t12.scriptedText);
+  assert.equal(t12.decision.stateAfter.WHY, 'full');
 });
 
 test('Mode B: a content move keeps the planned progression after the answer', () => {
   const state = createTeacherState();
-  const t = teacherTurnB(plan(3), 9, CAST, [reply('מעיין', 'איך אפשר לבדוק את הזוויות כשהוא מסובב?')], state);
+  // T11 (a content move that does not ask for HOW_CHECK; T10 asks for it, see the 1.2.0 tests)
+  const t = teacherTurnB(plan(3), 10, CAST, [reply('מעיין', 'איך אפשר לבדוק את הזוויות כשהוא מסובב?')], state);
   assert.match(t.text, /^מעיין, בודקים כל פינה/);
   assert.ok(t.text.endsWith(t.scriptedText));
   assert.equal(t.decision.probeReplaced, false);
@@ -247,4 +252,148 @@ test('smoke-4: s5 sufficiency claims in other wordings are detected', () => {
 
 test('smoke-4: "איך זה יכול להיות?" after a rhombus/kite statement routes to WHY_INCLUSION', () => {
   assert.deepEqual(classifyQuestions(6, 'רגע, אז אתם אומרים שכל מעוין הוא גם דלתון? איך זה יכול להיות?').map((q) => q.category), ['WHY_INCLUSION']);
+});
+
+test('baseline-1.3.12 run 1: a pending question is not answered just before the planned question that asks for that answer', () => {
+  // s2 T8 asks "מה עוד צריך לדעת…?" (WHAT_ELSE). Prepending the full answer made the planned question contradict it.
+  const p = plan(2);
+  const state = createTeacherState();
+  const t8 = teacherTurnB(p, 7, CAST, [reply('דנה', 'אז מה כן מספיק? אם האלכסונים מאונכים וגם חוצים זה את זה?')], state);
+  assert.equal(t8.text, t8.scriptedText);
+  assert.equal(t8.decision.answered, null);
+  assert.equal(t8.decision.questions[0].action, 'asked_by_planned_question');
+  assert.equal(t8.decision.stateAfter.WHAT_ELSE, undefined);
+  // re-asked after the planned question: answered in full at the next turn
+  const t9 = teacherTurnB(p, 8, CAST, [reply('דנה', 'אז מה עוד צריך?')], state);
+  assert.deepEqual([t9.decision.answered.category, t9.decision.answered.stage], ['WHAT_ELSE', 'full']);
+  // a pending question in another category is still answered before the planned question
+  const other = teacherTurnB(p, 7, CAST, [reply('דנה', 'מה ההבדל בין דלתון למעוין?')], createTeacherState());
+  assert.equal(other.decision.answered.category, 'KITE_RHOMBUS');
+  assert.ok(other.text.endsWith(other.scriptedText));
+});
+
+test('baseline-1.3.12 run 1: every planned question that asks for an answer-bank category is tagged', () => {
+  const asks = SCENARIOS.flatMap((p) => p.turns.map((t, i) => (t.asks ? `s${p.id} T${i + 1} ${t.asks}` : null)).filter(Boolean));
+  assert.deepEqual(asks, ['s1 T8 RECT_SQUARE', 's2 T8 WHAT_ELSE', 's2 T10 NEC_SUF', 's3 T8 HOW_CHECK', 's3 T10 HOW_CHECK', 's4 T10 WHY', 's5 T10 WHAT_ELSE', 's6 T8 CONVERSE']);
+  for (const p of SCENARIOS) for (const t of p.turns) if (t.asks) assert.ok(ANSWER_BANK[p.id].some(([c]) => c === t.asks), t.asks);
+});
+
+test('baseline-1.3.12 run 1: no hint refers to a drawing as already on the board before it is shown', () => {
+  for (const p of SCENARIOS) {
+    const firstDrawing = p.turns.findIndex((t) => t.drawing) + 1 || Infinity;
+    for (const [c, , , earliest, hint] of ANSWER_BANK[p.id]) {
+      // a hint can be given from T1 up to its earliest turn; present-tense references need the drawing first
+      if (hint && /(שבשרטוט|בשרטוט ש|על הלוח יש|ששרטטתי)/.test(hint)) assert.ok(firstDrawing <= 1, `s${p.id} ${c}: "${hint}" (drawing from T${firstDrawing})`);
+    }
+  }
+});
+
+test('baseline-1.3.12 run 1: misconception detection (challenged echo questions are not claims; s1 anaphora)', () => {
+  // a misconception echoed as a question and immediately challenged / offered an alternative is not a claim
+  assert.equal(misconceptionClaims(1, 'אז ריבוע זה לא מלבן? אבל יש לו ארבע זוויות ישרות כמו למלבן.').length, 0);
+  assert.equal(misconceptionClaims(2, 'רגע, אלכסונים מאונכים זה רק במעוין? או שיש עוד צורות?').length, 0);
+  // still claims: a hesitant leaning question, a tag question, a plain statement
+  assert.equal(misconceptionClaims(2, 'המממ... אם האלכסונים מאונכים, אז זה מעוין, נכון? כי ככה למדנו. אז כן, בהכרח.').length >= 1, true);
+  assert.equal(misconceptionClaims(4, 'אז... כן? הוא כן חוצה את הזווית במלבן?').length, 1);
+  // s1: "it is not a rectangle" about the square, by anaphora
+  assert.equal(misconceptionClaims(1, 'זה מרובע עם ארבע צלעות שוות, נכון? אז לא, זה לא מלבן.').length, 1);
+  assert.equal(misconceptionClaims(1, 'אם אחת הזוויות לא ישרה, זה לא מלבן.').length, 0);
+  // and a challenged echo does not neutralize a validating probe
+  assert.equal(teacherTurnB(plan(1), 5, CAST, [reply('דנה', 'אז ריבוע זה לא מלבן? אבל יש לו ארבע זוויות ישרות.')], createTeacherState()).text, 'נכון');
+});
+
+test('baseline-1.3.12 run 1: open questions are not claims; "צר" is a word, not a substring of "צריך"', () => {
+  // s4: genuine (doubting) open questions about the parallelogram
+  assert.equal(misconceptionClaims(4, 'האלכסון מחלק אותה לשני משולשים, אבל האם הוא באמת חוצה את הזוויות? זה לא נראה לי.').length, 0);
+  assert.equal(misconceptionClaims(4, 'אני רואה שהאלכסון מחלק את המקבילית לשני משולשים. האם גם חוצה את הזוויות שלה?').length, 0);
+  // s3: "צריך" is not "צר"
+  assert.equal(misconceptionClaims(3, 'צריך לבדוק שכל ארבע הזוויות הן 90 מעלות. אבל זה עדיין נראה לי מסובך כשהצורה מסובבת.').length, 0);
+  assert.equal(misconceptionClaims(3, 'מלבן צריך להיות צר וארוך.').length, 1);
+  assert.equal(misconceptionClaims(3, 'כן, הוא תמיד צר.').length, 1);
+  assert.equal(routeQuestion(3, 'מה צריך לבדוק כדי לדעת?'), null);
+  assert.equal(routeQuestion(3, 'הוא חייב להיות צר?').category, 'LONG');
+});
+
+test('baseline-1.3.12 run 1: s5 claims behind a "…, לא?" tag, across an ellipsis, and properties of the square', () => {
+  // the confirmation tag is not a negation
+  assert.equal(misconceptionClaims(5, 'רגע, אם האלכסונים שווים, אז זה כבר אומר שהוא ריבוע, לא? זה מספיק.').length >= 1, true);
+  // an ellipsis does not cut the condition off the conclusion
+  assert.equal(misconceptionClaims(5, "אז אם הם גם שווים וגם חוצים וגם מאונכים... אז זה בטוח ריבוע? מה זה אומר 'חוצים זה את זה'?").length, 0);
+  // a property of the square is not the sufficiency claim
+  assert.equal(misconceptionClaims(5, 'בריבוע האלכסונים שווים זה לזה, והם גם מאונכים אחד לשני.').length, 0);
+  // still claims
+  assert.equal(misconceptionClaims(5, 'אמממ... אם הם גם שווים וגם מאונכים, אז כן, זה בטוח ריבוע. זה מה שאמרנו קודם, נכון?').length >= 1, true);
+});
+
+test('baseline-1.3.12 run 1: s6 anaphoric "זה לא אותו דבר" is the misconception and is not validated by "יפה"', () => {
+  const claim = 'אה, רגע. מעוין זה מרובע שכל הצלעות שלו שוות. דלתון זה זוגות של צלעות סמוכות שוות. אז לא, זה לא אותו דבר.';
+  assert.equal(misconceptionClaims(6, claim).length, 1);
+  assert.equal(teacherTurnB(plan(6), 2, CAST, [reply('רועי', claim)], createTeacherState()).text, 'אוקיי'); // T3 "יפה"
+  assert.equal(misconceptionClaims(6, 'מעוין הוא דלתון. אבל דלתון זה לא אותו דבר כמו מעוין.').length, 0);
+});
+
+test('baseline-1.3.12 run 1: reported former beliefs and doubting alternatives are not claims; s5 bisecting in other words', () => {
+  assert.equal(misconceptionClaims(5, 'אהה, אז האלכסונים צריכים גם לחצות זה את זה? לא ידעתי שזה תנאי נוסף! חשבתי ששווים ומאונכים זה מספיק.').length, 0);
+  assert.equal(misconceptionClaims(5, 'אז אם זה מרובע עם אלכסונים שווים ומאונכים, אולי יש עוד צורות כאלה חוץ מריבוע?').length, 0);
+  assert.equal(misconceptionClaims(5, 'אז אם האלכסונים שווים, מאונכים, וגם חצי מהם שווים לחצי של השני... אז זה ריבוע?').length, 0);
+  assert.equal(misconceptionClaims(5, 'אם האלכסונים שווים, מאונכים וחוצים זה את זה, אז זה ריבוע. זה מספיק?').length, 0);
+  // still claims
+  assert.equal(misconceptionClaims(5, 'אם הם שווים ומאונכים, אז זה בטוח ריבוע. לא צריך שיחצו.').length >= 1, true);
+});
+
+test('baseline-1.3.12 run 1: routing gaps that left repeated questions unanswered (s5 rectangle vs square, s3 "two names")', () => {
+  assert.equal(routeQuestion(5, 'רגע, אז מה ההבדל בין מלבן לריבוע?').category, 'RECT_SQUARE');
+  assert.equal(routeQuestion(5, 'רגע, אבל אז מה ההבדל בין ריבוע למלבן?').category, 'RECT_SQUARE');
+  assert.equal(routeQuestion(5, 'אז מלבן זה לא ריבוע?').category, 'RECT_SQUARE');
+  assert.equal(routeQuestion(3, 'אם זה ריבוע, למה לא לקרוא לו ריבוע?').category, 'SQUARE_RECT');
+  assert.equal(routeQuestion(3, 'אם זה אותו דבר, למה יש שני שמות?').category, 'SQUARE_RECT');
+  // the s5 answer is only hinted before the explanation
+  const [, , , earliest, hint] = ANSWER_BANK[5].find(([c]) => c === 'RECT_SQUARE');
+  assert.equal(earliest, 5);
+  assert.ok(hint);
+});
+
+test('baseline-1.3.12 run 1 (h1.2.0): s2 "נחצים" (are bisected) is the correct criterion, not the misconception', () => {
+  assert.equal(misconceptionClaims(2, 'אני עדיין לא בטוחה מה בדיוק צריך להיות במעוין. אם האלכסונים מאונכים וגם נחצים, זה מעוין?').length, 0);
+  assert.equal(misconceptionClaims(2, 'אז אם האלכסונים מאונכים וגם נחצים, זה בהכרח מעוין?').length, 0);
+  assert.equal(misconceptionClaims(2, 'כן! אם האלכסונים מאונכים, זה אומר שהוא מעוין.').length, 1);
+});
+
+test('baseline-1.3.12 run 1 (h1.2.0): s4 "also in the rectangle" / "לחצות" claims; validating "יפה" is neutralized', () => {
+  const claim = 'אה... אני חושב שכן. אם האלכסונים במעוין ובריבוע חוצים זווית, אז גם במלבן זה הגיוני שזה יקרה.';
+  assert.equal(misconceptionClaims(4, claim).length >= 1, true);
+  assert.equal(teacherTurnB(plan(4), 2, CAST, [reply('יובל', claim)], createTeacherState()).text, 'אוקיי'); // T3 "יפה"
+  assert.equal(misconceptionClaims(4, 'אני חושבת שהטענה הזו נכונה. אם האלכסונים נפגשים במרכז, אז הם חייבים לחצות גם את הזוויות. זה נשמע כמו תכונה כללית של מרובעים.').length >= 1, true);
+  // not claims
+  assert.equal(misconceptionClaims(4, 'אבל המורה, אם בריבוע זה לא קורה, אז אולי גם במלבן לא? זה נראה לי מסובך.').length, 0);
+  assert.equal(misconceptionClaims(4, 'אה, אז זה אומר שבמלבן ובמקבילית האלכסונים רק נפגשים באמצע, אבל לא חותכים את הזוויות?').length, 0);
+  assert.equal(misconceptionClaims(4, 'רק במעוין ובריבוע האלכסונים חוצים את הזוויות. במלבן ובמקבילית לא.').length, 0);
+});
+
+test('baseline-1.3.12 run 1 (h1.2.0): s6 inclusion stated despite appearance is not the visual-difference claim', () => {
+  assert.equal(misconceptionClaims(6, 'אז למרות שהם נראים שונה, מעוין הוא כן דלתון?').length, 0);
+  assert.equal(misconceptionClaims(6, 'אה, הבנתי. אז למרות שזה נראה שונה, בגלל ההגדרות, מעוין הוא באמת דלתון.').length, 0);
+  assert.equal(misconceptionClaims(6, 'מעוין הוא לא דלתון, הם נראים שונה.').length, 1);
+});
+
+test('baseline-1.3.12 run 2 (h1.2.0): s5 "how can they not bisect?" asks why (the drawing), not what "bisect" means', () => {
+  assert.equal(routeQuestion(5, 'אבל אם הם מאונכים ושווים, איך הם לא חוצים אחד את השני?').category, 'WHY');
+  assert.equal(routeQuestion(5, 'אבל איך זה יכול להיות שהם שווים ומאונכים אבל לא נפגשים באמצע?').category, 'WHY');
+  assert.equal(routeQuestion(5, "מה זה אומר 'חוצים זה את זה'?").category, 'MEANING');
+});
+
+test('baseline-1.3.12 run 2 (h1.2.0): s5 "להיפגש באמצע" is the bisecting condition', () => {
+  assert.equal(misconceptionClaims(5, 'אממ... רגע. אז כדי שזה יהיה ריבוע, האלכסונים צריכים להיות שווים, מאונכים, וגם להיפגש באמצע של שניהם?').length, 0);
+  assert.equal(misconceptionClaims(5, 'אני עדיין חושבת שאם האלכסונים שווים ומאונכים, זה כן ריבוע. השרטוט הזה לא משכנע אותי.').length, 1);
+});
+
+test('baseline-1.3.12 rerun (h1.3.0): "גם במלבן … חוצים זה את זה, אבל רק במעוין…" is the correct contrast, not the s4 claim', () => {
+  assert.equal(misconceptionClaims(4, 'אז זה אומר שגם במלבן וגם במקבילית האלכסונים חוצים זה את זה, אבל רק במעוין וריבוע הם גם חוצים את הזוויות? אני מנסה להבין את ההבדל.').length, 0);
+  // the parallelogram's diagonal "also bisects the angles, like in the rhombus" is the claim
+  assert.equal(misconceptionClaims(4, 'אני רואה שהאלכסון מחבר שתי זוויות נגדיות. במקבילית זה אומר שהוא גם חוצה את הזוויות, נכון? כמו במעוין?').length >= 1, true);
+});
+
+test('baseline-1.3.12 final (h1.3.1): citing the missing bisection as the reason is the criterion, not the s5 claim', () => {
+  assert.equal(misconceptionClaims(5, 'אז בתמונה הזו, האלכסונים שווים ומאונכים, אבל בגלל שהם לא נפגשים באמצע, זה לא ריבוע. זה קצת מבלבל, כי זה נראה די דומה לריבוע.').length, 0);
+  assert.equal(misconceptionClaims(5, 'אם הם שווים ומאונכים, אז זה בטוח ריבוע. לא צריך שיחצו.').length >= 1, true);
 });

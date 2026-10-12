@@ -30,10 +30,11 @@ Before each planned move, the previous student turn is checked. Every decision i
    - A category whose planned discovery comes later (`earliest` turn) gets a **hint** first and the **full** answer from that turn on.
    - Each hint and each full answer is given **at most once**.
    - A question re-asked after its full answer is **not answered again** (`repeat_after_answered`): that repetition is a genuine loop candidate.
+   - A question in the category that the planned question of this turn itself asks for (`asks` in the plan) is **not answered before it** (`asked_by_planned_question`): the planned question is asked as scripted, and the answer can follow at a later turn. Since HARNESS_VERSION 1.2.0; before, the answer was prepended to a question asking for it.
 4. **Unmatched questions** get a staged generic answer once per student: "שאלה טובה, נבדוק את זה עוד רגע" before the explanation turn, and the scenario key fact after it.
 5. **Nothing is added to the explanation turn (T5).** The explanation answers what came before it.
 6. **Unsure student on a planned question.** If the student addressed by a planned question marked `answerIfUnsure` is unsure or silent, that answer is given before the next planned move (s2, s3, s4 and s5, at T10).
-7. **No validating a misconception.** A validating probe ("נכון" / "יפה") after a detected misconception claim (`MISCONCEPTION`) becomes "אוקיי".
+7. **No validating a misconception.** A validating probe ("נכון" / "יפה") after a detected misconception claim (`MISCONCEPTION`) becomes "אוקיי". Open questions, reported former beliefs ("חשבתי ש…") and challenged echo questions ("…? אבל …", "…? או ש…") are not claims; tag questions ("…, נכון?") and hesitant leaning questions are (1.2.0).
 8. **Missing antecedent.** "{B}, מה דעתך על מה שנאמר / התשובה / את מסכים?" becomes "{B}, מה דעתך על השאלה ששאלתי את {A}?" when the previous turn had no reply.
 
 **How the answer is placed:**
@@ -84,7 +85,13 @@ HARNESS_MODE=B HARNESS_RUN_ID=B-baseline-1.3.12 HARNESS_REPEATS=2 \
 
 # 3. Label a run: writes labels.json, summary.json and review.md (fill the verdict columns)
 node research/simulator_audit/replay_harness/analyze.js research/simulator_audit/replay_harness/results/<run id>
+
+# 4. After any change to lib/teacher.js or the plans: check which recorded Mode B conversations are still valid
+#    (exit 1 and a DIFF list if the current teacher would phrase any turn differently: rerun those conversations)
+node research/simulator_audit/replay_harness/scripts/resimulate_teacher.js research/simulator_audit/replay_harness/results/<run id>
 ```
+
+**Harness fixes and recorded runs.** The Mode B teacher is deterministic given the student replies, so a run recorded with an older HARNESS_VERSION stays valid if every teacher turn re-simulates identically (`lib/resimulate.js`); only the labels need recomputing. A conversation whose teacher would now differ must be rerun. The 1.3.12 baseline was assembled this way (`student_stability_replay.md` §11).
 
 **Environment variables:**
 
@@ -102,7 +109,7 @@ node research/simulator_audit/replay_harness/analyze.js research/simulator_audit
 - The teacher, casts, drawings and labels are deterministic.
 - **Gemini generation is not.** The server exposes no seed, so a run ID identifies a run, not a deterministic replay.
 - Every `manifest.json` records:
-  - `harnessVersion` (`config/scenarios.js`, bumped when plans, answer bank, rules, labels or assets change; 1.1.0 since the 1.3.12 example sets);
+  - `harnessVersion` (`config/scenarios.js`, bumped when plans, answer bank, rules, labels or assets change; the version history is the comment above `HARNESS_VERSION`);
   - `systemVersion` and the git commit;
   - whether production files or harness files were modified at run time.
 
@@ -119,6 +126,7 @@ node research/simulator_audit/replay_harness/analyze.js research/simulator_audit
 | `lib/text.js`, `lib/turnFlow.js` | text helpers (production duplicate criterion re-exported); Chat.jsx first-turn addendum mirror |
 | `bench/run.bench.js`, `bench/setup.js`, `jest.harness.json` | live runner (Jest + react-scripts Babel, local-only fetch) |
 | `analyze.js` | labelling and review report |
+| `lib/resimulate.js`, `scripts/resimulate_teacher.js` | re-simulate the Mode B teacher over a recorded run (validity after a harness change) |
 | `assets/` | corrected benchmark drawings (SVG + 300×300 PNG) and `rotated-rectangle.png` |
 | `scripts/` | `render_assets.js` + `render_png.sh` (regenerate drawings), `import_historical.js` |
 | `test/` | `node:test` unit tests (no model calls) |
