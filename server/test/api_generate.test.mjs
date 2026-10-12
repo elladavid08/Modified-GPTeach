@@ -109,7 +109,8 @@ test('model failure is reported as success:false (never as a successful empty re
 
 const META_KEYS = ['agent', 'attempts', 'finishReason', 'latencyMs', 'model'];
 // 1.3.11: a successful student call also reports the content-free duplicate-guard counters (A17)
-const SUCCESS_META_KEYS = [...META_KEYS, 'duplicateOutcome', 'duplicateRepliesDropped', 'duplicateRepliesKept', 'duplicateRetries'].sort();
+// 1.3.13: and the content-free quote-cut counters (detection only)
+const SUCCESS_META_KEYS = [...META_KEYS, 'duplicateOutcome', 'duplicateRepliesDropped', 'duplicateRepliesKept', 'duplicateRetries', 'quoteCutPaddedAttempts', 'quoteCutSuspected'].sort();
 
 test('telemetry: a successful call reports agent, model, latency, finish reason and attempts', async () => {
   srv.fakeModel.respond = () => delayed(40, textResult(STUDENT_JSON, 'STOP'));

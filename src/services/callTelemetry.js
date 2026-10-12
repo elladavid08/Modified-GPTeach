@@ -10,7 +10,9 @@ export const TELEMETRY_STATUSES = ["ok", "failed", "skipped"];
 export const TELEMETRY_BASE_KEYS = ["status", "reason", "model", "latencyMs", "clientLatencyMs", "finishReason", "attempts"];
 // Student duplicate guard (1.3.11): optional, content-free; present only when the server reports them
 export const TELEMETRY_DUPLICATE_KEYS = ["duplicateRetries", "duplicateRepliesDropped", "duplicateRepliesKept", "duplicateOutcome"];
-export const TELEMETRY_KEYS = [...TELEMETRY_BASE_KEYS, ...TELEMETRY_DUPLICATE_KEYS];
+// Student quote-cut detection (1.3.13): optional, content-free counters; present only when the server reports them
+export const TELEMETRY_QUOTE_CUT_KEYS = ["quoteCutSuspected", "quoteCutPaddedAttempts"];
+export const TELEMETRY_KEYS = [...TELEMETRY_BASE_KEYS, ...TELEMETRY_DUPLICATE_KEYS, ...TELEMETRY_QUOTE_CUT_KEYS];
 export const DUPLICATE_OUTCOMES = ["none", "resolved", "dropped", "kept", "reask_failed"];
 const MAX_STRING_CHARS = 64;
 
@@ -40,6 +42,7 @@ export function buildCallTelemetry(status, meta = null, reason = null) {
 		reason: status === "skipped" ? shortString(reason) : null,
 		...timingFields(meta),
 		...duplicateFields(meta),
+		...quoteCutFields(meta),
 	};
 }
 
@@ -53,6 +56,17 @@ function duplicateFields(meta) {
 		duplicateRepliesDropped: nonNegativeInt(meta.duplicateRepliesDropped),
 		duplicateRepliesKept: nonNegativeInt(meta.duplicateRepliesKept),
 		duplicateOutcome: DUPLICATE_OUTCOMES.includes(meta.duplicateOutcome) ? meta.duplicateOutcome : null,
+	};
+}
+
+/** Quote-cut counters (student calls since 1.3.13), only if the server reported any of them. */
+function quoteCutFields(meta) {
+	if (!meta || typeof meta !== "object" || !TELEMETRY_QUOTE_CUT_KEYS.some((key) => key in meta)) {
+		return {};
+	}
+	return {
+		quoteCutSuspected: nonNegativeInt(meta.quoteCutSuspected),
+		quoteCutPaddedAttempts: nonNegativeInt(meta.quoteCutPaddedAttempts),
 	};
 }
 

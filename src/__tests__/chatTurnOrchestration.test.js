@@ -851,6 +851,20 @@ describe("LLM call telemetry", () => {
 		});
 	});
 
+	it("student quote-cut counters from the server are logged with the turn (1.3.13); PCK entry unchanged", async () => {
+		const pckMeta = META("pck", 2100);
+		const dup = { duplicateRetries: 0, duplicateRepliesDropped: 0, duplicateRepliesKept: 0, duplicateOutcome: "none" };
+		const studentMeta = META("student", 2400, { ...dup, quoteCutSuspected: 1, quoteCutPaddedAttempts: 1, attempts: 2 });
+		pckWithMeta(pckMeta);
+		studentsWithMeta(studentMeta);
+		await startLesson();
+		await sendTeacherMessage("יובל, תן או תני דוגמה למלבן שאינו ריבוע.");
+		expect(loggedTelemetry(0)).toEqual({
+			pck: expectedTelemetry(pckMeta),
+			student: { ...expectedTelemetry(studentMeta), ...dup, quoteCutSuspected: 1, quoteCutPaddedAttempts: 1 },
+		});
+	});
+
 	it("telemetry stays with the correct turn across turns", async () => {
 		pckWithMeta(META("pck", 100));
 		studentsWithMeta(META("student", 110));

@@ -187,6 +187,7 @@ test('17. telemetry contains no student, teacher or note text', async () => {
   const res = await gen();
   const json = JSON.stringify(res.body.meta);
   for (const s of [SYSTEM, 'דנה', 'תמר', 'מעוין', 'נכון', 'Regeneration', 'draft']) assert.ok(!json.includes(s), s);
-  assert.deepEqual(Object.keys(res.body.meta).sort(), ['agent', 'attempts', ...DUP_KEYS, 'finishReason', 'latencyMs', 'model'].sort());
+  // 1.3.13 adds two content-free quote-cut counters (integers)
+  assert.deepEqual(Object.keys(res.body.meta).sort(), ['agent', 'attempts', ...DUP_KEYS, 'finishReason', 'latencyMs', 'model', 'quoteCutPaddedAttempts', 'quoteCutSuspected'].sort());
   for (const k of ['duplicateRetries', 'duplicateRepliesDropped', 'duplicateRepliesKept']) assert.ok(Number.isInteger(res.body.meta[k]) && res.body.meta[k] >= 0);
 });

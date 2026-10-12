@@ -16,6 +16,7 @@ import { PCK_RESPONSE_SCHEMA, PCK_PARSE_ERROR, PCK_INVALID_ERROR, parsePckModelT
 import { LLM_CALL_POLICY, callModelWithPolicy, interpretCandidate } from './llm_call_policy.js';
 import { validateStudentOutputText, STUDENT_PARSE_ERROR, STUDENT_INVALID_ERROR, MAX_RAW_OUTPUT_EXCERPT_CHARS } from './student_output_contract.js';
 import { findSelfDuplicates, buildRegenerationNote, appendRegenerationNote, dropDuplicateReplies } from './student_duplicate_guard.js';
+import { countSuspectedQuoteCuts, isSpacePaddedTokenLimit } from './student_quote_cut.js';
 import { saveConversation, saveMessage, createUserProfile, getUserProfile, saveTestSubmission, checkTestSubmission, verifyAnnotator, verifyAdmin, getTestSubmissions, getTestSubmission, saveTestAnnotation, getTestAnnotation, getAllAnnotationsForSubmission, getAllUsersAdmin, getResearchParticipantsAdmin, updateUserResearchStatusAdmin, getConversationsByUserAdmin, getConversationsMeta, getFullConversationForAnnotation, createAnnotationAssignments, getAnnotationAssignments, getAnnotatorAssignments, getConvAnnotation, saveConvAnnotation, submitConvAnnotation, exportConvAnnotations, cancelAnnotationAssignment, getEligibleAgreementConversations, getAgreementReports, getAgreementReport, computeAndSaveAgreementReport, getConversationsWithCompletedPairs, createComparisonSet, updateComparisonSet, deleteComparisonSet, getComparisonSets, getComparisonSetDetail, getComparisonData, getConsensusAnnotation, saveConsensusAnnotation, submitConsensusAnnotation } from './services/firebaseAdmin.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -289,6 +290,16 @@ function convertMessagesToGenAI(openAIMessages) {
   return contents;
 }
 
+// The returned student output was validated (or re-serialized) above; parse it again only to count.
+function parseResponsesForTelemetry(text) {
+  try {
+    const value = JSON.parse(text);
+    return value && Array.isArray(value.responses) ? value.responses : [];
+  } catch (error) {
+    return [];
+  }
+}
+
 // API endpoint for chat completions (GPT 3.5/4 style)
 app.post('/api/generate', async (req, res) => {
   let telemetry = null;
@@ -355,6 +366,8 @@ app.post('/api/generate', async (req, res) => {
     // Same-student duplicate guard (1.3.11): if attempt 1 repeats a student's earlier reply, attempt 2
     // of the same loop is the one re-ask (same request + the regeneration note). Still at most 2 attempts.
     const duplicateGuard = { firstAttemptDuplicates: 0, outcome: 'none', dropped: 0, kept: 0 };
+    // Quote-cut detection (1.3.13): counters only; never retries, rewrites or drops anything
+    let quoteCutPaddedAttempts = 0;
     const call = await callModelWithPolicy({
       agent: 'student',
       model: turnModel,
@@ -365,6 +378,7 @@ app.post('/api/generate', async (req, res) => {
         if (!candidate.ok) return candidate;
         const checked = validateStudentOutputText(candidate.text);
         if (!checked.ok) {
+          if (isSpacePaddedTokenLimit(candidate.text, candidate.finishReason)) quoteCutPaddedAttempts += 1;
           console.error('❌ Invalid student output:', checked.kind, checked.problems.slice(0, 5));
           return {
             ok: false,
@@ -416,7 +430,11 @@ app.post('/api/generate', async (req, res) => {
         duplicateRetries: duplicateGuard.firstAttemptDuplicates > 0 && telemetry.attempts >= 2 ? 1 : 0,
         duplicateRepliesDropped: duplicateGuard.dropped,
         duplicateRepliesKept: duplicateGuard.kept,
-        duplicateOutcome: duplicateGuard.outcome
+        duplicateOutcome: duplicateGuard.outcome,
+        // Content-free quote-cut counters (A17, additive): replies in the returned output that look cut,
+        // and attempts rejected as a whitespace-padded token-limit output
+        quoteCutSuspected: countSuspectedQuoteCuts(parseResponsesForTelemetry(call.value)),
+        quoteCutPaddedAttempts
       };
     }
 

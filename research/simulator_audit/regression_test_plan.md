@@ -814,6 +814,35 @@ Before the fix, 4 tests failed. The harness has a version-aware example set and 
 - the Mode B baseline on 1.3.12;
 - a separate check of the WRONG example and the geometry / masculine rule phrases.
 
+### 0.24 Quote-safe abbreviations and quote-cut telemetry (2026-10-12, version 1.3.13)
+
+**Defect:** student replies silently cut at an unescaped ASCII `"` (gershayim in ס"מ, מ"ר, קמ"ש, or an opening quote). Gemini's JSON-constrained output closes the string and still returns valid JSON (`student_quote_truncation_investigation.md`).
+
+**Evidence for the fix:** live A/B/C/D (`student_quote_safety_experiment.md`):
+- the abbreviation-only rule (C) took abbreviation cuts from 13 to 0, with correct gershayim and no behaviour change in ordinary turns;
+- quoted-word cuts were not reduced by any rule variant.
+
+**Change:**
+- one student-prompt line (JSON format requirement 6, verbatim C);
+- detection-only telemetry in `server/student_quote_cut.js`, `quoteCutSuspected` and `quoteCutPaddedAttempts` (A17);
+- no retry, rewrite or drop; the B24 2-attempt cap and B26 are unchanged.
+
+**Tests:**
+- client:
+  - `studentAgent` +3 (the exact rule once; position after requirement 5; the rest byte-identical to 1.3.12) and 1 updated (the 1.3.12 integrity test removes the new line);
+  - `callTelemetry` +3; `conversationContract` +2 rejections, 1 extended; `chatTurnOrchestration` +1;
+- server:
+  - `student_quote_cut.test.mjs` +6;
+  - `student_quote_truncation.test.mjs`: 1 rewritten, +5;
+  - meta-key assertions updated in `api_generate` and `api_generate_duplicate_guard`.
+- **Before the change:** 3 client prompt tests, 5 client telemetry tests and 7 server tests failed.
+
+**Results:** `npm run test:all` was run twice and passed both times (202 frontend, 206 backend); the harness has 74 tests.
+
+**Live check:** 0 abbreviation cuts in 68 calls; 1 quoted-word cut, flagged by `quoteCutSuspected`; at most 2 attempts.
+
+**Follow-up:** watch `quoteCutSuspected` in production (quoted-word cuts are not prevented).
+
 ## Original proposal (kept for reference; see §0.6 for what is still open)
 
 ## 1. Starting state (before the baseline)

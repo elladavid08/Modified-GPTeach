@@ -1,6 +1,6 @@
 # Quote-safety prompt rule: live A/B
 
-Status: experiment only, 2026-10-12, on committed **1.3.12** (`279721a`). **Follow-up with conditions C and D (§9) supersedes the recommendation in §7.**
+Status: experiment only, 2026-10-12, on committed **1.3.12** (`279721a`). **Follow-up with conditions C and D (§9) supersedes the recommendation in §7. Condition C implemented in 1.3.13 (§10).**
 - No production change, no `SYSTEM_VERSION` bump, and no retry, telemetry, duplicate, PCK, persona, example, model-config or harness change.
 - Synthetic contexts only; no participant data; nothing written to Firestore.
 - Follows `student_quote_truncation_investigation.md`.
@@ -309,3 +309,30 @@ The quoted-word failure remains open at a low rate and is concentrated in turns 
 **Optional, not required:** if the priming hypothesis matters, a single follow-up could test C without its trailing clause ("…with the Hebrew gershayim ״ (for example ס״מ, מ״ר, קמ״ש).") on Q1/Q2 and T1/T2. This should not delay 1.3.13.
 
 **Analysis files:** scratchpad `c23/` (`qsafe3.bench.js`, `capture.cjs`, `analyze3.py`, `raw_capture.jsonl`, `client_results.json`).
+
+## 10. Implementation (1.3.13, 2026-10-12)
+
+Condition C was added **verbatim** as JSON format requirement 6 in `makeProsePrompt` (`src/utils/ai.js`), directly after requirement 5.
+- The stronger quoting rule (D) was not adopted.
+- No other prompt, PCK, persona, example, duplicate-guard, model or config change.
+- `SYSTEM_VERSION` 1.3.12 → **1.3.13**, with a changelog entry.
+
+**Tests** (`studentAgent.test.js`; written first, 3 failing before the change):
+- the exact rule appears once, with and without PCK guidance, and the D rule is absent;
+- it is requirement 6, directly between requirement 5 and "### Current Lesson Focus:";
+- the rest of the prompt is byte-identical to 1.3.12 (pinned SHA-256 with the line removed, with and without PCK);
+- the 1.3.12 test now removes this line before comparing with 1.3.11;
+- C8/C9, the 1.3.10 rule, the neutral examples, and the PCK and persona fingerprints are unchanged.
+
+**Detection only (same version):** content-free telemetry counters; see `student_quote_truncation_investigation.md` §9.
+
+**Live regression check on 1.3.13** (production prompt, unmodified server with the raw-capture preload; 68 calls, 70 raw responses):
+- The rule appeared once in every request.
+- **Abbreviation cuts: 0.** Gershayim were used throughout: centimetres 10/10 "ס״מ", s1 cast 1 T10 10/10, square metres 13, km/h 19, and 7 correctly escaped ASCII `\"` in km/h.
+- **Quoted-word cuts: 1** ("אני חושבת ש", in the quoted-term context), flagged by `quoteCutSuspected = 1`.
+- Six complete km/h answers without a final period ("15 קמ״ש") were correctly **not** flagged.
+- Controls: 0 cuts, 0 flags.
+- No rule or placeholder leakage; no errors.
+- At most 2 attempts, used only by the existing duplicate re-ask; no retry because of a cut.
+- Student latency p50 / p90: 1.14 / 1.94 s.
+- Observation: one square-metre reply wrote "3 מ״ר כפול 4 מ״ר" for metres. This is a unit slip, not a cut, and was possibly primed by the rule's example.

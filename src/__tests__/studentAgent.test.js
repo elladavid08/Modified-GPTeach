@@ -227,6 +227,59 @@ describe("conversational-move rule for short teacher messages (1.3.10)", () => {
 	});
 });
 
+// The 1.3.13 quote-safety line (shared by the 1.3.12 and 1.3.13 prompt-integrity tests).
+const QUOTE_SAFETY_RULE = '6. Inside a message, write Hebrew abbreviations with the Hebrew gershayim ״ (for example ס״מ, מ״ר, קמ״ש), never with the ASCII double quote character (").';
+const QUOTE_SAFETY_LINE = `\n${QUOTE_SAFETY_RULE}`;
+
+describe("quote-safety abbreviation rule (1.3.13)", () => {
+	// Condition C of research/simulator_audit/student_quote_safety_experiment.md §9, added verbatim.
+	const ITEM5 = '\n5. Return ONLY the "responses" array: no reasoning, analysis or explanation fields, and no text outside it';
+	const PCK_IMPACT = {
+		pedagogical_quality: "problematic",
+		addressed_misconception: false,
+		how_addressed: "",
+		misconception_risk: "high",
+		demonstrated_skills: [{ skill_id: "error-identification", evidence: "E" }],
+		missed_opportunities: [{ skill_id: "counterexample", what_could_have_been_done: "W" }],
+		predicted_student_state: {
+			understanding_level: "more_confused",
+			response_tone: "confused",
+			student_reaction_hints: [{ student: "נועה", reaction_type: "persistent_confusion", likelihood: "high", reason: "R" }],
+		},
+	};
+	const sha256 = (s) => require("crypto").createHash("sha256").update(s, "utf8").digest("hex");
+	async function systemPrompt(opts) {
+		generateWithGenAI.mockResolvedValue(JSON.stringify({ responses: [] }));
+		await runCallAI(opts);
+		return generateWithGenAI.mock.calls[generateWithGenAI.mock.calls.length - 1][0][0].content;
+	}
+
+	it("the exact rule is in the student prompt once, with and without PCK guidance", async () => {
+		for (const impact of [null, PCK_IMPACT]) {
+			const system = await systemPrompt({ impact });
+			expect(system.split(QUOTE_SAFETY_RULE)).toHaveLength(2);
+			expect(system).not.toContain("even if the teacher used it"); // the stronger quoting rule (D) was not adopted
+		}
+	});
+
+	it("is format requirement 6, directly after requirement 5 of the mandatory JSON format section", async () => {
+		const system = await systemPrompt();
+		expect(system.split(ITEM5 + QUOTE_SAFETY_LINE + "\n### Current Lesson Focus:")).toHaveLength(2);
+		expect(system.indexOf("🚨 MANDATORY JSON FORMAT - NO EXCEPTIONS 🚨")).toBeLessThan(system.indexOf(QUOTE_SAFETY_RULE));
+		expect(system.indexOf(QUOTE_SAFETY_RULE)).toBeLessThan(system.indexOf("### Current Lesson Focus:"));
+	});
+
+	it("leaves the rest of the student prompt byte-identical to 1.3.12, with and without PCK guidance", async () => {
+		// Fingerprints of the 1.3.12 prompt for these inputs; removing the one new line must give them back.
+		const expected = new Map([[null, "1e8b6f7310c140e419125139d798921e02e6a68fe1bf352a6cd8c96e637628d0"], [PCK_IMPACT, "aeb331882a9900d21cea34dc6b729487d18f270c75d184505a2a61c146dc8976"]]);
+		for (const [impact, hash] of expected) {
+			const system = await systemPrompt({ impact });
+			expect(system.split(QUOTE_SAFETY_LINE)).toHaveLength(2);
+			expect(sha256(system.replace(QUOTE_SAFETY_LINE, ""))).toBe(hash);
+		}
+	});
+});
+
 describe("content-neutral prompt examples (1.3.12)", () => {
 	// Condition B of research/simulator_audit/student_prompt_examples_experiment.md, added verbatim.
 	const NAME = "<שם של אחד מהתלמידים ברשימה>";
@@ -286,7 +339,8 @@ describe("content-neutral prompt examples (1.3.12)", () => {
 		// Fingerprints of the 1.3.11 prompt for these inputs; restoring the three old example lines must give them back.
 		const expected = new Map([[null, "1a8839ec0c51c6da93aa1f326b00976c20baca7ad67e4ac93991b0d2418885a1"], [PCK_IMPACT, "1be5d8307a0a18b3528b25d80225494776f3a9b34817a51eb7b80414aab74ea4"]]);
 		for (const [impact, hash] of expected) {
-			let system = await systemPrompt({ impact });
+			// 1.3.13 added one format rule; remove it so the rest can be compared with 1.3.11
+			let system = (await systemPrompt({ impact })).replace(QUOTE_SAFETY_LINE, "");
 			NEUTRAL.forEach((message, i) => {
 				expect(system.split(line(NAME, message))).toHaveLength(2);
 				system = system.replace(line(NAME, message), line(students[i].name, OLD[i]));

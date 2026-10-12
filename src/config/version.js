@@ -13,10 +13,23 @@
  * - Z: Patch version (bug fixes, minor improvements)
  */
 
-export const SYSTEM_VERSION = "1.3.12";
+export const SYSTEM_VERSION = "1.3.13";
 
 /**
  * Version History:
+ * 
+ * 1.3.13 (2026-10-12):
+ * - Quote-safe abbreviations in student replies: one output rule in the student prompt (JSON
+ *   format requirement 6) asks the model to write Hebrew abbreviations with the Hebrew gershayim
+ *   ״ (ס״מ, מ״ר, קמ״ש) instead of the ASCII double quote. Under JSON-constrained output an
+ *   unescaped " closed the reply string, so replies were silently cut (e.g. "…באורך 5 ס").
+ *   Added verbatim as live-tested (student_quote_safety_experiment.md §9, condition C; 13 -> 0
+ *   abbreviation cuts). No other prompt, PCK, persona, example, model or config change.
+ * - Detection only: the server counts suspected quote cuts in content-free student telemetry
+ *   (quoteCutSuspected: replies in the returned output that end in a 1-2-letter Hebrew fragment
+ *   or in whitespace without final punctuation; quoteCutPaddedAttempts: attempts rejected as a
+ *   whitespace-padded token-limit output). No retry, rewrite or dropped reply; the 2-attempt
+ *   policy and the duplicate guard are unchanged.
  * 
  * 1.3.12 (2026-10-12):
  * - Student prompt examples: the three example outputs in the student prompt (understood /

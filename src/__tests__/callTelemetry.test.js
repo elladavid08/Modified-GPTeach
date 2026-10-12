@@ -1,5 +1,5 @@
 // LLM-call telemetry (A17, REVIEW): a strict, bounded whitelist of timing metadata.
-import { buildCallTelemetry, TELEMETRY_KEYS, TELEMETRY_BASE_KEYS, TELEMETRY_DUPLICATE_KEYS, DUPLICATE_OUTCOMES } from "../services/callTelemetry";
+import { buildCallTelemetry, TELEMETRY_KEYS, TELEMETRY_BASE_KEYS, TELEMETRY_DUPLICATE_KEYS, TELEMETRY_QUOTE_CUT_KEYS, DUPLICATE_OUTCOMES } from "../services/callTelemetry";
 
 const META = {
 	agent: "pck",
@@ -94,7 +94,7 @@ describe("student duplicate-guard telemetry (1.3.11, A17 additive)", () => {
 
 	it("omits them when the server did not report them (PCK calls, older servers): backward compatible", () => {
 		expect(Object.keys(buildCallTelemetry("ok", META)).sort()).toEqual([...TELEMETRY_BASE_KEYS].sort());
-		expect(TELEMETRY_KEYS).toEqual([...TELEMETRY_BASE_KEYS, ...TELEMETRY_DUPLICATE_KEYS]);
+		expect(TELEMETRY_KEYS).toEqual([...TELEMETRY_BASE_KEYS, ...TELEMETRY_DUPLICATE_KEYS, ...TELEMETRY_QUOTE_CUT_KEYS]);
 	});
 
 	it("only accepts the known outcomes and non-negative integer counts; never text", () => {
@@ -105,6 +105,34 @@ describe("student duplicate-guard telemetry (1.3.11, A17 additive)", () => {
 		expect(t.duplicateRepliesKept).toBeNull();
 		expect(DUPLICATE_OUTCOMES).toEqual(["none", "resolved", "dropped", "kept", "reask_failed"]);
 		for (const outcome of DUPLICATE_OUTCOMES) expect(buildCallTelemetry("ok", { ...STUDENT_META, duplicateOutcome: outcome }).duplicateOutcome).toBe(outcome);
+		expect(hasUndefined(t)).toBe(false);
+	});
+});
+
+describe("student quote-cut telemetry (1.3.13, A17 additive, detection only)", () => {
+	const STUDENT_META = { ...META, agent: "student", duplicateRetries: 0, duplicateRepliesDropped: 0, duplicateRepliesKept: 0, duplicateOutcome: "none", quoteCutSuspected: 1, quoteCutPaddedAttempts: 0 };
+
+	it("keeps the two content-free quote-cut counters when the server reports them", () => {
+		const t = buildCallTelemetry("ok", STUDENT_META);
+		expect(t.quoteCutSuspected).toBe(1);
+		expect(t.quoteCutPaddedAttempts).toBe(0);
+		expect(TELEMETRY_QUOTE_CUT_KEYS).toEqual(["quoteCutSuspected", "quoteCutPaddedAttempts"]);
+		expect(Object.keys(t).every((k) => TELEMETRY_KEYS.includes(k))).toBe(true);
+	});
+
+	it("omits them when the server did not report them (PCK calls, servers before 1.3.13): backward compatible", () => {
+		const { quoteCutSuspected, quoteCutPaddedAttempts, ...older } = STUDENT_META;
+		const t = buildCallTelemetry("ok", older);
+		expect("quoteCutSuspected" in t).toBe(false);
+		expect("quoteCutPaddedAttempts" in t).toBe(false);
+		expect(t.duplicateOutcome).toBe("none");
+	});
+
+	it("only accepts non-negative integer counts; never text", () => {
+		const t = buildCallTelemetry("ok", { ...STUDENT_META, quoteCutSuspected: "יובל: …באורך 5 ס", quoteCutPaddedAttempts: -1 });
+		expect(t.quoteCutSuspected).toBeNull();
+		expect(t.quoteCutPaddedAttempts).toBeNull();
+		expect(buildCallTelemetry("ok", { ...STUDENT_META, quoteCutSuspected: 1.5 }).quoteCutSuspected).toBeNull();
 		expect(hasUndefined(t)).toBe(false);
 	});
 });

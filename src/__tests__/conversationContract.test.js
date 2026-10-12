@@ -35,6 +35,9 @@ describe("conversation document contract validator", () => {
 		// 1.3.11: optional, content-free duplicate-guard fields on the student entry
 		doc.turns[1].telemetry.student = { ...doc.turns[1].telemetry.student, attempts: 2, duplicateRetries: 1, duplicateRepliesDropped: 0, duplicateRepliesKept: 0, duplicateOutcome: "resolved" };
 		expect(validateConversationDoc(doc)).toEqual([]);
+		// 1.3.13: optional, content-free quote-cut counters on the student entry
+		doc.turns[1].telemetry.student = { ...doc.turns[1].telemetry.student, quoteCutSuspected: 1, quoteCutPaddedAttempts: 0 };
+		expect(validateConversationDoc(doc)).toEqual([]);
 		expect(validateConversationDoc(legacyFormatConversation(), { legacy: true })).toEqual([]);
 	});
 
@@ -45,6 +48,8 @@ describe("conversation document contract validator", () => {
 		["telemetry with a negative latency", (t) => { t.telemetry = { pck: { status: "ok", latencyMs: -1 }, student: null }; }],
 		["telemetry with an unknown duplicate outcome", (t) => { t.telemetry = { pck: null, student: { status: "ok", duplicateOutcome: "some student text" } }; }],
 		["telemetry with a negative duplicate count", (t) => { t.telemetry = { pck: null, student: { status: "ok", duplicateRepliesDropped: -1 } }; }],
+		["telemetry with a negative quote-cut count", (t) => { t.telemetry = { pck: null, student: { status: "ok", quoteCutSuspected: -1 } }; }],
+		["telemetry with text in a quote-cut field", (t) => { t.telemetry = { pck: null, student: { status: "ok", quoteCutPaddedAttempts: "באורך 5 ס" } }; }],
 	])("rejects %s", (_label, mutate) => {
 		const doc = currentFormatConversation();
 		mutate(doc.turns[1]);

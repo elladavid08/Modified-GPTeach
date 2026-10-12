@@ -259,6 +259,16 @@ No special `?` handling is planned on this evidence.
   - the rest of the prompt is byte-identical to 1.3.11, pinned by a test.
 - **Not yet addressed:** the WRONG example (still bound to `students[0]`, square/rectangle) and the geometry / masculine phrases in the conversation rules.
 
+### 2.8 Silent truncation at ASCII quotes (1.3.13, 2026-10-12)
+
+- **Defect:** replies were cut where the model wrote an unescaped `"`. This happened with gershayim in ס"מ, מ"ר and קמ"ש, or with an opening quote.
+  - JSON-constrained decoding closes the string, and the output is still valid JSON with `STOP`, so nothing downstream noticed.
+  - Affected: 5 of 2,235 unique synthetic replies. Up to 100% of replies when the teacher asked for lengths in centimetres.
+- **Fixed in 1.3.13** (`student_quote_truncation_investigation.md`, `student_quote_safety_experiment.md`):
+  - one prompt line asks for Hebrew gershayim ״ in abbreviations; abbreviation cuts went from 13 to 0 live;
+  - the server counts suspected cuts in content-free telemetry (`quoteCutSuspected`, `quoteCutPaddedAttempts`), detection only.
+- **Open:** cuts at an *opening* quote ("אני חושבת ש" before a quoted term) still occur occasionally (about 1–3% of replies in turns where the teacher writes double-quoted terms). They are now visible in telemetry. No tested prompt variant prevented them.
+
 ## 3. Student consistency
 
 ### 3.1 Misconception re-emerging after apparent resolution

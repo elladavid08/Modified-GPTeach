@@ -1,6 +1,6 @@
 # Silent student-reply truncation at Hebrew gershayim: root-cause investigation
 
-Status: investigation only, 2026-10-12, on committed **1.3.12** (`279721a`).
+Status: investigation 2026-10-12 on committed **1.3.12** (`279721a`). **Implemented in 1.3.13: prevention (prompt rule C, `student_quote_safety_experiment.md`) and detection-only telemetry (§9).**
 - No production change, no `SYSTEM_VERSION` bump, and no prompt, PCK, persona, duplicate-guard or harness change.
 - Synthetic data only; no participant data; nothing written to Firestore.
 - Found in the Mode B baseline (`student_stability_replay.md` §11.5).
@@ -182,3 +182,48 @@ Add, to the student prompt's output-format rules:
 - Analysis files (scratchpad `c21/`): `capture.cjs`, `trunc.bench.js`, `raw_capture.jsonl` and `scan.py`.
   - The bench's client-side capture failed (the harness fetch shim has no `Response.clone`).
   - The server-side raw capture, which is the evidence used, is complete.
+
+## 9. Implemented detection (1.3.13)
+
+**Module:** `server/student_quote_cut.js`, pure functions. **Detection only:**
+- no retry, rewrite or dropped reply;
+- a suspected cut never fails the turn;
+- the 2-attempt policy (B24) and the duplicate guard (B26) are unchanged.
+
+| telemetry field (student success entries, A17, optional) | counts | shapes |
+|---|---|---|
+| `quoteCutSuspected` | replies in the **returned** output that look cut | no final punctuation (`. ? ! … ) ] " ' ״ ׳ : ; *`), and either a final **1–2-letter Hebrew fragment** ("…5 ס", "זה קמ", "…חושבת ש") or **trailing whitespace inside the raw message string** ("…מה זה אומר "), which the client trims later |
+| `quoteCutPaddedAttempts` | attempts rejected as a **whitespace-padded token-limit output** | `finishReason` `MAX_TOKENS` and the text ends in a closed string followed by at least 32 whitespace characters. This output is invalid JSON and is already retried by the existing policy; the counter only records it. |
+
+**Placement in `/api/generate`:**
+- The padded-attempt check runs where an invalid output is rejected.
+- `quoteCutSuspected` is computed once on the final returned text: this covers the no-duplicate, re-asked, dropped and fallback paths.
+- Both fields are added next to the duplicate counters.
+- They are integers only and contain no reply text.
+
+**Client:**
+- `callTelemetry.js` whitelists `TELEMETRY_QUOTE_CUT_KEYS`; the fields are optional and are kept only if the server reports them, so older records stay valid.
+- The conversation contract checks for non-negative integers.
+
+**Known limitations:**
+- **False positives (telemetry only):** a reply whose last word has 1–2 letters and no punctuation ("כן", "…אז גם"). There were none in the 2,355-reply synthetic corpus or the live checks.
+- **False negatives:** a cut after a longer word with no trailing whitespace ("…כמו מלבן", the C2 shape).
+- A padded output on both attempts still fails the turn, as before (unchanged).
+
+**Tests:**
+- `server/test/student_quote_cut.test.mjs` (6 tests):
+  - positive shapes;
+  - complete replies (escaped `"`, gershayim, "15 קמ״ש", "תודה", "כן.", "קמ״ש. 15 קמ״ש. ", parentheses, single-quoted terms);
+  - the false-positive limitation;
+  - malformed entries;
+  - the padded-token-limit predicate.
+- `server/test/student_quote_truncation.test.mjs`:
+  - the fixture replies are served verbatim after 1 attempt, with `quoteCutSuspected = 1`;
+  - complete replies give 0;
+  - a padded attempt is followed by a valid one: 2 calls, `quoteCutPaddedAttempts = 1`;
+  - two padded attempts give a 500, as before, with no third call;
+  - a duplicate re-ask whose answer is cut stays at 2 calls, `resolved`, `quoteCutSuspected = 1`;
+  - the meta contains no reply text.
+- Meta-key assertions updated: `api_generate.test.mjs` and `api_generate_duplicate_guard.test.mjs`.
+- Client: `callTelemetry` (+3), `conversationContract` (+2 rejections, 1 extended), `chatTurnOrchestration` (+1: the counters are logged with the turn).
+
