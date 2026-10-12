@@ -614,3 +614,158 @@ Explicit per-student state would not address attributions or truncation. For pre
 1. **Invented teacher attributions (highest value).** Students should only attribute to the teacher what the teacher actually said, and should not turn the teacher's question into a statement. A candidate is a prompt rule about attributions in the student prompt, tested live with the Mode B harness on the conversations above. A wrong attribution misleads the teacher about what they said, and peers then reason from it. That damages the feedback loop the simulator is for, in about 1 in 8 conversations.
 2. **Quick defect fix (separate, small):** prevent the gershayim and quote truncation, for example with an instruction to write abbreviations without ASCII `"` (or with ״), or by server-side detection. It is a correctness bug, not a behaviour question. **Done in 1.3.13:** the abbreviation rule plus detection-only telemetry (`student_quote_truncation_investigation.md` §9). Opening-quote cuts remain rare and are now visible in telemetry.
 3. **Then:** carrier misconception expression before the explanation (premature correctness, 7 of 24), possibly together with a check of the PCK level in the opening turns.
+
+## 12. Mode B baseline on 1.4.0 (split models: student 3.5 Flash-Lite, PCK 3.1 Flash-Lite), 2026-10-12 — new reference baseline
+
+> **Separate from §11.** Same harness, design and review procedure as the 1.3.12 baseline (§11), but production is now **1.4.0**: student agent `gemini-3.5-flash-lite`, PCK `gemini-3.1-flash-lite`, Vertex `global` endpoint, MINIMAL thinking, no temperature / topP (`student_model_bakeoff.md` §9). **This section replaces §11 as the reference baseline.** Differences from §11 are descriptive (24 conversations per version) and are not statistically tested.
+
+### 12.1 Method
+
+- **System:** committed **1.4.0** (`6572594`); `gitDirtyProductionFiles` and `gitDirtyHarnessFiles` empty; local unmodified `server/server.js` with a capture-only preload (observes each Vertex call; no routing or config change).
+  - Vertex `modelVersion` confirmed every call: 290 student calls on `gemini-3.5-flash-lite`, 288 PCK calls on `gemini-3.1-flash-lite`; 0 thinking tokens.
+  - Synthetic personas and scripts only; no participant data; nothing written to Firestore.
+- **Harness:** `replay_harness/` **Mode B**, HARNESS_VERSION **1.3.2** (the corrected teacher from §11.2; no harness change).
+- **Design:** designed casts (slot A = misconception carrier), 6 scenarios × 2 casts × **2 runs = 24 conversations**, 288 teacher turns.
+  - The runs were made directly on 1.3.2, so no re-simulation or reruns were needed.
+  - Each run used its own local server, so the captured PCK analyses align one-to-one with the turns (all 288 checked against the logged `shown` flag).
+- **Outputs** (git-ignored): `replay_harness/results/B-baseline-1.4.0-run{1,2}`. Scratchpad `c32/`: aligned PCK analyses and per-call capture.
+- **Manual review** (one reviewer; all 24 transcripts read in full), with the same categories as §11.4:
+  - carrier stance before the explanation and resolution after it;
+  - regressions, loops, semantic repetition, contamination;
+  - every teacher-attribution candidate;
+  - every bare probe after a misconception, together with its PCK analysis.
+
+### 12.2 Baseline counts (1.4.0) and comparison with 1.3.12
+
+| measure | 1.4.0 run 1 | 1.4.0 run 2 | **1.4.0 total** | 1.3.12 total (§11.3) |
+|---|---:|---:|---:|---:|
+| conversations / teacher turns / student replies | 12 / 144 / 253 | 12 / 144 / 259 | **24 / 288 / 512** | 24 / 288 / 559 |
+| turns without a reply | 0 | 0 | **0** | 4 |
+| exact same-student duplicates / guard matches (final output) | 0 / 0 | 0 / 0 | **0 / 0** | 0 / 0 |
+| duplicate-guard re-asks | 0 | 0 | **0** | 15 (14 resolved, 1 dropped) |
+| prompt-example copies / placeholder leaks / invalid names | 0 / 0 / 0 | 0 / 0 / 1 | **0 / 0 / 1** | 2 (WRONG-example echoes) / 0 / 0 |
+| quote-cut telemetry: suspected / padded attempts | 0 / 0 | 0 / 0 | **0 / 0** | (no telemetry; 4 cuts found manually) |
+| student / PCK failures | 0 / 0 | 0 / 0 | **0 / 0** | 0 / 0 |
+| calls with 2 attempts: student / PCK | 1 / 0 | 1 / 0 | **2 / 0** (both `MAX_TOKENS` degenerate outputs, recovered; max 2) | 15 / 1 |
+| repeated questions: unanswered / after the answer | 0 / 0 | 0 / 0 | **0 / 0** | 4 / 6 |
+| Mode B teacher: turns with a pending question / answers (generic) / probes replaced / validations neutralized | 4 / 4 (4) / 1 / 6 | 5 / 5 (4) / 2 / 3 | **9 / 9 (8) / 3 / 9** | 73 / 54 (22) / 17 / 3 |
+| replies containing a question mark | | | **27%** | 58% |
+| addressed student did not answer | | | **1 / 123** | 12 / 140 |
+| mean reply length / replies per turn | | | **85 chars / 1.78** | 77 / 1.94 |
+| student latency p50 / p90 | | | **1.22 / 1.60 s** | 1.24 / 1.78 s |
+| PCK latency p50 / p90 (max) | | | **2.49 / 2.99 s** (4.7 s) | 3.31 / 4.09 s (12.0 s) |
+| whole turn p50 / p90 (max) | | | **3.69 / 4.46 s** (6.1 s) | 4.62 / 5.84 s (13.2 s) |
+
+**PCK** (all 288 turns):
+
+| | 1.4.0 | 1.3.12 |
+|---|---:|---:|
+| quality positive / neutral / problematic | 176 / 102 / **10** | 80 / 41 / **167** |
+| understanding improved / same / misconception_reinforced / confused + more_confused | 197 / 81 / 10 / **0** | 80 / 43 / 31 / **134** |
+| feedback shown | **180** (63%) | 265 (92%) |
+
+**By teacher move** (feedback shown; quality + / 0 / −):
+
+| move | 1.4.0 | 1.3.12 |
+|---|---|---|
+| opening (24) | 0 shown; 0 / 24 / 0 | 1 shown; 4 / 20 / 0 |
+| questions (scripted and Mode B) | 134 / 147 shown; 136 / 11 / 0 | 161 / 161 shown; 45 / 15 / 101 |
+| explanation (24) | 24 shown; **24** / 0 / 0 | 24 shown; 7 / 0 / **17** |
+| bare probe "אוקיי" / "יפה" / "נכון" / "?" (69 vs 55) | **21 shown** (30%); 14 / 45 / 10 | 55 shown; 15 / 6 / 34 |
+| closing (24) | 1 shown; 2 / 22 / 0 | 24 shown; 9 / 0 / 15 |
+
+The 1.3.12 PCK (2.5) showed feedback on almost every turn and rated most turns problematic, including 17 of 24 explanations and 15 of 24 closings. The 1.4.0 PCK (3.1) is selective and mostly accurate: all 10 of its *problematic* ratings are genuine missed misconceptions (§12.4). Its weakness is recall at the critical moment (§12.4).
+
+### 12.3 Manual review
+
+| label | candidates | genuine | notes |
+|---|---:|---:|---|
+| **Carrier holds the misconception before the explanation** (24 carriers) | — | **17** (run 1: 10, run 2: 7) | Firm in about half, for example "אז צדקתי! … זה תמיד מעוין" and "נו אמרתי לך, הם שונים לגמרי"; the rest hedged ("נראה לי שלא, כי…", "…, לא?"). |
+| **Premature correctness** (carrier correct before the explanation) | 2 ledger candidates (1 genuine) | **7 of 24** (2 firm, 5 tentative) | Firm: r2 s3 cast 1 (יובל, T2 "אה, עכשיו הבנתי! … גם ריבוע הוא סוג של מלבן?") and r2 s4 cast 0 (תמר reasons it out at T2). Tentative: r1 s3 cast 1, r1 s4 cast 0, r2 s2 cast 0, r2 s4 cast 1, r2 s5 cast 1. In addition, **3 carriers who held at T2 drifted toward the answer at T3**, after a bare "אוקיי" with *silent* PCK (r1 s3 cast 0 via a peer, r2 s1 cast 0, and r1 s2 cast 0 as a question); see §12.4. |
+| **Resolution after teaching** (17 carriers who held) | — | **17 / 17** | All reach the target idea in their own words after the explanation (T5–T7). One keeps appearance-based wording with a correct conclusion (r2 s1 cast 1, נועה T8–T9). |
+| **Persistent misconception** | 3 | **0** | All three are false positives: a correct necessary/sufficient definition, a reported former belief ("כמו שחשבתי בהתחלה…"), and a correct summary. |
+| **Regression** | 0 | **0** | |
+| **Repeated question** (unanswered / after the answer) | 0 / 0 | **0** | Students ask far fewer questions (27% of replies vs 58%), so Mode B had only 9 pending questions (73 in 1.3.12). |
+| **Semantic repetition** | 10 | **0 loops** | Two are carrier restatements of the misconception after "אוקיי" (persistence on a probe, as in §11.4); the rest are progress, an answer to a direct question, a deferred re-ask, or closings. |
+| **Cross-student contamination** | 6 | **0** | All are shared canonical summary wording. |
+| **Teacher attributions** | 79 | **2 invented, 10 mixed** | **Invented** (both mild framing, never picked up by a peer): "אמרת שנדבר על הסיבה הגאומטרית", "אמרת לי לבדוק את התנאים". **Mixed:** 4 question premises turned into statements, 3 cases of the student's own point or a peer's credited to the teacher, 1 "אמרת שכן" (an acknowledgement taken as a yes), 2 mild. **Not errors:** 12 prior-lesson references, 4 questions about "אוקיי" ("אמרת אוקיי אבל לא הגדרת לנו אם זה נכון…"), 51 accurate. That is about 2.3% of replies, against about 1.3% in 1.3.12 (4 invented + 3 mixed). |
+| **Prompt-example copying** | 0 | 0 | The WRONG-example echoes from 1.3.12 are gone. |
+| **Garbled surface text (new)** | — | **about 10 in 512 replies (about 2%)** | "לגmרי" (Latin letter), "לדรายละเอียด" (Thai), "אמרת ל֤ני לפגע" (cantillation mark and corrupted words), "שש3", "שווות", "הצצלעות", "שעות שונה", "זה את את" ×2, one LaTeX string (`$AC = BD$`), and **one reply under the speaker name "מעוין" instead of מעיין** (the harness's 1 invalid name). The same scan finds 0 in 1.3.12's 559 replies. |
+
+### 12.4 PCK at the critical moment: bare acknowledgement after a misconception
+
+- **The case:** T3 in every scenario is the scripted bare probe ("אוקיי", or "יפה" neutralized to "אוקיי" by Mode B) right after the carrier's answer to the direct question. Six T3 cases were excluded:
+  - the T2 answer was correct or correct-leaning (r1 s4 cast 0, r2 s3 cast 1, r2 s4 cast 0, r2 s4 cast 1, r2 s5 cast 1);
+  - or Mode B replaced the probe (r2 s2 cast 0).
+
+  That leaves **18 genuine cases**.
+
+| | cases | feedback shown | silent |
+|---|---:|---:|---:|
+| 1.4.0, manual (18 cases) | 18 | **10** | **8** (r1 s2 cast 0, r1 s3 cast 0, r1 s3 cast 1, r1 s4 cast 1, r1 s5 cast 0, r1 s5 cast 1, r2 s1 cast 0, r2 s3 cast 0) |
+| 1.4.0, harness-detected claim before a bare probe | 11 | 4 | 7 |
+| 1.3.12, harness-detected claim before a bare probe | 6 | 6 | 0 |
+
+- **The two outcomes are bimodal, with no middle ground:**
+  - **Shown (10):** `problematic` / `misconception_reinforced`, `addressed_misconception: false`, risk *high*, trigger `student_misconception_not_addressed`, error-identification relevant with score 0, the carrier hinted as `reinforced_acceptance`. The feedback text is precise, for example: "הוחמצה הזדמנות לזיהוי השגיאה: התלמיד טען בטעות שריבוע אינו מלבן, אך בתגובתך 'אוקיי' אישרת את הטענה…".
+  - **Silent (8):** `neutral` / `same`, risk *medium*, no trigger, **no relevant skill**, the carrier hinted only as `persistent_confusion` or `cautious_clarification`. Two list `adapted-pedagogical-response` as missed but still do not show feedback.
+  - So the 3.1 PCK does not *see* a misconception in these 8. It reads the hedged or question-form claim ("אז אם הם שווים … זה ריבוע, לא?", "אני חושבת שכן… לא?") as confusion. No field of the silent analyses would let a server-side rule recover them.
+  - The silent cases cluster by scenario: s3 3 of 3, s5 2 of 3, s4 1 of 1, s1 1 of 4, s2 1 of 3, s6 0 of 4.
+- **Effect on the students:**
+  - When the feedback is shown, the steering is `misconception_reinforced` and **all 10 carriers keep the misconception** ("אז צדקתי!"). This is the realistic consequence the teacher should see.
+  - When PCK is silent, the steering is `same` with a "cautious_clarification" hint, and in **5 of 8** the carrier starts doubting or drifts toward the answer before any teaching ("רגע, אז זה לא נכון?"; r2 s1 cast 0: "אז אתה אומר שזה נכון? … הוא בעצם מלבן?").
+  - So the PCK miss costs twice: the teacher gets no feedback at the most important moment, and the student's misconception weakens without a reason.
+- **1.3.12 for comparison:** 2.5 flagged every detected case, but it also flagged most other turns (167 of 288 problematic), so its "detection" was not selective.
+
+### 12.5 Interpretation
+
+1. **Technical:**
+   - the 1.4.0 split is clean: 0 failures, 0 duplicate re-asks, 0 quote cuts, no example or placeholder leakage;
+   - about 20% faster whole turns, with a much smaller tail (max 6.1 s vs 13.2 s);
+   - two `MAX_TOKENS` student attempts with degenerate output were recovered by the existing retry.
+2. **Student behaviour is more stable and less confused than on 1.3.12:**
+   - every carrier who holds the misconception resolves it after teaching;
+   - no persistent misconceptions, loops, regressions or repeated questions;
+   - the addressed student almost always answers.
+   - Most of this follows the steering: 3.1 PCK sends no *confused* / *more_confused* levels, against 134 in 1.3.12.
+   - Students also ask fewer questions, so the Mode B answer-bank paths were exercised much less (9 pending questions).
+3. **Premature correctness did not materially change:** 7 of 24 in both versions (now 2 firm and 5 tentative, against 3 and 4). A further 3 carriers drift at T3, and those drifts are driven by PCK silence, not by the student model.
+4. **New issue:** about 2% of 3.5 Flash-Lite replies contain visible garbling (foreign script, corrupted words, doubled words, a wrong speaker name). None was seen in 1.3.12. It is plausibly related to the 3.x sampling defaults now in use; untested.
+5. **Attribution:** mixed attributions rose (10 vs 3) and invented ones fell (2 vs 4), with no peer propagation. This matches the bakeoff (§9 of `student_model_bakeoff.md`) and stays a known limitation.
+6. **Harness limitation (not fixed):** in s6, a carrier claim ending in a tag ("בטח שלא, מעוין זה צורה אחרת לגמרי, לא?") is not detected, so the scripted "יפה" is not neutralized (r1 and r2 s6 cast 0).
+   - PCK flagged both correctly, and the students' reaction ("נו אמרתי לך") is consistent with the validation they received.
+   - It does not affect the counts above, but it should be fixed before the next comparison that depends on T3.
+
+### 12.6 Answers and recommended next fix
+
+1. **New baseline counts:** see §12.2–§12.3. In short:
+   - 24 conversations, 512 replies, 0 failures;
+   - carriers holding the misconception before teaching 17 of 24, premature 7 of 24 (2 firm), resolution 17 of 17, persistence 0, regressions 0, loops 0, repeated questions 0;
+   - attributions 2 invented and 10 mixed; duplicate re-asks 0; quote cuts 0; leaks 0; garbled replies about 10;
+   - PCK shown 180 of 288, problematic 10, missed-misconception feedback 10 of 18.
+2. **Main differences from 1.3.12:**
+   - PCK is far less noisy (problematic 167 → 10; explanations and closings no longer criticised), but misses 8 of 18 bare acknowledgements of a misconception;
+   - students are no longer driven into confusion (more_confused 102 → 0), so persistence and loops disappear and all carriers resolve;
+   - students ask fewer questions;
+   - turns are faster;
+   - garbled surface text is new.
+3. **Premature correctness:** not materially changed (7 of 24 in both). It is not the main problem on 1.4.0; part of the remaining early drift is a consequence of the PCK silence.
+4. **Is PCK silence after missed misconceptions now the highest-priority issue?** **Yes.**
+   - It is the simulator's core feedback function, and it fails in 8 of 18 canonical cases (44%).
+   - It also weakens the student's misconception in 5 of those 8.
+   - The other issues are either smaller (garbling about 2%, mixed attributions about 2%) or unchanged (premature correctness).
+5. **Recommended next fix:** a **PCK prompt clarification for tentative or question-form misconception claims**, tested on frozen contexts before any change. For example, in Gate 1: a student's incorrect claim counts even when hedged ("נראה לי ש…", "אני חושבת ש…") or phrased with a question tag ("…, לא?"). A teacher reply that only acknowledges or validates it ("אוקיי", "יפה", "נכון") is a missed error-identification, so `should_provide_feedback` is true.
+   - **Test set:**
+     - the 8 silent and 10 shown T3 contexts from this baseline (rebuilt exactly);
+     - controls where a bare probe follows a **correct** answer (r2 s4 cast 0 "יפה", r1 s4 cast 0, r2 s3 cast 1) and genuine-confusion questions, to make sure correct answers and honest questions are not flagged;
+     - the explanation and closing turns, to protect the specificity gained in 1.4.0.
+   - **Success criterion:** the 8 silent cases become shown (with the same feedback shape as the 10), with no new problematic ratings on the controls.
+   - **Students:** to be re-measured afterwards, since the steering after T3 will change (expect fewer early drifts).
+   - **Second priority:** a content-free garbling counter in student telemetry (non-Hebrew script inside Hebrew words, an invalid speaker name), detection only, like the quote-cut counters. Then a small experiment on whether a sampling setting reduces it.
+
+**Limitations:**
+- 24 conversations with a scripted, minimal teacher;
+- one reviewer;
+- the T3 analysis rests on 18 cases;
+- the harness misses some claim forms (s6 tags, s1 anaphora in the ledger);
+- PCK and student outputs are not deterministic.
