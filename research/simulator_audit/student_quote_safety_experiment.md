@@ -1,6 +1,6 @@
 # Quote-safety prompt rule: live A/B
 
-Status: experiment only, 2026-10-12, on committed **1.3.12** (`279721a`).
+Status: experiment only, 2026-10-12, on committed **1.3.12** (`279721a`). **Follow-up with conditions C and D (§9) supersedes the recommendation in §7.**
 - No production change, no `SYSTEM_VERSION` bump, and no retry, telemetry, duplicate, PCK, persona, example, model-config or harness change.
 - Synthetic contexts only; no participant data; nothing written to Firestore.
 - Follows `student_quote_truncation_investigation.md`.
@@ -179,3 +179,133 @@ Over all 841 raw messages from the investigation and this experiment:
   - `qsafe.bench.js`, `capture.cjs`, `analyze.py`;
   - `raw_capture.jsonl` and `client_results.json`;
   - `prompt_samples.json` (the A and B system prompts).
+
+## 9. Follow-up: A vs C (abbreviation rule only) vs D (abbreviation rule + stronger quoting rule)
+
+### 9.1 Conditions
+
+Rule text is verbatim; everything else in the prompt is identical.
+
+**A** is the current 1.3.12 prompt.
+
+**C** adds item 6 directly after item 5 of the FORMAT REQUIREMENTS:
+
+```
+6. Inside a message, write Hebrew abbreviations with the Hebrew gershayim ״ (for example ס״מ, מ״ר, קמ״ש), never with the ASCII double quote character (").
+```
+
+**D** adds the same item 6 plus:
+
+```
+7. Never use the ASCII double quote character (") inside a student message, even if the teacher used it. If you need to mention a quoted term, use single quotes or no quotation marks.
+```
+
+**Integrity:** the server-side capture confirmed each condition's rule markers in every request: A had neither rule (148/148), C had only item 6 (146/146), and D had both (141/141).
+
+### 9.2 Method
+
+The method is the same as §2, with the same capture preload.
+- **Abbreviation triggers** (20 calls per condition each): T1-cm, T2-s1c1T10, T7-c18.
+- **Quoted-term triggers** (20 calls per condition each): Q1, the s5 prefix-quote probe from the §4 follow-up (ב"נקודת המפגש", "באמצע"); and Q2 (= T6-echoquotes): "חוצים זה את זה" vs "חוצים זוויות".
+- **Ordinary controls** (8 calls per condition each): N1 s2 T5, N2 s6 T8, N3 s5 T9, N4 s1 T5, N5 s4 T8.
+- **Volume:** 420 calls and 435 raw model responses. The condition order rotates per repetition (A-C-D, C-D-A, D-A-C).
+- **Cut classification:** every unfinished message was confirmed in the raw output.
+  - *Abbreviation cut:* the string closed after a 1–2-letter unit fragment following a number.
+  - *Quoted-word cut:* the string closed at an opening quote. The message ends in a function word or with a space inside the string, for example `"אני חושבת ש"`.
+
+### 9.3 Results
+
+| group (raw responses A / C / D) | | A | C | D |
+|---|---|---:|---:|---:|
+| **abbreviation triggers** (62 / 60 / 60) | messages | 90 | 86 | 77 |
+| | **abbreviation cuts** | **13** | **0** | **0** |
+| | correctly escaped ASCII `\"` abbreviations | 4 | 0 | 0 |
+| | abbreviations with `״` | 0 | 60 | 57 |
+| | replies mentioning a unit | 21 (13 of them cut) | 61 | 57 |
+| **quoted-term triggers** (40 / 41 / 41) | messages | 69 | 65 | 77 |
+| | **quoted-word cuts** | **0** | **2** | **1** |
+| | degenerate output: the string closes at an opening quote, then whitespace until `MAX_TOKENS` (invalid JSON, recovered on attempt 2) | 0 | 1 | 1 |
+| | terms in single quotes | 38 | 35 | 34 |
+| | escaped ASCII `\"` | 0 | 1 | 0 |
+| **ordinary controls** (46 / 45 / 40) | messages | 110 | 105 | 88 |
+| | cuts | 0 | 0 | 0 |
+| | unit mentions / gershayim / rule leakage | 1 / 0 / 0 | 1 / 0 / 0 | 1 / 0 / 0 |
+
+**Final output** (what the client shows):
+
+| | A | C | D |
+|---|---|---|---|
+| unfinished replies | 13 of 247 (all abbreviation) | **2 of 241** (quoted word) | **1 of 242** (quoted word) |
+| client errors | 0 | 0 | 0 |
+| JSON / schema | 434 of 435 raw responses valid across all conditions (the 2 degenerate outputs are the exceptions); every call returned a valid final output | | |
+
+**Per context:**
+- **Abbreviation cuts, A:** T1-cm 3/20, T2 5/36, T7 5/34.
+- **C and D:** 0 in each abbreviation context.
+- **Quoted-word failures** (raw):
+  - C: Q1 1 cut + 1 degenerate, Q2 1 cut;
+  - D: Q1 1 cut + 1 degenerate;
+  - A: none.
+
+**Gershayim:**
+- Always written correctly between the letters (ס״מ, מ״ר); no stray `״`.
+- Two D replies in Q1 used ס״מ in a measurement example, which is appropriate.
+
+**Behaviour:**
+- **Ordinary turns are unchanged** in all conditions:
+  - replies per call 2.30 / 2.25 / 2.20;
+  - mean length 94 / 93 / 92 characters;
+  - unit mentions 1 / 1 / 1;
+  - single-quoted terms 7 / 10 / 7;
+  - no leakage of the rule.
+- **Units are not overused** outside measurement contexts.
+- **In "give an example rectangle" turns, C and D add units more often** (T7: about 80% of replies with ס״מ, against about 25% in A, where the rest gave plain numbers such as "5 ו-3"). This is the same priming as in §3. It is natural Hebrew and confined to turns about measurements.
+- Duplicate re-asks in the controls were 6 (A), 5 (C) and 0 (D), and replies per call in the abbreviation contexts were 1.43 / 1.43 / 1.28. Both are within run-to-run noise (N3 alone varies strongly).
+
+**Latency:**
+- Model time p50 / p90 per group was similar: abbreviation 1,210/1,448 (A), 1,136/1,525 (C), 1,111/1,357 (D) ms.
+- Client p50 was 1.1–1.6 s in every group.
+- The degenerate outputs cost one extra attempt each.
+
+### 9.4 Pooled view of quoted-word failures
+
+These are turns where the teacher's message contains double-quoted terms (T6/Q2, T8/Q1; both experiments):
+
+| condition | replies | final quoted-word cuts | + degenerate raw outputs |
+|---|---:|---:|---:|
+| A (no rule) | 137 | 1 | 0 |
+| B (§1: "…put quoted words in single quotes") | 70 | 6 | 0 |
+| C (abbreviations only) | 65 | 2 | 1 |
+| D (C + "never use " even if the teacher used it…") | 77 | 1 | 1 |
+
+- All three rules that name the ASCII `"` character show at least as many quoted-word failures as A.
+- One possible explanation is priming by the explicit mention of `"`; this was not tested.
+- At these sample sizes, C (2/65) and D (1/77) are not distinguishable from A (1/137). B is clearly worse.
+- **The trade-off:** C/D remove abbreviation cuts, which affect about 14% of replies in measurement turns (up to 100% for centimetres). The quoted-word failure rate in quoted-term turns stays at a few percent at most.
+
+### 9.5 Decision
+
+Applying the decision rule:
+- **Abbreviation cuts:** 0 for both C and D. ✔
+- **Quoted-word cuts:** neither is strictly "not higher than A" in point estimates (C 2, D 1, A 0 in this run). The differences are within noise.
+- **D does not clearly improve on C** for quoted words. Its extra sentence did not prevent the opening-quote failure or the degenerate output in Q1.
+
+Following the stated preference ("if D still causes quoted-word problems, prefer C and treat rare quoted-word cuts with the later detector"), the recommendation is **C**:
+
+```diff
+ 	retStr += `\n5. Return ONLY the "responses" array: no reasoning, analysis or explanation fields, and no text outside it`;
++	retStr += `\n6. Inside a message, write Hebrew abbreviations with the Hebrew gershayim ״ (for example ס״מ, מ״ר, קמ״ש), never with the ASCII double quote character (").`;
+```
+
+This goes in `src/utils/ai.js:346` (`makeProsePrompt`).
+
+**Ready to implement as 1.3.13:** yes, as the abbreviation fix, with these accompanying items:
+- `SYSTEM_VERSION` 1.3.13 and a changelog entry;
+- `studentAgent.test.js`: the exact rule appears once, with and without PCK guidance; the rest of the prompt is byte-identical to 1.3.12 (fingerprint with the line removed);
+- the investigation fixture test stays unchanged.
+
+The quoted-word failure remains open at a low rate and is concentrated in turns where the teacher writes double-quoted terms. It should be handled by the later telemetry detector, using the raw-message signals in §6: a 1–2-letter ending, a trailing space inside the string, and, newly, a whitespace-padded `MAX_TOKENS` output.
+
+**Optional, not required:** if the priming hypothesis matters, a single follow-up could test C without its trailing clause ("…with the Hebrew gershayim ״ (for example ס״מ, מ״ר, קמ״ש).") on Q1/Q2 and T1/T2. This should not delay 1.3.13.
+
+**Analysis files:** scratchpad `c23/` (`qsafe3.bench.js`, `capture.cjs`, `analyze3.py`, `raw_capture.jsonl`, `client_results.json`).
