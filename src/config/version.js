@@ -13,10 +13,24 @@
  * - Z: Patch version (bug fixes, minor improvements)
  */
 
-export const SYSTEM_VERSION = "1.3.0";
+export const SYSTEM_VERSION = "1.3.0-gemini3";
 
 /**
  * Version History:
+ * 
+ * 1.3.0-gemini3 (2026-10-12), production hotfix on main:
+ * - The 1.3.0 (pilot) behaviour with ONLY the Gemini model migration (gemini-2.5-flash-lite is
+ *   retired on Vertex AI on 2026-10-20). None of the post-pilot changes (1.3.1 and later on the
+ *   development branch) are included.
+ * - Models (server/model_config.js): the student agent (/api/generate) runs on
+ *   gemini-3.5-flash-lite; PCK feedback, the summary, completion and test endpoints run on
+ *   gemini-3.1-flash-lite. Vertex AI is called through the `global` location and endpoint
+ *   (aiplatform.googleapis.com); GOOGLE_CLOUD_LOCATION no longer applies.
+ * - Every model call sets thinking explicitly to MINIMAL and sends no temperature / topP (the
+ *   3.x model defaults; previously temperature 0.7 with topP 1, 0.95 for the summary, 0.5 for
+ *   the test endpoint). /api/health reports `models` per agent instead of a single `model`.
+ * - Unchanged: prompts, personas, response schemas, maxOutputTokens, retry handling, PCK
+ *   parsing, the SDK and the stored conversation format.
  * 
  * 1.3.0 (2026-05-20):
  * - PCK feedback accuracy: restructured Phase 1 into three sequential gates so
