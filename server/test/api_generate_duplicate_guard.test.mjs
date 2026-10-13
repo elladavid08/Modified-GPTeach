@@ -190,6 +190,8 @@ test('17. telemetry contains no student, teacher or note text', async () => {
   const json = JSON.stringify(res.body.meta);
   for (const s of [SYSTEM, 'דנה', 'תמר', 'מעוין', 'נכון', 'Regeneration', 'draft']) assert.ok(!json.includes(s), s);
   // 1.3.13 adds two content-free quote-cut counters (integers)
-  assert.deepEqual(Object.keys(res.body.meta).sort(), ['agent', 'attempts', ...DUP_KEYS, 'finishReason', 'latencyMs', 'model', 'quoteCutPaddedAttempts', 'quoteCutSuspected'].sort());
+  // 1.4.2 adds six content-free garbled-text counters (integers)
+  assert.deepEqual(Object.keys(res.body.meta).sort(), ['agent', 'attempts', ...DUP_KEYS, 'finishReason', 'latencyMs', 'model', 'quoteCutPaddedAttempts', 'quoteCutSuspected',
+    'garbleForeignScript', 'garbleMixedScriptToken', 'garbleCantillation', 'garbleRepeatedFunctionWord', 'garbleMarkup', 'garbleReplies'].sort());
   for (const k of ['duplicateRetries', 'duplicateRepliesDropped', 'duplicateRepliesKept']) assert.ok(Number.isInteger(res.body.meta[k]) && res.body.meta[k] >= 0);
 });

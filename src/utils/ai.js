@@ -2,6 +2,7 @@ import ChatMessage from "../objects/ChatMessage";
 import { Constants } from "../config/constants";
 import { toTitleCase } from "./primitiveManipulation";
 import { generateWithGenAI, generateWithGenAICompletion } from "../services/genai";
+import { countUnknownSpeakers } from "../services/callTelemetry";
 // ==================== OpenAI Configuration (COMMENTED OUT - Currently using Google Vertex AI) ====================
 // Kept for potential future use if switching back to OpenAI
 // const { Configuration, OpenAIApi } = require("openai");
@@ -209,7 +210,9 @@ async function callChatModel(
 				const parsedMessages = convertResponseToMessages(msg, null, students);
 				const msgCount = parsedMessages ? parsedMessages.length : 0;
 				console.log(`✅ Parsed ${msgCount} message(s) from response`);
-				onResponse(parsedMessages, null, students, callMeta);
+				// 1.4.2: content-free count of replies under a name outside the cast (detection only; replies unchanged)
+				const meta = callMeta ? { ...callMeta, unknownSpeaker: countUnknownSpeakers(parsedMessages, students) } : callMeta;
+				onResponse(parsedMessages, null, students, meta);
 			}
 		} else {
 			// ==================== OpenAI Chat API (COMMENTED OUT - Currently using Google Vertex AI) ====================

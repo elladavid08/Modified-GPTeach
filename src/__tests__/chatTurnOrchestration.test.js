@@ -865,6 +865,21 @@ describe("LLM call telemetry", () => {
 		});
 	});
 
+	it("student garbled-text and unknown-speaker counters are logged with the turn (1.4.2); PCK entry unchanged", async () => {
+		const pckMeta = META("pck", 2100);
+		const dup = { duplicateRetries: 0, duplicateRepliesDropped: 0, duplicateRepliesKept: 0, duplicateOutcome: "none" };
+		const garble = { garbleForeignScript: 1, garbleMixedScriptToken: 1, garbleCantillation: 0, garbleRepeatedFunctionWord: 0, garbleMarkup: 0, garbleReplies: 2 };
+		const studentMeta = META("student", 2400, { ...dup, quoteCutSuspected: 0, quoteCutPaddedAttempts: 0, ...garble, unknownSpeaker: 1 });
+		pckWithMeta(pckMeta);
+		studentsWithMeta(studentMeta);
+		await startLesson();
+		await sendTeacherMessage("נכון");
+		expect(loggedTelemetry(0)).toEqual({
+			pck: expectedTelemetry(pckMeta),
+			student: { ...expectedTelemetry(studentMeta), ...dup, quoteCutSuspected: 0, quoteCutPaddedAttempts: 0, ...garble, unknownSpeaker: 1 },
+		});
+	});
+
 	it("telemetry stays with the correct turn across turns", async () => {
 		pckWithMeta(META("pck", 100));
 		studentsWithMeta(META("student", 110));

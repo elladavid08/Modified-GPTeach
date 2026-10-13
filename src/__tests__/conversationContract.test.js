@@ -38,6 +38,9 @@ describe("conversation document contract validator", () => {
 		// 1.3.13: optional, content-free quote-cut counters on the student entry
 		doc.turns[1].telemetry.student = { ...doc.turns[1].telemetry.student, quoteCutSuspected: 1, quoteCutPaddedAttempts: 0 };
 		expect(validateConversationDoc(doc)).toEqual([]);
+		// 1.4.2: optional, content-free garbled-text counters and the unknown-speaker counter on the student entry
+		doc.turns[1].telemetry.student = { ...doc.turns[1].telemetry.student, garbleForeignScript: 1, garbleMixedScriptToken: 0, garbleCantillation: 0, garbleRepeatedFunctionWord: 0, garbleMarkup: 0, garbleReplies: 1, unknownSpeaker: 0 };
+		expect(validateConversationDoc(doc)).toEqual([]);
 		expect(validateConversationDoc(legacyFormatConversation(), { legacy: true })).toEqual([]);
 	});
 
@@ -50,6 +53,9 @@ describe("conversation document contract validator", () => {
 		["telemetry with a negative duplicate count", (t) => { t.telemetry = { pck: null, student: { status: "ok", duplicateRepliesDropped: -1 } }; }],
 		["telemetry with a negative quote-cut count", (t) => { t.telemetry = { pck: null, student: { status: "ok", quoteCutSuspected: -1 } }; }],
 		["telemetry with text in a quote-cut field", (t) => { t.telemetry = { pck: null, student: { status: "ok", quoteCutPaddedAttempts: "באורך 5 ס" } }; }],
+		["telemetry with text in a garble field", (t) => { t.telemetry = { pck: null, student: { status: "ok", garbleForeignScript: "איזה יظה" } }; }],
+		["telemetry with a negative garble count", (t) => { t.telemetry = { pck: null, student: { status: "ok", garbleReplies: -1 } }; }],
+		["telemetry with a speaker name in unknownSpeaker", (t) => { t.telemetry = { pck: null, student: { status: "ok", unknownSpeaker: "מעוין" } }; }],
 	])("rejects %s", (_label, mutate) => {
 		const doc = currentFormatConversation();
 		mutate(doc.turns[1]);

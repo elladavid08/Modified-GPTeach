@@ -13,10 +13,25 @@
  * - Z: Patch version (bug fixes, minor improvements)
  */
 
-export const SYSTEM_VERSION = "1.4.1";
+export const SYSTEM_VERSION = "1.4.2";
 
 /**
  * Version History:
+ * 
+ * 1.4.2 (2026-10-13):
+ * - Detection-only telemetry for garbled student text (student_garbled_text_investigation.md):
+ *   gemini-3.5-flash-lite sometimes puts a letter from another script into a Hebrew word ("לגmרי",
+ *   "איזה יظה"), adds cantillation marks, doubles a function word ("זה את את זה") or emits LaTeX.
+ * - Student-call telemetry (A17, additive) gains six content-free counters computed by the server
+ *   on the returned output: garbleForeignScript, garbleMixedScriptToken, garbleCantillation,
+ *   garbleRepeatedFunctionWord, garbleMarkup (replies with each pattern) and garbleReplies (replies
+ *   with any). The browser adds unknownSpeaker (replies under a name outside the active cast).
+ * - Nothing the teacher sees changes: no retry, rewrite, drop or reorder; prompts, models, routing,
+ *   retry policy, duplicate guard, quote-cut telemetry and parsing are unchanged. No text or token
+ *   is stored, only counts.
+ * - Versioned (not a teacher-facing change) because it changes the stored conversation record and
+ *   systemVersion is the provenance that tells whether a record could carry these counters (A6;
+ *   precedent: the telemetry-only 1.3.5).
  * 
  * 1.4.1 (2026-10-12):
  * - Real-time PCK feedback after a bare acknowledgement of a misconception

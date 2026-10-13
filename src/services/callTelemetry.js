@@ -12,7 +12,11 @@ export const TELEMETRY_BASE_KEYS = ["status", "reason", "model", "latencyMs", "c
 export const TELEMETRY_DUPLICATE_KEYS = ["duplicateRetries", "duplicateRepliesDropped", "duplicateRepliesKept", "duplicateOutcome"];
 // Student quote-cut detection (1.3.13): optional, content-free counters; present only when the server reports them
 export const TELEMETRY_QUOTE_CUT_KEYS = ["quoteCutSuspected", "quoteCutPaddedAttempts"];
-export const TELEMETRY_KEYS = [...TELEMETRY_BASE_KEYS, ...TELEMETRY_DUPLICATE_KEYS, ...TELEMETRY_QUOTE_CUT_KEYS];
+// Student garbled-text detection (1.4.2): optional, content-free server counters; present only when the server reports them
+export const TELEMETRY_GARBLE_KEYS = ["garbleForeignScript", "garbleMixedScriptToken", "garbleCantillation", "garbleRepeatedFunctionWord", "garbleMarkup", "garbleReplies"];
+// Unknown speaker (1.4.2): optional, content-free client counter; only the browser knows the active cast
+export const TELEMETRY_SPEAKER_KEYS = ["unknownSpeaker"];
+export const TELEMETRY_KEYS = [...TELEMETRY_BASE_KEYS, ...TELEMETRY_DUPLICATE_KEYS, ...TELEMETRY_QUOTE_CUT_KEYS, ...TELEMETRY_GARBLE_KEYS, ...TELEMETRY_SPEAKER_KEYS];
 export const DUPLICATE_OUTCOMES = ["none", "resolved", "dropped", "kept", "reask_failed"];
 const MAX_STRING_CHARS = 64;
 
@@ -43,7 +47,29 @@ export function buildCallTelemetry(status, meta = null, reason = null) {
 		...timingFields(meta),
 		...duplicateFields(meta),
 		...quoteCutFields(meta),
+		...countersIfReported(meta, TELEMETRY_GARBLE_KEYS),
+		...countersIfReported(meta, TELEMETRY_SPEAKER_KEYS),
 	};
+}
+
+/** Non-negative integer counters for `keys`, only if any of them was reported (otherwise omitted). */
+function countersIfReported(meta, keys) {
+	if (!meta || typeof meta !== "object" || !keys.some((key) => key in meta)) {
+		return {};
+	}
+	return Object.fromEntries(keys.map((key) => [key, nonNegativeInt(meta[key])]));
+}
+
+/**
+ * Number of parsed student replies whose speaker is not one of the active cast (1.4.2, detection only).
+ * Content-free: returns a count; the replies themselves are not changed.
+ */
+export function countUnknownSpeakers(messages, students) {
+	if (!Array.isArray(messages)) {
+		return 0;
+	}
+	const cast = new Set((Array.isArray(students) ? students : []).map((s) => s && s.name));
+	return messages.filter((m) => !(m && cast.has(m.name))).length;
 }
 
 /** Duplicate-guard counters (student calls since 1.3.11), only if the server reported any of them. */

@@ -436,7 +436,36 @@ describe("student call telemetry", () => {
 		});
 		const onResponse = jest.fn();
 		await callAI(historyOf([]), students, scenario, "", null, onResponse);
-		expect(onResponse.mock.calls[0][3]).toEqual(meta);
+		// 1.4.2: the client adds the content-free unknownSpeaker count to the server's telemetry
+		expect(onResponse.mock.calls[0][3]).toEqual({ ...meta, unknownSpeaker: 0 });
+	});
+
+	it("1.4.2: counts replies under a name outside the cast in unknownSpeaker, and still shows them unchanged", async () => {
+		const meta = { agent: "student", model: "gemini-3.5-flash-lite", latencyMs: 600, finishReason: "STOP", attempts: 1, clientLatencyMs: 650 };
+		const replies = [
+			{ student: students[0].name, message: "איזה יظה, הבנתי!" },
+			{ student: "מעוין", message: "תודה רבה, הבנתי את הנושא מעולה!" },
+			{ student: students[1].name, message: "סוף סוף." },
+		];
+		generateWithGenAI.mockImplementation(async (_m, options) => {
+			options.onMeta(meta);
+			return JSON.stringify({ responses: replies });
+		});
+		const onResponse = jest.fn();
+		await callAI(historyOf([]), students, scenario, "", null, onResponse);
+		const [msgs, , , callMeta] = onResponse.mock.calls[0];
+		expect(callMeta).toEqual({ ...meta, unknownSpeaker: 1 });
+		// detection only: same replies, same order, same names and text (nothing dropped or rewritten)
+		expect(msgs.map((m) => [m.name, m.text])).toEqual(replies.map((r) => [r.student, r.message]));
+		expect(JSON.stringify(callMeta)).not.toContain("מעוין");
+	});
+
+	it("1.4.2: no server telemetry means no client counter is invented", async () => {
+		generateWithGenAI.mockResolvedValue(JSON.stringify({ responses: [{ student: "מעוין", message: "היי" }] }));
+		const onResponse = jest.fn();
+		await callAI(historyOf([]), students, scenario, "", null, onResponse);
+		expect(onResponse.mock.calls[0][3]).toBeNull();
+		expect(onResponse.mock.calls[0][0].map((m) => m.name)).toEqual(["מעוין"]);
 	});
 });
 

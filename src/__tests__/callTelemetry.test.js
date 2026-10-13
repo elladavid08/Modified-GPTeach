@@ -1,5 +1,5 @@
 // LLM-call telemetry (A17, REVIEW): a strict, bounded whitelist of timing metadata.
-import { buildCallTelemetry, TELEMETRY_KEYS, TELEMETRY_BASE_KEYS, TELEMETRY_DUPLICATE_KEYS, TELEMETRY_QUOTE_CUT_KEYS, DUPLICATE_OUTCOMES } from "../services/callTelemetry";
+import { buildCallTelemetry, TELEMETRY_KEYS, TELEMETRY_BASE_KEYS, TELEMETRY_DUPLICATE_KEYS, TELEMETRY_QUOTE_CUT_KEYS, TELEMETRY_GARBLE_KEYS, TELEMETRY_SPEAKER_KEYS, DUPLICATE_OUTCOMES, countUnknownSpeakers } from "../services/callTelemetry";
 
 const META = {
 	agent: "pck",
@@ -94,7 +94,8 @@ describe("student duplicate-guard telemetry (1.3.11, A17 additive)", () => {
 
 	it("omits them when the server did not report them (PCK calls, older servers): backward compatible", () => {
 		expect(Object.keys(buildCallTelemetry("ok", META)).sort()).toEqual([...TELEMETRY_BASE_KEYS].sort());
-		expect(TELEMETRY_KEYS).toEqual([...TELEMETRY_BASE_KEYS, ...TELEMETRY_DUPLICATE_KEYS, ...TELEMETRY_QUOTE_CUT_KEYS]);
+		// 1.4.2 appends the garbled-text and unknown-speaker counters (additive)
+		expect(TELEMETRY_KEYS).toEqual([...TELEMETRY_BASE_KEYS, ...TELEMETRY_DUPLICATE_KEYS, ...TELEMETRY_QUOTE_CUT_KEYS, ...TELEMETRY_GARBLE_KEYS, ...TELEMETRY_SPEAKER_KEYS]);
 	});
 
 	it("only accepts the known outcomes and non-negative integer counts; never text", () => {
@@ -136,3 +137,47 @@ describe("student quote-cut telemetry (1.3.13, A17 additive, detection only)", (
 		expect(hasUndefined(t)).toBe(false);
 	});
 });
+
+describe("student garbled-text telemetry (1.4.2, A17 additive, detection only)", () => {
+	const GARBLE = { garbleForeignScript: 1, garbleMixedScriptToken: 0, garbleCantillation: 0, garbleRepeatedFunctionWord: 2, garbleMarkup: 0, garbleReplies: 2 };
+	const STUDENT_META = { ...META, agent: "student", duplicateRetries: 0, duplicateRepliesDropped: 0, duplicateRepliesKept: 0, duplicateOutcome: "none", quoteCutSuspected: 0, quoteCutPaddedAttempts: 0, ...GARBLE, unknownSpeaker: 1 };
+
+	it("keeps the six server garble counters and the client unknownSpeaker counter when reported", () => {
+		const t = buildCallTelemetry("ok", STUDENT_META);
+		for (const [key, value] of Object.entries(GARBLE)) expect(t[key]).toBe(value);
+		expect(t.unknownSpeaker).toBe(1);
+		expect(TELEMETRY_GARBLE_KEYS).toEqual(["garbleForeignScript", "garbleMixedScriptToken", "garbleCantillation", "garbleRepeatedFunctionWord", "garbleMarkup", "garbleReplies"]);
+		expect(TELEMETRY_SPEAKER_KEYS).toEqual(["unknownSpeaker"]);
+		expect(Object.keys(t).every((k) => TELEMETRY_KEYS.includes(k))).toBe(true);
+		// earlier fields unchanged
+		expect(t.duplicateOutcome).toBe("none");
+		expect(t.quoteCutSuspected).toBe(0);
+	});
+
+	it("omits them when not reported (PCK calls, servers before 1.4.2): backward compatible", () => {
+		const { unknownSpeaker, ...withoutSpeaker } = STUDENT_META;
+		const older = Object.fromEntries(Object.entries(withoutSpeaker).filter(([k]) => !TELEMETRY_GARBLE_KEYS.includes(k)));
+		const t = buildCallTelemetry("ok", older);
+		for (const key of [...TELEMETRY_GARBLE_KEYS, "unknownSpeaker"]) expect(key in t).toBe(false);
+		expect(t.quoteCutSuspected).toBe(0);
+	});
+
+	it("only accepts non-negative integer counts; never text", () => {
+		const t = buildCallTelemetry("ok", { ...STUDENT_META, garbleForeignScript: "איזה יظה", garbleMarkup: -1, garbleReplies: 1.5, unknownSpeaker: "מעוין" });
+		expect(t.garbleForeignScript).toBeNull();
+		expect(t.garbleMarkup).toBeNull();
+		expect(t.garbleReplies).toBeNull();
+		expect(t.unknownSpeaker).toBeNull();
+		expect(hasUndefined(t)).toBe(false);
+	});
+
+	it("countUnknownSpeakers counts replies whose speaker is not in the cast (content-free)", () => {
+		const cast = [{ name: "תמר" }, { name: "מעיין" }, { name: "רועי" }];
+		expect(countUnknownSpeakers([{ name: "תמר" }, { name: "מעוין" }, { name: "רועי" }, { name: "Student" }], cast)).toBe(2);
+		expect(countUnknownSpeakers([{ name: "תמר" }, { name: "מעיין" }], cast)).toBe(0);
+		expect(countUnknownSpeakers([], cast)).toBe(0);
+		expect(countUnknownSpeakers(null, cast)).toBe(0);
+		expect(countUnknownSpeakers([{ name: "תמר" }], null)).toBe(1);
+	});
+});
+

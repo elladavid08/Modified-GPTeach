@@ -926,6 +926,47 @@ Before the fix, 4 tests failed. The harness has a version-aware example set and 
 - watch the PCK feedback rate on bare acknowledgements in production;
 - the deferral and peer-redirect praise is a rubric question (pre-existing).
 
+### 0.27 Garbled-text telemetry, detection only (2026-10-13, version 1.4.2)
+
+**Defect:** about 2% of `gemini-3.5-flash-lite` student replies contain script-level corruption: a foreign letter inside a Hebrew word, Hebrew and Latin letters in one token, cantillation marks, a doubled function word, or LaTeX. The corruption is already in the raw Vertex response (`student_garbled_text_investigation.md`).
+
+**Change (observation only):**
+- **Server:** `server/student_garble.js` (pure) counts, in the returned student output, the replies with each of 5 high-confidence patterns, and `garbleReplies`, the replies with any. The counts are added to the success telemetry of `/api/generate`.
+- **Browser:** `countUnknownSpeakers` (in `callTelemetry.js`) adds `unknownSpeaker` to the student call meta.
+- **Whitelisting:** all 7 fields are whitelisted in `callTelemetry.js` and the conversation contract (A17).
+- **Not included:** the low-confidence "digit glued to a Hebrew letter" rule.
+- **Nothing the teacher sees changes:** no retry, rewrite, drop or reorder; prompts, models, routing, parsing, duplicate guard and quote-cut telemetry are unchanged.
+
+**Tests:**
+- server `student_garble.test.mjs` (65):
+  - every positive form from the investigation;
+  - 36 legitimate cases (numbers, units, gershayim, English terms and labels, Greek, niqqud, reduplication, "זה את זה זה", the digit-glued forms, emoji, English-only text);
+  - counting several replies;
+  - endpoint: verbatim output, one attempt, unchanged duplicate and quote-cut fields, integers only, duplicate-drop case, failure shape;
+- client:
+  - `callTelemetry` +4;
+  - `studentAgent` +2 and 1 updated (the meta now carries `unknownSpeaker`);
+  - `conversationContract` +3 rejections and 1 extended;
+  - `chatTurnOrchestration` +1;
+- 3 existing key-list assertions extended additively;
+- **before the change:** 8 client tests and the server suite failed.
+
+**Precision on saved synthetic corpora:**
+- 0 flags on 1,191 2.5 replies, 324 3.1 replies and 7,454 PCK Hebrew strings;
+- 32 of 1,608 3.5 replies flagged, all genuine.
+
+**Results:** `npm run test:all` was run twice and passed both times (212 frontend, 328 backend); the harness has 74 tests.
+
+**Live smoke** (real 1.4.2 server, `gemini-3.5-flash-lite`; 9 synthetic contexts × 10 calls through the real client, raw Vertex output captured):
+- all 90 calls `STOP` on one attempt; 0 duplicate re-asks;
+- the replies shown equal the raw model output (0 differences);
+- telemetry equals the detector on the same replies in 90 of 90 calls;
+- 18 garbled replies counted ("איזה יظה", "זה את את זה", "לגmרי") and 3 `unknownSpeaker` ("מעוין"), all still shown unchanged;
+- clean contexts reported 0;
+- duplicate-guard and quote-cut fields present and unchanged.
+
+**Follow-up:** measure the production rate per category before deciding whether a high-confidence garble should use the existing second attempt.
+
 ## Original proposal (kept for reference; see §0.6 for what is still open)
 
 ## 1. Starting state (before the baseline)

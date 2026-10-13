@@ -17,6 +17,7 @@ import { LLM_CALL_POLICY, callModelWithPolicy, interpretCandidate } from './llm_
 import { validateStudentOutputText, STUDENT_PARSE_ERROR, STUDENT_INVALID_ERROR, MAX_RAW_OUTPUT_EXCERPT_CHARS } from './student_output_contract.js';
 import { findSelfDuplicates, buildRegenerationNote, appendRegenerationNote, dropDuplicateReplies } from './student_duplicate_guard.js';
 import { countSuspectedQuoteCuts, isSpacePaddedTokenLimit } from './student_quote_cut.js';
+import { countGarbledReplies } from './student_garble.js';
 import { STUDENT_MODEL_ID, GENERAL_MODEL_ID, MODEL_IDS, VERTEX_LOCATION, VERTEX_API_ENDPOINT, baseGenerationConfig } from './model_config.js';
 import { applyBareAcknowledgementGuard } from './pck_bare_ack_guard.js';
 import { saveConversation, saveMessage, createUserProfile, getUserProfile, saveTestSubmission, checkTestSubmission, verifyAnnotator, verifyAdmin, getTestSubmissions, getTestSubmission, saveTestAnnotation, getTestAnnotation, getAllAnnotationsForSubmission, getAllUsersAdmin, getResearchParticipantsAdmin, updateUserResearchStatusAdmin, getConversationsByUserAdmin, getConversationsMeta, getFullConversationForAnnotation, createAnnotationAssignments, getAnnotationAssignments, getAnnotatorAssignments, getConvAnnotation, saveConvAnnotation, submitConvAnnotation, exportConvAnnotations, cancelAnnotationAssignment, getEligibleAgreementConversations, getAgreementReports, getAgreementReport, computeAndSaveAgreementReport, getConversationsWithCompletedPairs, createComparisonSet, updateComparisonSet, deleteComparisonSet, getComparisonSets, getComparisonSetDetail, getComparisonData, getConsensusAnnotation, saveConsensusAnnotation, submitConsensusAnnotation } from './services/firebaseAdmin.js';
@@ -444,7 +445,10 @@ app.post('/api/generate', async (req, res) => {
         // Content-free quote-cut counters (A17, additive): replies in the returned output that look cut,
         // and attempts rejected as a whitespace-padded token-limit output
         quoteCutSuspected: countSuspectedQuoteCuts(parseResponsesForTelemetry(call.value)),
-        quoteCutPaddedAttempts
+        quoteCutPaddedAttempts,
+        // Content-free garbled-text counters (1.4.2, A17 additive): replies in the returned output with a
+        // high-confidence script-level corruption, per category and in total. Detection only.
+        ...countGarbledReplies(parseResponsesForTelemetry(call.value))
       };
     }
 
