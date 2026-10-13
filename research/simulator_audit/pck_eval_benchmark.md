@@ -1,5 +1,7 @@
 # Frozen PCK evaluation benchmark (E3 v1, synthetic)
 
+> **v1.1.0 (2026-10-13, for X3):** 7 high-confidence feedback-history continuity cases (`CONT-*`) added, with a new constraint `no_repeat_praise:<skill>` (shown feedback must not display that skill as praise again; relevance not asserted). Now **116 cases: 95 high, 21 review**. The 109 v1.0.0 cases are byte-identical (stripping the two additive fields `feedback_history_kind` / `source.recorded_prefix_turns` reproduces the v1.0.0 sha256 `d470bf14…`). The continuity cases use a recorded prefix plus one hand-written turn and a synthetic feedback history. This closes gap 1 of §8. Details and 1.4.3 results: `pck_consistency_layer_experiment.md` §0. Figures below describe v1.0.0 unless noted.
+
 Status: built 2026-10-13 on committed 1.4.3 (`f5ed2b6`).
 - Research only: not wired into production tests; no production, prompt, schema, model or `SYSTEM_VERSION` change.
 - **Synthetic data only:**
@@ -235,7 +237,7 @@ Unmodified 1.4.3 server, 3 repeats, 327 calls, 0 failures. 105 of 109 cases give
 - consistency counters.
 
 **Not covered:**
-1. **Continuity as a display rule (W1.4):** no case has a skill already praised in the feedback history. Add about 6 cases before X3 if W1.4 is in scope.
+1. ~~**Continuity as a display rule (W1.4):** no case has a skill already praised in the feedback history.~~ Closed in v1.1.0 (7 `CONT-*` cases).
 2. **Student-steering effects of derived `demonstrated` / `missed`:** need the Mode B A/B (E2).
 
 **For X5 / X6 the set is necessary but not yet sufficient:**

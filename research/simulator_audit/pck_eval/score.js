@@ -34,6 +34,10 @@ export function judge(c, analysis) {
   v.displayedOverSelected = SKILLS.filter((sid) => e.skills[sid].relevance === 'not_relevant' && shown && rel.has(sid)).length;
   v.displayedNotRelevantChecks = shown ? SKILLS.filter((sid) => e.skills[sid].relevance === 'not_relevant').length : 0;
   if (e.constraints.includes('no_score_2') && scores.includes(2)) v.constraints.push('no_score_2');
+  for (const k of e.constraints) {
+    const m = k.match(/^no_repeat_praise:(.+)$/);
+    if (m && shown && rel.has(m[1]) && rel.get(m[1]) > 0) v.constraints.push(k); // judged on displayed rows only
+  }
   if (e.constraints.includes('no_positive_score') && scores.some((s) => s > 0)) v.constraints.push('no_positive_score');
   return v;
 }

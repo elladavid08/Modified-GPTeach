@@ -37,7 +37,14 @@ test('labels follow the scheme and are internally consistent (decision = any rel
     const e = c.expected;
     assert.deepEqual(Object.keys(e.skills), SKILLS, c.id);
     assert.ok([true, false, null].includes(e.should_provide_feedback), c.id);
-    for (const k of e.constraints) assert.ok(CONSTRAINTS.has(k), `${c.id}: constraint ${k}`);
+    for (const k of e.constraints) {
+      const repeat = k.match(/^no_repeat_praise:(.+)$/);
+      if (repeat) {
+        assert.ok(SKILLS.includes(repeat[1]), `${c.id}: constraint ${k}`);
+        assert.equal(e.skills[repeat[1]].relevance, 'either', `${c.id}: a repeat-praise skill's relevance is not asserted`);
+        assert.ok(c.feedback_history.some((f) => (f.skills_assessment || []).some((s) => s.skill_id === repeat[1] && s.is_relevant === true && s.score >= 1)), `${c.id}: no prior praise in the feedback history`);
+      } else assert.ok(CONSTRAINTS.has(k), `${c.id}: constraint ${k}`);
+    }
     const rels = Object.values(e.skills).map((s) => s.relevance);
     for (const [sid, s] of Object.entries(e.skills)) {
       assert.ok(RELEVANCE.has(s.relevance), `${c.id} ${sid}`);
@@ -68,6 +75,7 @@ test('contexts are replayable: ordered history, drawings are harness assets, sce
   for (const c of bench.cases) {
     c.history.forEach((t, i) => assert.equal(t.turn, i + 1, `${c.id}: history order`));
     assert.equal(c.source.turn, c.history.length + 1, `${c.id}: current turn`);
+    assert.ok(['recorded', 'synthetic'].includes(c.feedback_history_kind), c.id);
     assert.deepEqual(c.recent_student_turns, c.history.length ? c.history[c.history.length - 1].students : [], c.id);
     for (const d of [c.teacher_drawing, ...c.history.map((t) => t.teacher_drawing)]) if (d) assert.ok(DRAWINGS[d], `${c.id}: unknown drawing ${d}`);
     assert.ok(c.feedback_history.length <= 3, c.id);

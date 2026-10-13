@@ -49,9 +49,12 @@ def lab(fb, **sk):
 
 
 def case(cid, src, conv, turn, expected, *, bucket="high", teacher=None, tags=(), rationale, rules=(), constraints=(),
-         review=None, prior=None, divergence=None):
+         review=None, prior=None, divergence=None, authored_turns=None, feedback_history=None):
+    """authored_turns: hand-written turns appended after the recorded prefix (recorded turns 1..turn-1); the case's
+    teacher message is then the turn after them. feedback_history: a synthetic history replacing the recorded one."""
     CASES.append(dict(id=cid, src=src, conv=conv, turn=turn, teacher=teacher, expected=expected, bucket=bucket, tags=list(tags),
-                      rationale=rationale, rules=list(rules), constraints=list(constraints), review=review, prior=prior, divergence=divergence))
+                      rationale=rationale, rules=list(rules), constraints=list(constraints), review=review, prior=prior, divergence=divergence,
+                      authored_turns=authored_turns, feedback_history=feedback_history))
 
 
 ALL_N = dict(EI="N", EC="N", DI="N", APR="N", EL="N")
@@ -342,6 +345,62 @@ for conv, t, what in [("r1-B-s1-d0-r1", 8, "the converse question 'ומה לגב
          prior="1.4.x scores such turns as error-leveraging 1 and APR 2")
 
 
+# ───────────────────────── Feedback-history continuity (v1.1.0) ─────────────────────────
+# Recorded prefix: scenario 5, run 1 cast 0, turns 1-2 (Roee: "אם הם שווים בכל מרובע, זה אומר שזה ריבוע, לא?").
+# Turn 3 and the feedback history are hand-written so that exactly one skill was praised on the previous turn.
+def _state(level, tone="hesitant"):
+    return {"understanding_level": level, "response_tone": tone, "student_reaction_hints": []}
+_FH_QUIET = [{"pedagogical_quality": "neutral", "feedback_message_hebrew": "", "predicted_student_state": _state("same", "confident"), "skills_assessment": []},
+             {"pedagogical_quality": "neutral", "feedback_message_hebrew": "", "predicted_student_state": _state("same"), "skills_assessment": []}]
+_T3_EI = "רועי, הטענה שלך אינה נכונה: יש מרובעים שהאלכסונים שלהם שווים והם לא ריבועים."
+_FH_EI = _FH_QUIET + [{"pedagogical_quality": "positive", "feedback_message_hebrew": "זיהית במפורש שהטענה של רועי אינה נכונה – זה זיהוי השגיאה.",
+                        "predicted_student_state": _state("same"),
+                        "skills_assessment": [{"skill_id": "error-identification", "is_relevant": True, "score": 2, "evidence": "אמרת לרועי במפורש שהטענה שלו אינה נכונה."}]}]
+_T3_APR = "בואו נבדוק: האם יכול להיות מרובע שהאלכסונים שלו שווים אבל הוא לא ריבוע? חשבו על מלבן."
+_FH_APR = _FH_QUIET + [{"pedagogical_quality": "positive", "feedback_message_hebrew": "הפנית את התלמידים לבדוק דוגמה נגדית (מלבן) – זו תגובה פדגוגית מותאמת.",
+                         "predicted_student_state": _state("improved", "thoughtful"),
+                         "skills_assessment": [{"skill_id": "adapted-pedagogical-response", "is_relevant": True, "score": 2, "evidence": "שאלת אם יש מרובע עם אלכסונים שווים שאינו ריבוע והפנית למלבן."}]}]
+_ROEE_PERSISTS_EI = [{"name": "רועי", "message": "אבל אם האלכסונים שווים, זה עדיין נראה לי כמו ריבוע, לא?"}]
+_DANA_NEW_ERROR = [{"name": "רועי", "message": "אה, אז יש עוד מרובעים כאלה? לא ידעתי."},
+                   {"name": "דנה", "message": "אז אם האלכסונים שווים וגם מאונכים, זה בטוח ריבוע, לא?"}]
+_ROEE_PERSISTS_APR = [{"name": "רועי", "message": "אבל מלבן זה מקרה מיוחד. בדרך כלל אם האלכסונים שווים זה ריבוע, לא?"}]
+_CONT = dict(src="c140", conv="r1-B-s5-d0-r1", turn=3)
+_CONT_RULES = ["continuity-rule-1", "W1.4-continuity-as-display"]
+
+case("CONT-EI-repeat-same-error", **_CONT, expected=lab(None, EC="N", EL="N"), teacher="רועי, כמו שאמרתי, הטענה הזאת לא נכונה.",
+     authored_turns=[{"teacher": _T3_EI, "students": _ROEE_PERSISTS_EI}], feedback_history=_FH_EI,
+     constraints=["no_repeat_praise:error-identification"], tags=["continuity", "continuity_repeat_praise"], rules=_CONT_RULES,
+     rationale="Error identification was praised on the previous turn for identifying Roee's claim; Roee repeats the same claim and the teacher repeats the same identification. Praising identification again would be redundant (prompt continuity Rule 1). Whether the repeated move merits other feedback is not asserted.")
+case("CONT-EI-missed-same-error", **_CONT, expected=lab(True, EI=("R", [0]), EC="N", EL="N"), teacher="אוקיי",
+     authored_turns=[{"teacher": _T3_EI, "students": _ROEE_PERSISTS_EI}], feedback_history=_FH_EI,
+     tags=["continuity", "continuity_missed_after_praise", "EI_missed", "bare_ack"], rules=_CONT_RULES + ["1.4.1-hedged-tag-claims"],
+     rationale="Identification was praised last turn, but Roee now restates the claim (tag form) and the teacher only says 'אוקיי'. Prior praise does not make identification irrelevant: it is a missed identification now (score 0). Rule 1 only forbids repeating *positive* feedback.")
+case("CONT-EI-new-error-identified", **_CONT, expected=lab(True, EI=("R", [2]), EL="N"),
+     teacher="דנה, גם זה לא נכון – יש מרובעים שהאלכסונים שלהם שווים ומאונכים והם לא ריבועים.",
+     authored_turns=[{"teacher": _T3_EI, "students": _DANA_NEW_ERROR}], feedback_history=_FH_EI,
+     tags=["continuity", "continuity_new_move", "EI_explicit"], rules=_CONT_RULES,
+     rationale="Identification was praised last turn for Roee's error; Dana now voices a different claim (equal + perpendicular diagonals) and the teacher explicitly identifies it. A new error is not 'the same active student error', so identification is evaluable and scores 2.")
+case("CONT-EI-new-error-missed", **_CONT, expected=lab(True, EI=("R", [0]), EC="N", EL="N"), teacher="יפה",
+     authored_turns=[{"teacher": _T3_EI, "students": _DANA_NEW_ERROR}], feedback_history=_FH_EI,
+     tags=["continuity", "continuity_missed_after_praise", "EI_missed", "bare_ack"], rules=_CONT_RULES + ["1.4.1-hedged-tag-claims"],
+     rationale="Identification was praised last turn; Dana now voices a new claim (tag form) and the teacher only says 'יפה'. Missed identification: relevant, score 0.")
+case("CONT-APR-repeat-same-move", **_CONT, expected=lab(None, EC="N", DI="N", EL="N"), teacher="בואו נבדוק שוב: האם במלבן האלכסונים שווים? האם הוא ריבוע?",
+     authored_turns=[{"teacher": _T3_APR, "students": _ROEE_PERSISTS_APR}], feedback_history=_FH_APR,
+     constraints=["no_repeat_praise:adapted-pedagogical-response"], tags=["continuity", "continuity_repeat_praise"], rules=_CONT_RULES,
+     rationale="The rectangle counterexample move was praised as APR last turn; Roee dismisses it as a special case and the teacher repeats the same rectangle question. Praising the same move again would be redundant. Other feedback (e.g. on not engaging Roee's new objection) is not asserted.")
+case("CONT-APR-new-move", **_CONT, expected=lab(True, APR=("R", [1, 2]), EC="N", EL="N"),
+     teacher="רועי, אתה אומר שהמלבן הוא 'מקרה מיוחד'. בוא נבדוק עוד מרובע: נסה לשרטט דלתון שהאלכסונים שלו שווים זה לזה. האם הוא ריבוע?",
+     authored_turns=[{"teacher": _T3_APR, "students": _ROEE_PERSISTS_APR}], feedback_history=_FH_APR,
+     tags=["continuity", "continuity_new_move", "APR_well_adapted"], rules=_CONT_RULES,
+     rationale="APR was praised last turn for the rectangle counterexample; the teacher now takes up Roee's new objection with a different, student-performed counterexample (a kite with equal diagonals). This is a new adapted move and must stay evaluable (1-2).",
+     divergence="prompt continuity Rule 1 marks a skill already scored >= 1 on the same active error as not relevant, even for a new move")
+case("CONT-APR-missed-after-praise", **_CONT, expected=lab(True, EI=("E", [1, 2]), APR=("R", [0]), EC="N", EL="N"),
+     teacher="לא, רועי. אלכסונים שווים לא מספיקים כדי שמרובע יהיה ריבוע.",
+     authored_turns=[{"teacher": _T3_APR, "students": _ROEE_PERSISTS_APR}], feedback_history=_FH_APR,
+     tags=["continuity", "continuity_missed_after_praise", "APR_direct_correction"], rules=_CONT_RULES,
+     rationale="APR was praised last turn; when Roee persists, the teacher now just tells him he is wrong and states the rule: a direct correction (APR band 0). Prior praise must not make APR irrelevant here.")
+
+
 def load(path):
     with open(path) as f:
         return json.load(f)
@@ -376,6 +435,11 @@ def build(c140, c141):
         drawing = None if c["teacher"] is not None else cur.get("drawing")
         history = [{"turn": t["turn"], "teacher": t["teacher"], "teacher_drawing": t.get("drawing"), "students": [{"name": r["student"], "message": r["message"]} for r in t["replies"]]}
                    for t in cv["turns"][: c["turn"] - 1]]
+        authored = c["authored_turns"] or []
+        for t in authored:
+            history.append({"turn": len(history) + 1, "teacher": t["teacher"], "teacher_drawing": None, "students": t["students"]})
+        if authored and c["teacher"] is None:
+            sys.exit(f"{c['id']}: authored history needs an authored teacher message")
         run_alias, conv_id = c["conv"].split("-", 1)
         exp = c["expected"]
         exp["constraints"] = c["constraints"]
@@ -384,15 +448,18 @@ def build(c140, c141):
             "bucket": c["bucket"],
             "confidence": "high" if c["bucket"] == "high" else "needs_expert_review",
             "tags": c["tags"],
-            "source": {"kind": "mode_b_turn" if c["teacher"] is None else "mode_b_prefix_authored_turn", "run": RUN[(c["src"], run_alias)], "conversation": conv_id,
-                       "turn": c["turn"], "original_teacher_message": cur["teacher"] if c["teacher"] is not None else None},
+            "source": {"kind": "mode_b_turn" if c["teacher"] is None else ("mode_b_prefix_authored_history" if authored else "mode_b_prefix_authored_turn"),
+                       "run": RUN[(c["src"], run_alias)], "conversation": conv_id, "turn": len(history) + 1,
+                       "recorded_prefix_turns": c["turn"] - 1,
+                       "original_teacher_message": cur["teacher"] if (c["teacher"] is not None and not authored) else None},
             "scenario": {"id": sid, "index": sid - 1, "slug": slug, "text": text, "misconception_focus": focus, "grade_level": grade},
             "cast": cv["cast"],
             "history": history,
             "recent_student_turns": history[-1]["students"] if history else [],
             "teacher_message": teacher,
             "teacher_drawing": drawing,
-            "feedback_history": analysis_history(cv, c["turn"]),
+            "feedback_history": c["feedback_history"] if c["feedback_history"] is not None else analysis_history(cv, c["turn"]),
+            "feedback_history_kind": "synthetic" if c["feedback_history"] is not None else "recorded",
             "expected": exp,
             "rationale": c["rationale"],
             "rules": c["rules"],
@@ -415,7 +482,7 @@ if __name__ == "__main__":
     cases = build(a.c140, a.c141)
     doc = {
         "benchmark": "rambam-pck-eval",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "created": "2026-10-13",
         "data": "synthetic only (replay-harness Mode B runs + hand-written teacher turns); no participant or B200-labelled data",
         "label_basis": "expert v1 rubric (server/universal_pck_skills.js) + B200 v2/v2.1 relevance and boundary rules (research/b200_handoff/pck_and_feedback_rules.md); decision = any relevant skill",
@@ -425,7 +492,8 @@ if __name__ == "__main__":
             "should_provide_feedback": "true | false | null (null = not asserted)",
             "relevance": {"required": "must be relevant", "not_relevant": "must not be relevant", "either": "not asserted"},
             "scores": "allowed scores if the skill is relevant (null = score not asserted)",
-            "constraints": {"no_score_2": "no relevant skill may score 2", "no_positive_score": "no relevant skill may score above 0"},
+            "constraints": {"no_score_2": "no relevant skill may score 2", "no_positive_score": "no relevant skill may score above 0",
+                            "no_repeat_praise:<skill>": "shown feedback must not display <skill> with a score above 0 (it was already praised for the same move on the same error; relevance itself is not asserted)"},
         },
         "replay": "rebuild history as ChatMessage('Teacher', teacher, 'user', drawingPng) / ChatMessage(student, message, 'assistant'); "
                   "drawings are replay-harness asset ids (lib/assets.js DRAWINGS); scenario = geometry_scenarios.js[scenario.index]; feedback_history as stored (or [] for a no-history variant)",

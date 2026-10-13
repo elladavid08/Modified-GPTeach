@@ -1,6 +1,6 @@
 {
  "benchmark": "rambam-pck-eval",
- "version": "1.0.0",
+ "version": "1.1.0",
  "created": "2026-10-13",
  "data": "synthetic only (replay-harness Mode B runs + hand-written teacher turns); no participant or B200-labelled data",
  "label_basis": "expert v1 rubric (server/universal_pck_skills.js) + B200 v2/v2.1 relevance and boundary rules (research/b200_handoff/pck_and_feedback_rules.md); decision = any relevant skill",
@@ -22,7 +22,8 @@
   "scores": "allowed scores if the skill is relevant (null = score not asserted)",
   "constraints": {
    "no_score_2": "no relevant skill may score 2",
-   "no_positive_score": "no relevant skill may score above 0"
+   "no_positive_score": "no relevant skill may score above 0",
+   "no_repeat_praise:<skill>": "shown feedback must not display <skill> with a score above 0 (it was already praised for the same move on the same error; relevance itself is not asserted)"
   }
  },
  "replay": "rebuild history as ChatMessage('Teacher', teacher, 'user', drawingPng) / ChatMessage(student, message, 'assistant'); drawings are replay-harness asset ids (lib/assets.js DRAWINGS); scenario = geometry_scenarios.js[scenario.index]; feedback_history as stored (or [] for a no-history variant)",
@@ -41,6 +42,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s1-d0-r1",
     "turn": 1,
+    "recorded_prefix_turns": 0,
     "original_teacher_message": null
    },
    "scenario": {
@@ -61,6 +63,7 @@
    "teacher_message": "שלום כיתה! בשיעור הקודם למדנו על מלבן. מה ההגדרה של מלבן?",
    "teacher_drawing": null,
    "feedback_history": [],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": false,
     "skills": {
@@ -110,6 +113,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s4-d0-r1",
     "turn": 1,
+    "recorded_prefix_turns": 0,
     "original_teacher_message": null
    },
    "scenario": {
@@ -130,6 +134,7 @@
    "teacher_message": "היום נבדוק תכונות של אלכסונים במרובעים שונים. באילו מרובעים האלכסונים חוצים את הזוויות?",
    "teacher_drawing": null,
    "feedback_history": [],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": false,
     "skills": {
@@ -179,6 +184,7 @@
     "run": "B-baseline-1.4.0-run2",
     "conversation": "B-s5-d1-r1",
     "turn": 1,
+    "recorded_prefix_turns": 0,
     "original_teacher_message": null
    },
    "scenario": {
@@ -199,6 +205,7 @@
    "teacher_message": "שלום כיתה. אילו תכונות של אלכסונים אתם מכירים בריבוע?",
    "teacher_drawing": null,
    "feedback_history": [],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": false,
     "skills": {
@@ -248,6 +255,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s1-d1-r1",
     "turn": 12,
+    "recorded_prefix_turns": 11,
     "original_teacher_message": null
    },
    "scenario": {
@@ -492,6 +500,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": false,
     "skills": {
@@ -539,6 +548,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s2-d1-r1",
     "turn": 12,
+    "recorded_prefix_turns": 11,
     "original_teacher_message": null
    },
    "scenario": {
@@ -830,6 +840,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": false,
     "skills": {
@@ -878,6 +889,7 @@
     "run": "B-baseline-1.4.0-run2",
     "conversation": "B-s3-d0-r1",
     "turn": 12,
+    "recorded_prefix_turns": 11,
     "original_teacher_message": null
    },
    "scenario": {
@@ -1128,6 +1140,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": false,
     "skills": {
@@ -1175,6 +1188,7 @@
     "run": "B-baseline-1.4.0-run2",
     "conversation": "B-s6-d0-r1",
     "turn": 12,
+    "recorded_prefix_turns": 11,
     "original_teacher_message": null
    },
    "scenario": {
@@ -1435,6 +1449,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": false,
     "skills": {
@@ -1482,6 +1497,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s2-d0-r1",
     "turn": 8,
+    "recorded_prefix_turns": 7,
     "original_teacher_message": "מה עוד צריך לדעת על האלכסונים כדי לקבוע שזה מעוין?"
    },
    "scenario": {
@@ -1719,6 +1735,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": false,
     "skills": {
@@ -1767,6 +1784,7 @@
     "run": "B-baseline-1.4.1-run2",
     "conversation": "B-s1-d0-r1",
     "turn": 11,
+    "recorded_prefix_turns": 10,
     "original_teacher_message": null
    },
    "scenario": {
@@ -2018,6 +2036,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": false,
     "skills": {
@@ -2066,6 +2085,7 @@
     "run": "B-baseline-1.4.0-run2",
     "conversation": "B-s4-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": null
    },
    "scenario": {
@@ -2180,6 +2200,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": false,
     "skills": {
@@ -2228,6 +2249,7 @@
     "run": "B-baseline-1.4.0-run2",
     "conversation": "B-s3-d1-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": null
    },
    "scenario": {
@@ -2328,6 +2350,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": false,
     "skills": {
@@ -2377,6 +2400,7 @@
     "run": "B-baseline-1.4.0-run2",
     "conversation": "B-s5-d1-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": null
    },
    "scenario": {
@@ -2477,6 +2501,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": false,
     "skills": {
@@ -2526,6 +2551,7 @@
     "run": "B-baseline-1.4.0-run2",
     "conversation": "B-s4-d1-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": null
    },
    "scenario": {
@@ -2626,6 +2652,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": false,
     "skills": {
@@ -2675,6 +2702,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s4-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": null
    },
    "scenario": {
@@ -2775,6 +2803,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": false,
     "skills": {
@@ -2823,6 +2852,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s1-d0-r1",
     "turn": 6,
+    "recorded_prefix_turns": 5,
     "original_teacher_message": null
    },
    "scenario": {
@@ -3019,6 +3049,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": false,
     "skills": {
@@ -3067,6 +3098,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s2-d0-r1",
     "turn": 6,
+    "recorded_prefix_turns": 5,
     "original_teacher_message": null
    },
    "scenario": {
@@ -3244,6 +3276,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": false,
     "skills": {
@@ -3292,6 +3325,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s3-d0-r1",
     "turn": 6,
+    "recorded_prefix_turns": 5,
     "original_teacher_message": null
    },
    "scenario": {
@@ -3481,6 +3515,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": false,
     "skills": {
@@ -3529,6 +3564,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s6-d1-r1",
     "turn": 6,
+    "recorded_prefix_turns": 5,
     "original_teacher_message": null
    },
    "scenario": {
@@ -3724,6 +3760,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": false,
     "skills": {
@@ -3772,6 +3809,7 @@
     "run": "B-baseline-1.4.0-run2",
     "conversation": "B-s6-d1-r1",
     "turn": 6,
+    "recorded_prefix_turns": 5,
     "original_teacher_message": null
    },
    "scenario": {
@@ -3983,6 +4021,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": false,
     "skills": {
@@ -4031,6 +4070,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s6-d0-r1",
     "turn": 9,
+    "recorded_prefix_turns": 8,
     "original_teacher_message": null
    },
    "scenario": {
@@ -4281,6 +4321,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": false,
     "skills": {
@@ -4329,6 +4370,7 @@
     "run": "B-baseline-1.4.0-run2",
     "conversation": "B-s6-d1-r1",
     "turn": 9,
+    "recorded_prefix_turns": 8,
     "original_teacher_message": null
    },
    "scenario": {
@@ -4584,6 +4626,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": false,
     "skills": {
@@ -4632,6 +4675,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s2-d1-r1",
     "turn": 9,
+    "recorded_prefix_turns": 8,
     "original_teacher_message": null
    },
    "scenario": {
@@ -4901,6 +4945,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": false,
     "skills": {
@@ -4950,6 +4995,7 @@
     "run": "B-baseline-1.4.0-run2",
     "conversation": "B-s5-d0-r1",
     "turn": 9,
+    "recorded_prefix_turns": 8,
     "original_teacher_message": null
    },
    "scenario": {
@@ -5183,6 +5229,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": false,
     "skills": {
@@ -5231,6 +5278,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s1-d0-r1",
     "turn": 9,
+    "recorded_prefix_turns": 8,
     "original_teacher_message": null
    },
    "scenario": {
@@ -5457,6 +5505,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": false,
     "skills": {
@@ -5504,6 +5553,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s5-d0-r1",
     "turn": 6,
+    "recorded_prefix_turns": 5,
     "original_teacher_message": null
    },
    "scenario": {
@@ -5708,6 +5758,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": false,
     "skills": {
@@ -5755,6 +5806,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s6-d1-r1",
     "turn": 9,
+    "recorded_prefix_turns": 8,
     "original_teacher_message": null
    },
    "scenario": {
@@ -5987,6 +6039,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": null,
     "skills": {
@@ -6034,6 +6087,7 @@
     "run": "B-baseline-1.4.0-run2",
     "conversation": "B-s6-d0-r1",
     "turn": 9,
+    "recorded_prefix_turns": 8,
     "original_teacher_message": null
    },
    "scenario": {
@@ -6272,6 +6326,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": null,
     "skills": {
@@ -6319,6 +6374,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s2-d0-r1",
     "turn": 9,
+    "recorded_prefix_turns": 8,
     "original_teacher_message": null
    },
    "scenario": {
@@ -6575,6 +6631,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": null,
     "skills": {
@@ -6623,6 +6680,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s2-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": null
    },
    "scenario": {
@@ -6737,6 +6795,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -6790,6 +6849,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s3-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": null
    },
    "scenario": {
@@ -6890,6 +6950,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -6942,6 +7003,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s3-d1-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": null
    },
    "scenario": {
@@ -7058,6 +7120,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -7110,6 +7173,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s4-d1-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": null
    },
    "scenario": {
@@ -7210,6 +7274,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -7262,6 +7327,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s5-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": null
    },
    "scenario": {
@@ -7362,6 +7428,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -7414,6 +7481,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s5-d1-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": null
    },
    "scenario": {
@@ -7514,6 +7582,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -7566,6 +7635,7 @@
     "run": "B-baseline-1.4.0-run2",
     "conversation": "B-s1-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": null
    },
    "scenario": {
@@ -7666,6 +7736,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -7718,6 +7789,7 @@
     "run": "B-baseline-1.4.0-run2",
     "conversation": "B-s3-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": null
    },
    "scenario": {
@@ -7818,6 +7890,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -7870,6 +7943,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s1-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": null
    },
    "scenario": {
@@ -7953,6 +8027,7 @@
      "skills_assessment": []
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -8005,6 +8080,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s1-d1-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": null
    },
    "scenario": {
@@ -8101,6 +8177,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -8153,6 +8230,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s2-d1-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": null
    },
    "scenario": {
@@ -8253,6 +8331,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -8304,6 +8383,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s6-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": null
    },
    "scenario": {
@@ -8404,6 +8484,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -8456,6 +8537,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s6-d1-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": null
    },
    "scenario": {
@@ -8556,6 +8638,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -8608,6 +8691,7 @@
     "run": "B-baseline-1.4.0-run2",
     "conversation": "B-s1-d1-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": null
    },
    "scenario": {
@@ -8708,6 +8792,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -8760,6 +8845,7 @@
     "run": "B-baseline-1.4.0-run2",
     "conversation": "B-s2-d1-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": null
    },
    "scenario": {
@@ -8860,6 +8946,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -8912,6 +8999,7 @@
     "run": "B-baseline-1.4.0-run2",
     "conversation": "B-s5-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": null
    },
    "scenario": {
@@ -9012,6 +9100,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -9064,6 +9153,7 @@
     "run": "B-baseline-1.4.0-run2",
     "conversation": "B-s6-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": null
    },
    "scenario": {
@@ -9164,6 +9254,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -9216,6 +9307,7 @@
     "run": "B-baseline-1.4.0-run2",
     "conversation": "B-s6-d1-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": null
    },
    "scenario": {
@@ -9316,6 +9408,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -9368,6 +9461,7 @@
     "run": "B-baseline-1.4.0-run2",
     "conversation": "B-s4-d1-r1",
     "turn": 5,
+    "recorded_prefix_turns": 4,
     "original_teacher_message": null
    },
    "scenario": {
@@ -9520,6 +9614,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -9574,6 +9669,7 @@
     "run": "B-baseline-1.4.0-run2",
     "conversation": "B-s5-d0-r1",
     "turn": 5,
+    "recorded_prefix_turns": 4,
     "original_teacher_message": null
    },
    "scenario": {
@@ -9770,6 +9866,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -9823,6 +9920,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s1-d0-r1",
     "turn": 5,
+    "recorded_prefix_turns": 4,
     "original_teacher_message": null
    },
    "scenario": {
@@ -9974,6 +10072,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": null,
     "skills": {
@@ -10024,6 +10123,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s2-d1-r1",
     "turn": 5,
+    "recorded_prefix_turns": 4,
     "original_teacher_message": null
    },
    "scenario": {
@@ -10196,6 +10296,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": null,
     "skills": {
@@ -10247,6 +10348,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s3-d0-r1",
     "turn": 5,
+    "recorded_prefix_turns": 4,
     "original_teacher_message": null
    },
    "scenario": {
@@ -10416,6 +10518,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": null,
     "skills": {
@@ -10466,6 +10569,7 @@
     "run": "B-baseline-1.4.0-run2",
     "conversation": "B-s6-d1-r1",
     "turn": 5,
+    "recorded_prefix_turns": 4,
     "original_teacher_message": null
    },
    "scenario": {
@@ -10644,6 +10748,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": null,
     "skills": {
@@ -10694,6 +10799,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s5-d0-r1",
     "turn": 5,
+    "recorded_prefix_turns": 4,
     "original_teacher_message": "אלכסונים שווים ומאונכים זה לא מספיק. הם צריכים גם לחצות זה את זה. רק אם האלכסונים שווים, מאונכים וחוצים זה את זה, המרובע הוא ריבוע."
    },
    "scenario": {
@@ -10878,6 +10984,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -10932,6 +11039,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s5-d0-r1",
     "turn": 5,
+    "recorded_prefix_turns": 4,
     "original_teacher_message": "אלכסונים שווים ומאונכים זה לא מספיק. הם צריכים גם לחצות זה את זה. רק אם האלכסונים שווים, מאונכים וחוצים זה את זה, המרובע הוא ריבוע."
    },
    "scenario": {
@@ -11116,6 +11224,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -11167,6 +11276,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s3-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": "אוקיי"
    },
    "scenario": {
@@ -11267,6 +11377,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -11319,6 +11430,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s1-d0-r1",
     "turn": 4,
+    "recorded_prefix_turns": 3,
     "original_teacher_message": null
    },
    "scenario": {
@@ -11450,6 +11562,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -11499,6 +11612,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s5-d0-r1",
     "turn": 4,
+    "recorded_prefix_turns": 3,
     "original_teacher_message": "הילה, שאלה טובה, נבדוק את זה עוד רגע. דנה, ואם האלכסונים שווים ומאונכים - זה מספיק?"
    },
    "scenario": {
@@ -11635,6 +11749,7 @@
      "skills_assessment": []
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": null,
     "skills": {
@@ -11685,6 +11800,7 @@
     "run": "B-baseline-1.4.1-run1",
     "conversation": "B-s4-d1-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": null
    },
    "scenario": {
@@ -11799,6 +11915,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": null,
     "skills": {
@@ -11850,6 +11967,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s2-d0-r1",
     "turn": 4,
+    "recorded_prefix_turns": 3,
     "original_teacher_message": null
    },
    "scenario": {
@@ -12002,6 +12120,7 @@
      "skills_assessment": []
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": null,
     "skills": {
@@ -12053,6 +12172,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s5-d0-r1",
     "turn": 4,
+    "recorded_prefix_turns": 3,
     "original_teacher_message": null
    },
    "scenario": {
@@ -12189,6 +12309,7 @@
      "skills_assessment": []
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": null,
     "skills": {
@@ -12238,6 +12359,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s4-d0-r1",
     "turn": 4,
+    "recorded_prefix_turns": 3,
     "original_teacher_message": null
    },
    "scenario": {
@@ -12382,6 +12504,7 @@
      "skills_assessment": []
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": null,
     "skills": {
@@ -12428,6 +12551,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s5-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": "אוקיי"
    },
    "scenario": {
@@ -12528,6 +12652,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -12581,6 +12706,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s1-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": "אוקיי"
    },
    "scenario": {
@@ -12664,6 +12790,7 @@
      "skills_assessment": []
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -12716,6 +12843,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s1-d0-r1",
     "turn": 4,
+    "recorded_prefix_turns": 3,
     "original_teacher_message": "תמר, מה דעתך על מה שנאמר?"
    },
    "scenario": {
@@ -12847,6 +12975,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -12896,6 +13025,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s5-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": "אוקיי"
    },
    "scenario": {
@@ -12996,6 +13126,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -13050,6 +13181,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s6-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": "יפה"
    },
    "scenario": {
@@ -13150,6 +13282,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -13203,6 +13336,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s6-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": "יפה"
    },
    "scenario": {
@@ -13303,6 +13437,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -13351,6 +13486,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s3-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": "אוקיי"
    },
    "scenario": {
@@ -13451,6 +13587,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -13504,6 +13641,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s1-d0-r1",
     "turn": 8,
+    "recorded_prefix_turns": 7,
     "original_teacher_message": "ומה לגבי ההפך - האם כל מלבן הוא ריבוע?"
    },
    "scenario": {
@@ -13709,6 +13847,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": false,
     "skills": {
@@ -13757,6 +13896,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s5-d0-r1",
     "turn": 2,
+    "recorded_prefix_turns": 1,
     "original_teacher_message": null
    },
    "scenario": {
@@ -13820,6 +13960,7 @@
      "skills_assessment": []
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": null,
     "skills": {
@@ -13867,6 +14008,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s2-d0-r1",
     "turn": 2,
+    "recorded_prefix_turns": 1,
     "original_teacher_message": null
    },
    "scenario": {
@@ -13930,6 +14072,7 @@
      "skills_assessment": []
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": null,
     "skills": {
@@ -13978,6 +14121,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s4-d0-r1",
     "turn": 2,
+    "recorded_prefix_turns": 1,
     "original_teacher_message": null
    },
    "scenario": {
@@ -14041,6 +14185,7 @@
      "skills_assessment": []
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": null,
     "skills": {
@@ -14088,6 +14233,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s4-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": "אוקיי"
    },
    "scenario": {
@@ -14188,6 +14334,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": null,
     "skills": {
@@ -14234,6 +14381,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s1-d0-r1",
     "turn": 7,
+    "recorded_prefix_turns": 6,
     "original_teacher_message": "רועי, אז עכשיו - האם ריבוע הוא מלבן?"
    },
    "scenario": {
@@ -14437,6 +14585,7 @@
      "skills_assessment": []
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": null,
     "skills": {
@@ -14483,6 +14632,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s5-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": "אוקיי"
    },
    "scenario": {
@@ -14583,6 +14733,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -14634,6 +14785,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s1-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": "אוקיי"
    },
    "scenario": {
@@ -14717,6 +14869,7 @@
      "skills_assessment": []
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -14773,6 +14926,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s6-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": "יפה"
    },
    "scenario": {
@@ -14873,6 +15027,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -14925,6 +15080,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s3-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": "אוקיי"
    },
    "scenario": {
@@ -15025,6 +15181,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -15078,6 +15235,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s6-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": "יפה"
    },
    "scenario": {
@@ -15178,6 +15336,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -15232,6 +15391,7 @@
     "run": "B-baseline-1.4.0-run2",
     "conversation": "B-s4-d1-r1",
     "turn": 5,
+    "recorded_prefix_turns": 4,
     "original_teacher_message": "במלבן ובמקבילית האלכסונים חוצים זה את זה, אבל לא חוצים את הזוויות. רק במעוין ובריבוע הם גם חוצים את הזוויות."
    },
    "scenario": {
@@ -15384,6 +15544,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -15436,6 +15597,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s2-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": "אוקיי"
    },
    "scenario": {
@@ -15550,6 +15712,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -15599,6 +15762,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s3-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": "אוקיי"
    },
    "scenario": {
@@ -15699,6 +15863,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -15747,6 +15912,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s3-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": "אוקיי"
    },
    "scenario": {
@@ -15847,6 +16013,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -15897,6 +16064,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s2-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": "אוקיי"
    },
    "scenario": {
@@ -16011,6 +16179,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -16062,6 +16231,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s5-d0-r1",
     "turn": 5,
+    "recorded_prefix_turns": 4,
     "original_teacher_message": "אלכסונים שווים ומאונכים זה לא מספיק. הם צריכים גם לחצות זה את זה. רק אם האלכסונים שווים, מאונכים וחוצים זה את זה, המרובע הוא ריבוע."
    },
    "scenario": {
@@ -16246,6 +16416,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -16297,6 +16468,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s6-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": "יפה"
    },
    "scenario": {
@@ -16397,6 +16569,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -16450,6 +16623,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s2-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": "אוקיי"
    },
    "scenario": {
@@ -16564,6 +16738,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -16619,6 +16794,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s1-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": "אוקיי"
    },
    "scenario": {
@@ -16702,6 +16878,7 @@
      "skills_assessment": []
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -16750,6 +16927,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s1-d0-r1",
     "turn": 4,
+    "recorded_prefix_turns": 3,
     "original_teacher_message": "תמר, מה דעתך על מה שנאמר?"
    },
    "scenario": {
@@ -16881,6 +17059,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -16929,6 +17108,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s2-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": "אוקיי"
    },
    "scenario": {
@@ -17043,6 +17223,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -17092,6 +17273,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s1-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": "אוקיי"
    },
    "scenario": {
@@ -17175,6 +17357,7 @@
      "skills_assessment": []
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -17230,6 +17413,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s6-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": "יפה"
    },
    "scenario": {
@@ -17330,6 +17514,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -17383,6 +17568,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s5-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": "אוקיי"
    },
    "scenario": {
@@ -17483,6 +17669,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -17536,6 +17723,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s3-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": "אוקיי"
    },
    "scenario": {
@@ -17636,6 +17824,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -17691,6 +17880,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s6-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": "יפה"
    },
    "scenario": {
@@ -17791,6 +17981,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -17845,6 +18036,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s2-d0-r1",
     "turn": 3,
+    "recorded_prefix_turns": 2,
     "original_teacher_message": "אוקיי"
    },
    "scenario": {
@@ -17959,6 +18151,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -18013,6 +18206,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s1-d0-r1",
     "turn": 9,
+    "recorded_prefix_turns": 8,
     "original_teacher_message": "?"
    },
    "scenario": {
@@ -18239,6 +18433,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -18287,6 +18482,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s5-d0-r1",
     "turn": 11,
+    "recorded_prefix_turns": 10,
     "original_teacher_message": "דנה, איך היית מסביר או מסבירה את זה לחבר?"
    },
    "scenario": {
@@ -18546,6 +18742,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -18594,6 +18791,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s6-d0-r1",
     "turn": 11,
+    "recorded_prefix_turns": 10,
     "original_teacher_message": "תמר, סכם או סכמי את הקשר בין דלתון למעוין."
    },
    "scenario": {
@@ -18852,6 +19050,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -18901,6 +19100,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s5-d0-r1",
     "turn": 5,
+    "recorded_prefix_turns": 4,
     "original_teacher_message": "אלכסונים שווים ומאונכים זה לא מספיק. הם צריכים גם לחצות זה את זה. רק אם האלכסונים שווים, מאונכים וחוצים זה את זה, המרובע הוא ריבוע."
    },
    "scenario": {
@@ -19085,6 +19285,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": true,
     "skills": {
@@ -19137,6 +19338,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s1-d0-r1",
     "turn": 7,
+    "recorded_prefix_turns": 6,
     "original_teacher_message": null
    },
    "scenario": {
@@ -19340,6 +19542,7 @@
      "skills_assessment": []
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": null,
     "skills": {
@@ -19391,6 +19594,7 @@
     "run": "B-baseline-1.4.1-run1",
     "conversation": "B-s1-d1-r1",
     "turn": 7,
+    "recorded_prefix_turns": 6,
     "original_teacher_message": null
    },
    "scenario": {
@@ -19612,6 +19816,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": null,
     "skills": {
@@ -19663,6 +19868,7 @@
     "run": "B-baseline-1.4.1-run1",
     "conversation": "B-s5-d0-r1",
     "turn": 7,
+    "recorded_prefix_turns": 6,
     "original_teacher_message": null
    },
    "scenario": {
@@ -19865,6 +20071,7 @@
      "skills_assessment": []
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": null,
     "skills": {
@@ -19916,6 +20123,7 @@
     "run": "B-baseline-1.4.1-run1",
     "conversation": "B-s4-d0-r1",
     "turn": 7,
+    "recorded_prefix_turns": 6,
     "original_teacher_message": null
    },
    "scenario": {
@@ -20085,6 +20293,7 @@
      "skills_assessment": []
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": null,
     "skills": {
@@ -20135,6 +20344,7 @@
     "run": "B-baseline-1.4.1-run1",
     "conversation": "B-s3-d0-r1",
     "turn": 9,
+    "recorded_prefix_turns": 8,
     "original_teacher_message": null
    },
    "scenario": {
@@ -20352,6 +20562,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": false,
     "skills": {
@@ -20398,6 +20609,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s6-d0-r1",
     "turn": 8,
+    "recorded_prefix_turns": 7,
     "original_teacher_message": "והאם כל דלתון הוא מעוין?"
    },
    "scenario": {
@@ -20632,6 +20844,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": null,
     "skills": {
@@ -20679,6 +20892,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s1-d0-r1",
     "turn": 8,
+    "recorded_prefix_turns": 7,
     "original_teacher_message": null
    },
    "scenario": {
@@ -20884,6 +21098,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": null,
     "skills": {
@@ -20931,6 +21146,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s1-d0-r1",
     "turn": 10,
+    "recorded_prefix_turns": 9,
     "original_teacher_message": null
    },
    "scenario": {
@@ -21160,6 +21376,7 @@
      "skills_assessment": []
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": null,
     "skills": {
@@ -21207,6 +21424,7 @@
     "run": "B-baseline-1.4.0-run1",
     "conversation": "B-s4-d0-r1",
     "turn": 8,
+    "recorded_prefix_turns": 7,
     "original_teacher_message": null
    },
    "scenario": {
@@ -21476,6 +21694,7 @@
      ]
     }
    ],
+   "feedback_history_kind": "recorded",
    "expected": {
     "should_provide_feedback": null,
     "skills": {
@@ -21508,6 +21727,1113 @@
    "review_question": "Does this follow-up activity leverage the earlier error for broader understanding (p5 1-2), is it another local example / APR move, or is nothing relevant (no current error)?",
    "open_question": null,
    "prior_behaviour": "1.4.x scores such turns as error-leveraging 1 and APR 2"
+  },
+  {
+   "id": "CONT-EI-repeat-same-error",
+   "bucket": "high",
+   "confidence": "high",
+   "tags": [
+    "continuity",
+    "continuity_repeat_praise"
+   ],
+   "source": {
+    "kind": "mode_b_prefix_authored_history",
+    "run": "B-baseline-1.4.0-run1",
+    "conversation": "B-s5-d0-r1",
+    "turn": 4,
+    "recorded_prefix_turns": 2,
+    "original_teacher_message": null
+   },
+   "scenario": {
+    "id": 5,
+    "index": 4,
+    "slug": "square-from-diagonals",
+    "text": "זיהוי ריבוע על סמך תכונות האלכסונים",
+    "misconception_focus": "אם במרובע האלכסונים שווים ומאונכים, אז הוא בהכרח ריבוע.",
+    "grade_level": 9
+   },
+   "cast": [
+    "רועי",
+    "דנה",
+    "הילה"
+   ],
+   "history": [
+    {
+     "turn": 1,
+     "teacher": "שלום כיתה. אילו תכונות של אלכסונים אתם מכירים בריבוע?",
+     "teacher_drawing": null,
+     "students": [
+      {
+       "name": "דנה",
+       "message": "אמרת לנו שבריבוע האלכסונים שווים זה לזה וגם מאונכים זה לזה, נכון?"
+      },
+      {
+       "name": "רועי",
+       "message": "כן, והם גם חוצים זה את זה לאמצע."
+      }
+     ]
+    },
+    {
+     "turn": 2,
+     "teacher": "רועי, אם במרובע האלכסונים שווים, האם הוא ריבוע?",
+     "teacher_drawing": null,
+     "students": [
+      {
+       "name": "רועי",
+       "message": "אה, רגע... אמרת שהם שווים בריבוע, אז אם הם שווים בכל מרובע, זה אומר שזה ריבוע, לא?"
+      }
+     ]
+    },
+    {
+     "turn": 3,
+     "teacher": "רועי, הטענה שלך אינה נכונה: יש מרובעים שהאלכסונים שלהם שווים והם לא ריבועים.",
+     "teacher_drawing": null,
+     "students": [
+      {
+       "name": "רועי",
+       "message": "אבל אם האלכסונים שווים, זה עדיין נראה לי כמו ריבוע, לא?"
+      }
+     ]
+    }
+   ],
+   "recent_student_turns": [
+    {
+     "name": "רועי",
+     "message": "אבל אם האלכסונים שווים, זה עדיין נראה לי כמו ריבוע, לא?"
+    }
+   ],
+   "teacher_message": "רועי, כמו שאמרתי, הטענה הזאת לא נכונה.",
+   "teacher_drawing": null,
+   "feedback_history": [
+    {
+     "pedagogical_quality": "neutral",
+     "feedback_message_hebrew": "",
+     "predicted_student_state": {
+      "understanding_level": "same",
+      "response_tone": "confident",
+      "student_reaction_hints": []
+     },
+     "skills_assessment": []
+    },
+    {
+     "pedagogical_quality": "neutral",
+     "feedback_message_hebrew": "",
+     "predicted_student_state": {
+      "understanding_level": "same",
+      "response_tone": "hesitant",
+      "student_reaction_hints": []
+     },
+     "skills_assessment": []
+    },
+    {
+     "pedagogical_quality": "positive",
+     "feedback_message_hebrew": "זיהית במפורש שהטענה של רועי אינה נכונה – זה זיהוי השגיאה.",
+     "predicted_student_state": {
+      "understanding_level": "same",
+      "response_tone": "hesitant",
+      "student_reaction_hints": []
+     },
+     "skills_assessment": [
+      {
+       "skill_id": "error-identification",
+       "is_relevant": true,
+       "score": 2,
+       "evidence": "אמרת לרועי במפורש שהטענה שלו אינה נכונה."
+      }
+     ]
+    }
+   ],
+   "feedback_history_kind": "synthetic",
+   "expected": {
+    "should_provide_feedback": null,
+    "skills": {
+     "error-identification": {
+      "relevance": "either",
+      "scores": null
+     },
+     "error-characterization": {
+      "relevance": "not_relevant",
+      "scores": null
+     },
+     "diagnostic-interpretation": {
+      "relevance": "either",
+      "scores": null
+     },
+     "adapted-pedagogical-response": {
+      "relevance": "either",
+      "scores": null
+     },
+     "error-leveraging": {
+      "relevance": "not_relevant",
+      "scores": null
+     }
+    },
+    "constraints": [
+     "no_repeat_praise:error-identification"
+    ]
+   },
+   "rationale": "Error identification was praised on the previous turn for identifying Roee's claim; Roee repeats the same claim and the teacher repeats the same identification. Praising identification again would be redundant (prompt continuity Rule 1). Whether the repeated move merits other feedback is not asserted.",
+   "rules": [
+    "continuity-rule-1",
+    "W1.4-continuity-as-display"
+   ],
+   "production_divergence": null,
+   "review_question": null,
+   "open_question": null,
+   "prior_behaviour": null
+  },
+  {
+   "id": "CONT-EI-missed-same-error",
+   "bucket": "high",
+   "confidence": "high",
+   "tags": [
+    "continuity",
+    "continuity_missed_after_praise",
+    "EI_missed",
+    "bare_ack"
+   ],
+   "source": {
+    "kind": "mode_b_prefix_authored_history",
+    "run": "B-baseline-1.4.0-run1",
+    "conversation": "B-s5-d0-r1",
+    "turn": 4,
+    "recorded_prefix_turns": 2,
+    "original_teacher_message": null
+   },
+   "scenario": {
+    "id": 5,
+    "index": 4,
+    "slug": "square-from-diagonals",
+    "text": "זיהוי ריבוע על סמך תכונות האלכסונים",
+    "misconception_focus": "אם במרובע האלכסונים שווים ומאונכים, אז הוא בהכרח ריבוע.",
+    "grade_level": 9
+   },
+   "cast": [
+    "רועי",
+    "דנה",
+    "הילה"
+   ],
+   "history": [
+    {
+     "turn": 1,
+     "teacher": "שלום כיתה. אילו תכונות של אלכסונים אתם מכירים בריבוע?",
+     "teacher_drawing": null,
+     "students": [
+      {
+       "name": "דנה",
+       "message": "אמרת לנו שבריבוע האלכסונים שווים זה לזה וגם מאונכים זה לזה, נכון?"
+      },
+      {
+       "name": "רועי",
+       "message": "כן, והם גם חוצים זה את זה לאמצע."
+      }
+     ]
+    },
+    {
+     "turn": 2,
+     "teacher": "רועי, אם במרובע האלכסונים שווים, האם הוא ריבוע?",
+     "teacher_drawing": null,
+     "students": [
+      {
+       "name": "רועי",
+       "message": "אה, רגע... אמרת שהם שווים בריבוע, אז אם הם שווים בכל מרובע, זה אומר שזה ריבוע, לא?"
+      }
+     ]
+    },
+    {
+     "turn": 3,
+     "teacher": "רועי, הטענה שלך אינה נכונה: יש מרובעים שהאלכסונים שלהם שווים והם לא ריבועים.",
+     "teacher_drawing": null,
+     "students": [
+      {
+       "name": "רועי",
+       "message": "אבל אם האלכסונים שווים, זה עדיין נראה לי כמו ריבוע, לא?"
+      }
+     ]
+    }
+   ],
+   "recent_student_turns": [
+    {
+     "name": "רועי",
+     "message": "אבל אם האלכסונים שווים, זה עדיין נראה לי כמו ריבוע, לא?"
+    }
+   ],
+   "teacher_message": "אוקיי",
+   "teacher_drawing": null,
+   "feedback_history": [
+    {
+     "pedagogical_quality": "neutral",
+     "feedback_message_hebrew": "",
+     "predicted_student_state": {
+      "understanding_level": "same",
+      "response_tone": "confident",
+      "student_reaction_hints": []
+     },
+     "skills_assessment": []
+    },
+    {
+     "pedagogical_quality": "neutral",
+     "feedback_message_hebrew": "",
+     "predicted_student_state": {
+      "understanding_level": "same",
+      "response_tone": "hesitant",
+      "student_reaction_hints": []
+     },
+     "skills_assessment": []
+    },
+    {
+     "pedagogical_quality": "positive",
+     "feedback_message_hebrew": "זיהית במפורש שהטענה של רועי אינה נכונה – זה זיהוי השגיאה.",
+     "predicted_student_state": {
+      "understanding_level": "same",
+      "response_tone": "hesitant",
+      "student_reaction_hints": []
+     },
+     "skills_assessment": [
+      {
+       "skill_id": "error-identification",
+       "is_relevant": true,
+       "score": 2,
+       "evidence": "אמרת לרועי במפורש שהטענה שלו אינה נכונה."
+      }
+     ]
+    }
+   ],
+   "feedback_history_kind": "synthetic",
+   "expected": {
+    "should_provide_feedback": true,
+    "skills": {
+     "error-identification": {
+      "relevance": "required",
+      "scores": [
+       0
+      ]
+     },
+     "error-characterization": {
+      "relevance": "not_relevant",
+      "scores": null
+     },
+     "diagnostic-interpretation": {
+      "relevance": "either",
+      "scores": null
+     },
+     "adapted-pedagogical-response": {
+      "relevance": "either",
+      "scores": null
+     },
+     "error-leveraging": {
+      "relevance": "not_relevant",
+      "scores": null
+     }
+    },
+    "constraints": []
+   },
+   "rationale": "Identification was praised last turn, but Roee now restates the claim (tag form) and the teacher only says 'אוקיי'. Prior praise does not make identification irrelevant: it is a missed identification now (score 0). Rule 1 only forbids repeating *positive* feedback.",
+   "rules": [
+    "continuity-rule-1",
+    "W1.4-continuity-as-display",
+    "1.4.1-hedged-tag-claims"
+   ],
+   "production_divergence": null,
+   "review_question": null,
+   "open_question": null,
+   "prior_behaviour": null
+  },
+  {
+   "id": "CONT-EI-new-error-identified",
+   "bucket": "high",
+   "confidence": "high",
+   "tags": [
+    "continuity",
+    "continuity_new_move",
+    "EI_explicit"
+   ],
+   "source": {
+    "kind": "mode_b_prefix_authored_history",
+    "run": "B-baseline-1.4.0-run1",
+    "conversation": "B-s5-d0-r1",
+    "turn": 4,
+    "recorded_prefix_turns": 2,
+    "original_teacher_message": null
+   },
+   "scenario": {
+    "id": 5,
+    "index": 4,
+    "slug": "square-from-diagonals",
+    "text": "זיהוי ריבוע על סמך תכונות האלכסונים",
+    "misconception_focus": "אם במרובע האלכסונים שווים ומאונכים, אז הוא בהכרח ריבוע.",
+    "grade_level": 9
+   },
+   "cast": [
+    "רועי",
+    "דנה",
+    "הילה"
+   ],
+   "history": [
+    {
+     "turn": 1,
+     "teacher": "שלום כיתה. אילו תכונות של אלכסונים אתם מכירים בריבוע?",
+     "teacher_drawing": null,
+     "students": [
+      {
+       "name": "דנה",
+       "message": "אמרת לנו שבריבוע האלכסונים שווים זה לזה וגם מאונכים זה לזה, נכון?"
+      },
+      {
+       "name": "רועי",
+       "message": "כן, והם גם חוצים זה את זה לאמצע."
+      }
+     ]
+    },
+    {
+     "turn": 2,
+     "teacher": "רועי, אם במרובע האלכסונים שווים, האם הוא ריבוע?",
+     "teacher_drawing": null,
+     "students": [
+      {
+       "name": "רועי",
+       "message": "אה, רגע... אמרת שהם שווים בריבוע, אז אם הם שווים בכל מרובע, זה אומר שזה ריבוע, לא?"
+      }
+     ]
+    },
+    {
+     "turn": 3,
+     "teacher": "רועי, הטענה שלך אינה נכונה: יש מרובעים שהאלכסונים שלהם שווים והם לא ריבועים.",
+     "teacher_drawing": null,
+     "students": [
+      {
+       "name": "רועי",
+       "message": "אה, אז יש עוד מרובעים כאלה? לא ידעתי."
+      },
+      {
+       "name": "דנה",
+       "message": "אז אם האלכסונים שווים וגם מאונכים, זה בטוח ריבוע, לא?"
+      }
+     ]
+    }
+   ],
+   "recent_student_turns": [
+    {
+     "name": "רועי",
+     "message": "אה, אז יש עוד מרובעים כאלה? לא ידעתי."
+    },
+    {
+     "name": "דנה",
+     "message": "אז אם האלכסונים שווים וגם מאונכים, זה בטוח ריבוע, לא?"
+    }
+   ],
+   "teacher_message": "דנה, גם זה לא נכון – יש מרובעים שהאלכסונים שלהם שווים ומאונכים והם לא ריבועים.",
+   "teacher_drawing": null,
+   "feedback_history": [
+    {
+     "pedagogical_quality": "neutral",
+     "feedback_message_hebrew": "",
+     "predicted_student_state": {
+      "understanding_level": "same",
+      "response_tone": "confident",
+      "student_reaction_hints": []
+     },
+     "skills_assessment": []
+    },
+    {
+     "pedagogical_quality": "neutral",
+     "feedback_message_hebrew": "",
+     "predicted_student_state": {
+      "understanding_level": "same",
+      "response_tone": "hesitant",
+      "student_reaction_hints": []
+     },
+     "skills_assessment": []
+    },
+    {
+     "pedagogical_quality": "positive",
+     "feedback_message_hebrew": "זיהית במפורש שהטענה של רועי אינה נכונה – זה זיהוי השגיאה.",
+     "predicted_student_state": {
+      "understanding_level": "same",
+      "response_tone": "hesitant",
+      "student_reaction_hints": []
+     },
+     "skills_assessment": [
+      {
+       "skill_id": "error-identification",
+       "is_relevant": true,
+       "score": 2,
+       "evidence": "אמרת לרועי במפורש שהטענה שלו אינה נכונה."
+      }
+     ]
+    }
+   ],
+   "feedback_history_kind": "synthetic",
+   "expected": {
+    "should_provide_feedback": true,
+    "skills": {
+     "error-identification": {
+      "relevance": "required",
+      "scores": [
+       2
+      ]
+     },
+     "error-characterization": {
+      "relevance": "either",
+      "scores": null
+     },
+     "diagnostic-interpretation": {
+      "relevance": "either",
+      "scores": null
+     },
+     "adapted-pedagogical-response": {
+      "relevance": "either",
+      "scores": null
+     },
+     "error-leveraging": {
+      "relevance": "not_relevant",
+      "scores": null
+     }
+    },
+    "constraints": []
+   },
+   "rationale": "Identification was praised last turn for Roee's error; Dana now voices a different claim (equal + perpendicular diagonals) and the teacher explicitly identifies it. A new error is not 'the same active student error', so identification is evaluable and scores 2.",
+   "rules": [
+    "continuity-rule-1",
+    "W1.4-continuity-as-display"
+   ],
+   "production_divergence": null,
+   "review_question": null,
+   "open_question": null,
+   "prior_behaviour": null
+  },
+  {
+   "id": "CONT-EI-new-error-missed",
+   "bucket": "high",
+   "confidence": "high",
+   "tags": [
+    "continuity",
+    "continuity_missed_after_praise",
+    "EI_missed",
+    "bare_ack"
+   ],
+   "source": {
+    "kind": "mode_b_prefix_authored_history",
+    "run": "B-baseline-1.4.0-run1",
+    "conversation": "B-s5-d0-r1",
+    "turn": 4,
+    "recorded_prefix_turns": 2,
+    "original_teacher_message": null
+   },
+   "scenario": {
+    "id": 5,
+    "index": 4,
+    "slug": "square-from-diagonals",
+    "text": "זיהוי ריבוע על סמך תכונות האלכסונים",
+    "misconception_focus": "אם במרובע האלכסונים שווים ומאונכים, אז הוא בהכרח ריבוע.",
+    "grade_level": 9
+   },
+   "cast": [
+    "רועי",
+    "דנה",
+    "הילה"
+   ],
+   "history": [
+    {
+     "turn": 1,
+     "teacher": "שלום כיתה. אילו תכונות של אלכסונים אתם מכירים בריבוע?",
+     "teacher_drawing": null,
+     "students": [
+      {
+       "name": "דנה",
+       "message": "אמרת לנו שבריבוע האלכסונים שווים זה לזה וגם מאונכים זה לזה, נכון?"
+      },
+      {
+       "name": "רועי",
+       "message": "כן, והם גם חוצים זה את זה לאמצע."
+      }
+     ]
+    },
+    {
+     "turn": 2,
+     "teacher": "רועי, אם במרובע האלכסונים שווים, האם הוא ריבוע?",
+     "teacher_drawing": null,
+     "students": [
+      {
+       "name": "רועי",
+       "message": "אה, רגע... אמרת שהם שווים בריבוע, אז אם הם שווים בכל מרובע, זה אומר שזה ריבוע, לא?"
+      }
+     ]
+    },
+    {
+     "turn": 3,
+     "teacher": "רועי, הטענה שלך אינה נכונה: יש מרובעים שהאלכסונים שלהם שווים והם לא ריבועים.",
+     "teacher_drawing": null,
+     "students": [
+      {
+       "name": "רועי",
+       "message": "אה, אז יש עוד מרובעים כאלה? לא ידעתי."
+      },
+      {
+       "name": "דנה",
+       "message": "אז אם האלכסונים שווים וגם מאונכים, זה בטוח ריבוע, לא?"
+      }
+     ]
+    }
+   ],
+   "recent_student_turns": [
+    {
+     "name": "רועי",
+     "message": "אה, אז יש עוד מרובעים כאלה? לא ידעתי."
+    },
+    {
+     "name": "דנה",
+     "message": "אז אם האלכסונים שווים וגם מאונכים, זה בטוח ריבוע, לא?"
+    }
+   ],
+   "teacher_message": "יפה",
+   "teacher_drawing": null,
+   "feedback_history": [
+    {
+     "pedagogical_quality": "neutral",
+     "feedback_message_hebrew": "",
+     "predicted_student_state": {
+      "understanding_level": "same",
+      "response_tone": "confident",
+      "student_reaction_hints": []
+     },
+     "skills_assessment": []
+    },
+    {
+     "pedagogical_quality": "neutral",
+     "feedback_message_hebrew": "",
+     "predicted_student_state": {
+      "understanding_level": "same",
+      "response_tone": "hesitant",
+      "student_reaction_hints": []
+     },
+     "skills_assessment": []
+    },
+    {
+     "pedagogical_quality": "positive",
+     "feedback_message_hebrew": "זיהית במפורש שהטענה של רועי אינה נכונה – זה זיהוי השגיאה.",
+     "predicted_student_state": {
+      "understanding_level": "same",
+      "response_tone": "hesitant",
+      "student_reaction_hints": []
+     },
+     "skills_assessment": [
+      {
+       "skill_id": "error-identification",
+       "is_relevant": true,
+       "score": 2,
+       "evidence": "אמרת לרועי במפורש שהטענה שלו אינה נכונה."
+      }
+     ]
+    }
+   ],
+   "feedback_history_kind": "synthetic",
+   "expected": {
+    "should_provide_feedback": true,
+    "skills": {
+     "error-identification": {
+      "relevance": "required",
+      "scores": [
+       0
+      ]
+     },
+     "error-characterization": {
+      "relevance": "not_relevant",
+      "scores": null
+     },
+     "diagnostic-interpretation": {
+      "relevance": "either",
+      "scores": null
+     },
+     "adapted-pedagogical-response": {
+      "relevance": "either",
+      "scores": null
+     },
+     "error-leveraging": {
+      "relevance": "not_relevant",
+      "scores": null
+     }
+    },
+    "constraints": []
+   },
+   "rationale": "Identification was praised last turn; Dana now voices a new claim (tag form) and the teacher only says 'יפה'. Missed identification: relevant, score 0.",
+   "rules": [
+    "continuity-rule-1",
+    "W1.4-continuity-as-display",
+    "1.4.1-hedged-tag-claims"
+   ],
+   "production_divergence": null,
+   "review_question": null,
+   "open_question": null,
+   "prior_behaviour": null
+  },
+  {
+   "id": "CONT-APR-repeat-same-move",
+   "bucket": "high",
+   "confidence": "high",
+   "tags": [
+    "continuity",
+    "continuity_repeat_praise"
+   ],
+   "source": {
+    "kind": "mode_b_prefix_authored_history",
+    "run": "B-baseline-1.4.0-run1",
+    "conversation": "B-s5-d0-r1",
+    "turn": 4,
+    "recorded_prefix_turns": 2,
+    "original_teacher_message": null
+   },
+   "scenario": {
+    "id": 5,
+    "index": 4,
+    "slug": "square-from-diagonals",
+    "text": "זיהוי ריבוע על סמך תכונות האלכסונים",
+    "misconception_focus": "אם במרובע האלכסונים שווים ומאונכים, אז הוא בהכרח ריבוע.",
+    "grade_level": 9
+   },
+   "cast": [
+    "רועי",
+    "דנה",
+    "הילה"
+   ],
+   "history": [
+    {
+     "turn": 1,
+     "teacher": "שלום כיתה. אילו תכונות של אלכסונים אתם מכירים בריבוע?",
+     "teacher_drawing": null,
+     "students": [
+      {
+       "name": "דנה",
+       "message": "אמרת לנו שבריבוע האלכסונים שווים זה לזה וגם מאונכים זה לזה, נכון?"
+      },
+      {
+       "name": "רועי",
+       "message": "כן, והם גם חוצים זה את זה לאמצע."
+      }
+     ]
+    },
+    {
+     "turn": 2,
+     "teacher": "רועי, אם במרובע האלכסונים שווים, האם הוא ריבוע?",
+     "teacher_drawing": null,
+     "students": [
+      {
+       "name": "רועי",
+       "message": "אה, רגע... אמרת שהם שווים בריבוע, אז אם הם שווים בכל מרובע, זה אומר שזה ריבוע, לא?"
+      }
+     ]
+    },
+    {
+     "turn": 3,
+     "teacher": "בואו נבדוק: האם יכול להיות מרובע שהאלכסונים שלו שווים אבל הוא לא ריבוע? חשבו על מלבן.",
+     "teacher_drawing": null,
+     "students": [
+      {
+       "name": "רועי",
+       "message": "אבל מלבן זה מקרה מיוחד. בדרך כלל אם האלכסונים שווים זה ריבוע, לא?"
+      }
+     ]
+    }
+   ],
+   "recent_student_turns": [
+    {
+     "name": "רועי",
+     "message": "אבל מלבן זה מקרה מיוחד. בדרך כלל אם האלכסונים שווים זה ריבוע, לא?"
+    }
+   ],
+   "teacher_message": "בואו נבדוק שוב: האם במלבן האלכסונים שווים? האם הוא ריבוע?",
+   "teacher_drawing": null,
+   "feedback_history": [
+    {
+     "pedagogical_quality": "neutral",
+     "feedback_message_hebrew": "",
+     "predicted_student_state": {
+      "understanding_level": "same",
+      "response_tone": "confident",
+      "student_reaction_hints": []
+     },
+     "skills_assessment": []
+    },
+    {
+     "pedagogical_quality": "neutral",
+     "feedback_message_hebrew": "",
+     "predicted_student_state": {
+      "understanding_level": "same",
+      "response_tone": "hesitant",
+      "student_reaction_hints": []
+     },
+     "skills_assessment": []
+    },
+    {
+     "pedagogical_quality": "positive",
+     "feedback_message_hebrew": "הפנית את התלמידים לבדוק דוגמה נגדית (מלבן) – זו תגובה פדגוגית מותאמת.",
+     "predicted_student_state": {
+      "understanding_level": "improved",
+      "response_tone": "thoughtful",
+      "student_reaction_hints": []
+     },
+     "skills_assessment": [
+      {
+       "skill_id": "adapted-pedagogical-response",
+       "is_relevant": true,
+       "score": 2,
+       "evidence": "שאלת אם יש מרובע עם אלכסונים שווים שאינו ריבוע והפנית למלבן."
+      }
+     ]
+    }
+   ],
+   "feedback_history_kind": "synthetic",
+   "expected": {
+    "should_provide_feedback": null,
+    "skills": {
+     "error-identification": {
+      "relevance": "either",
+      "scores": null
+     },
+     "error-characterization": {
+      "relevance": "not_relevant",
+      "scores": null
+     },
+     "diagnostic-interpretation": {
+      "relevance": "not_relevant",
+      "scores": null
+     },
+     "adapted-pedagogical-response": {
+      "relevance": "either",
+      "scores": null
+     },
+     "error-leveraging": {
+      "relevance": "not_relevant",
+      "scores": null
+     }
+    },
+    "constraints": [
+     "no_repeat_praise:adapted-pedagogical-response"
+    ]
+   },
+   "rationale": "The rectangle counterexample move was praised as APR last turn; Roee dismisses it as a special case and the teacher repeats the same rectangle question. Praising the same move again would be redundant. Other feedback (e.g. on not engaging Roee's new objection) is not asserted.",
+   "rules": [
+    "continuity-rule-1",
+    "W1.4-continuity-as-display"
+   ],
+   "production_divergence": null,
+   "review_question": null,
+   "open_question": null,
+   "prior_behaviour": null
+  },
+  {
+   "id": "CONT-APR-new-move",
+   "bucket": "high",
+   "confidence": "high",
+   "tags": [
+    "continuity",
+    "continuity_new_move",
+    "APR_well_adapted"
+   ],
+   "source": {
+    "kind": "mode_b_prefix_authored_history",
+    "run": "B-baseline-1.4.0-run1",
+    "conversation": "B-s5-d0-r1",
+    "turn": 4,
+    "recorded_prefix_turns": 2,
+    "original_teacher_message": null
+   },
+   "scenario": {
+    "id": 5,
+    "index": 4,
+    "slug": "square-from-diagonals",
+    "text": "זיהוי ריבוע על סמך תכונות האלכסונים",
+    "misconception_focus": "אם במרובע האלכסונים שווים ומאונכים, אז הוא בהכרח ריבוע.",
+    "grade_level": 9
+   },
+   "cast": [
+    "רועי",
+    "דנה",
+    "הילה"
+   ],
+   "history": [
+    {
+     "turn": 1,
+     "teacher": "שלום כיתה. אילו תכונות של אלכסונים אתם מכירים בריבוע?",
+     "teacher_drawing": null,
+     "students": [
+      {
+       "name": "דנה",
+       "message": "אמרת לנו שבריבוע האלכסונים שווים זה לזה וגם מאונכים זה לזה, נכון?"
+      },
+      {
+       "name": "רועי",
+       "message": "כן, והם גם חוצים זה את זה לאמצע."
+      }
+     ]
+    },
+    {
+     "turn": 2,
+     "teacher": "רועי, אם במרובע האלכסונים שווים, האם הוא ריבוע?",
+     "teacher_drawing": null,
+     "students": [
+      {
+       "name": "רועי",
+       "message": "אה, רגע... אמרת שהם שווים בריבוע, אז אם הם שווים בכל מרובע, זה אומר שזה ריבוע, לא?"
+      }
+     ]
+    },
+    {
+     "turn": 3,
+     "teacher": "בואו נבדוק: האם יכול להיות מרובע שהאלכסונים שלו שווים אבל הוא לא ריבוע? חשבו על מלבן.",
+     "teacher_drawing": null,
+     "students": [
+      {
+       "name": "רועי",
+       "message": "אבל מלבן זה מקרה מיוחד. בדרך כלל אם האלכסונים שווים זה ריבוע, לא?"
+      }
+     ]
+    }
+   ],
+   "recent_student_turns": [
+    {
+     "name": "רועי",
+     "message": "אבל מלבן זה מקרה מיוחד. בדרך כלל אם האלכסונים שווים זה ריבוע, לא?"
+    }
+   ],
+   "teacher_message": "רועי, אתה אומר שהמלבן הוא 'מקרה מיוחד'. בוא נבדוק עוד מרובע: נסה לשרטט דלתון שהאלכסונים שלו שווים זה לזה. האם הוא ריבוע?",
+   "teacher_drawing": null,
+   "feedback_history": [
+    {
+     "pedagogical_quality": "neutral",
+     "feedback_message_hebrew": "",
+     "predicted_student_state": {
+      "understanding_level": "same",
+      "response_tone": "confident",
+      "student_reaction_hints": []
+     },
+     "skills_assessment": []
+    },
+    {
+     "pedagogical_quality": "neutral",
+     "feedback_message_hebrew": "",
+     "predicted_student_state": {
+      "understanding_level": "same",
+      "response_tone": "hesitant",
+      "student_reaction_hints": []
+     },
+     "skills_assessment": []
+    },
+    {
+     "pedagogical_quality": "positive",
+     "feedback_message_hebrew": "הפנית את התלמידים לבדוק דוגמה נגדית (מלבן) – זו תגובה פדגוגית מותאמת.",
+     "predicted_student_state": {
+      "understanding_level": "improved",
+      "response_tone": "thoughtful",
+      "student_reaction_hints": []
+     },
+     "skills_assessment": [
+      {
+       "skill_id": "adapted-pedagogical-response",
+       "is_relevant": true,
+       "score": 2,
+       "evidence": "שאלת אם יש מרובע עם אלכסונים שווים שאינו ריבוע והפנית למלבן."
+      }
+     ]
+    }
+   ],
+   "feedback_history_kind": "synthetic",
+   "expected": {
+    "should_provide_feedback": true,
+    "skills": {
+     "error-identification": {
+      "relevance": "either",
+      "scores": null
+     },
+     "error-characterization": {
+      "relevance": "not_relevant",
+      "scores": null
+     },
+     "diagnostic-interpretation": {
+      "relevance": "either",
+      "scores": null
+     },
+     "adapted-pedagogical-response": {
+      "relevance": "required",
+      "scores": [
+       1,
+       2
+      ]
+     },
+     "error-leveraging": {
+      "relevance": "not_relevant",
+      "scores": null
+     }
+    },
+    "constraints": []
+   },
+   "rationale": "APR was praised last turn for the rectangle counterexample; the teacher now takes up Roee's new objection with a different, student-performed counterexample (a kite with equal diagonals). This is a new adapted move and must stay evaluable (1-2).",
+   "rules": [
+    "continuity-rule-1",
+    "W1.4-continuity-as-display"
+   ],
+   "production_divergence": "prompt continuity Rule 1 marks a skill already scored >= 1 on the same active error as not relevant, even for a new move",
+   "review_question": null,
+   "open_question": null,
+   "prior_behaviour": null
+  },
+  {
+   "id": "CONT-APR-missed-after-praise",
+   "bucket": "high",
+   "confidence": "high",
+   "tags": [
+    "continuity",
+    "continuity_missed_after_praise",
+    "APR_direct_correction"
+   ],
+   "source": {
+    "kind": "mode_b_prefix_authored_history",
+    "run": "B-baseline-1.4.0-run1",
+    "conversation": "B-s5-d0-r1",
+    "turn": 4,
+    "recorded_prefix_turns": 2,
+    "original_teacher_message": null
+   },
+   "scenario": {
+    "id": 5,
+    "index": 4,
+    "slug": "square-from-diagonals",
+    "text": "זיהוי ריבוע על סמך תכונות האלכסונים",
+    "misconception_focus": "אם במרובע האלכסונים שווים ומאונכים, אז הוא בהכרח ריבוע.",
+    "grade_level": 9
+   },
+   "cast": [
+    "רועי",
+    "דנה",
+    "הילה"
+   ],
+   "history": [
+    {
+     "turn": 1,
+     "teacher": "שלום כיתה. אילו תכונות של אלכסונים אתם מכירים בריבוע?",
+     "teacher_drawing": null,
+     "students": [
+      {
+       "name": "דנה",
+       "message": "אמרת לנו שבריבוע האלכסונים שווים זה לזה וגם מאונכים זה לזה, נכון?"
+      },
+      {
+       "name": "רועי",
+       "message": "כן, והם גם חוצים זה את זה לאמצע."
+      }
+     ]
+    },
+    {
+     "turn": 2,
+     "teacher": "רועי, אם במרובע האלכסונים שווים, האם הוא ריבוע?",
+     "teacher_drawing": null,
+     "students": [
+      {
+       "name": "רועי",
+       "message": "אה, רגע... אמרת שהם שווים בריבוע, אז אם הם שווים בכל מרובע, זה אומר שזה ריבוע, לא?"
+      }
+     ]
+    },
+    {
+     "turn": 3,
+     "teacher": "בואו נבדוק: האם יכול להיות מרובע שהאלכסונים שלו שווים אבל הוא לא ריבוע? חשבו על מלבן.",
+     "teacher_drawing": null,
+     "students": [
+      {
+       "name": "רועי",
+       "message": "אבל מלבן זה מקרה מיוחד. בדרך כלל אם האלכסונים שווים זה ריבוע, לא?"
+      }
+     ]
+    }
+   ],
+   "recent_student_turns": [
+    {
+     "name": "רועי",
+     "message": "אבל מלבן זה מקרה מיוחד. בדרך כלל אם האלכסונים שווים זה ריבוע, לא?"
+    }
+   ],
+   "teacher_message": "לא, רועי. אלכסונים שווים לא מספיקים כדי שמרובע יהיה ריבוע.",
+   "teacher_drawing": null,
+   "feedback_history": [
+    {
+     "pedagogical_quality": "neutral",
+     "feedback_message_hebrew": "",
+     "predicted_student_state": {
+      "understanding_level": "same",
+      "response_tone": "confident",
+      "student_reaction_hints": []
+     },
+     "skills_assessment": []
+    },
+    {
+     "pedagogical_quality": "neutral",
+     "feedback_message_hebrew": "",
+     "predicted_student_state": {
+      "understanding_level": "same",
+      "response_tone": "hesitant",
+      "student_reaction_hints": []
+     },
+     "skills_assessment": []
+    },
+    {
+     "pedagogical_quality": "positive",
+     "feedback_message_hebrew": "הפנית את התלמידים לבדוק דוגמה נגדית (מלבן) – זו תגובה פדגוגית מותאמת.",
+     "predicted_student_state": {
+      "understanding_level": "improved",
+      "response_tone": "thoughtful",
+      "student_reaction_hints": []
+     },
+     "skills_assessment": [
+      {
+       "skill_id": "adapted-pedagogical-response",
+       "is_relevant": true,
+       "score": 2,
+       "evidence": "שאלת אם יש מרובע עם אלכסונים שווים שאינו ריבוע והפנית למלבן."
+      }
+     ]
+    }
+   ],
+   "feedback_history_kind": "synthetic",
+   "expected": {
+    "should_provide_feedback": true,
+    "skills": {
+     "error-identification": {
+      "relevance": "either",
+      "scores": [
+       1,
+       2
+      ]
+     },
+     "error-characterization": {
+      "relevance": "not_relevant",
+      "scores": null
+     },
+     "diagnostic-interpretation": {
+      "relevance": "either",
+      "scores": null
+     },
+     "adapted-pedagogical-response": {
+      "relevance": "required",
+      "scores": [
+       0
+      ]
+     },
+     "error-leveraging": {
+      "relevance": "not_relevant",
+      "scores": null
+     }
+    },
+    "constraints": []
+   },
+   "rationale": "APR was praised last turn; when Roee persists, the teacher now just tells him he is wrong and states the rule: a direct correction (APR band 0). Prior praise must not make APR irrelevant here.",
+   "rules": [
+    "continuity-rule-1",
+    "W1.4-continuity-as-display"
+   ],
+   "production_divergence": null,
+   "review_question": null,
+   "open_question": null,
+   "prior_behaviour": null
   }
  ]
 }
