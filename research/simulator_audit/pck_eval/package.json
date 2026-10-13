@@ -1,0 +1,6 @@
+{
+  "name": "rambam-pck-eval",
+  "private": true,
+  "description": "Research-only frozen PCK evaluation benchmark (not part of the app build or production tests). See ../pck_eval_benchmark.md.",
+  "type": "module"
+}
