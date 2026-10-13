@@ -967,6 +967,55 @@ Before the fix, 4 tests failed. The harness has a version-aware example set and 
 
 **Follow-up:** measure the production rate per category before deciding whether a high-confidence garble should use the existing second attempt.
 
+### 0.28 PCK sidebar display contract: text the model already returned (2026-10-13, version 1.4.3)
+
+**Defect:** since 1.3.4 (structured output), 3.1 (and 2.5) leave a skill's own `evidence` empty and write it in `demonstrated_skills`. The sidebar showed `evidence` for score 1 / 2, so 93–95% of displayed rows in the 1.4.x Mode B runs were a bare skill name (`pck_row_text_contract_experiment.md`). A model-side contract fix changed decisions, so it was not adopted.
+
+**Change (presentation only, B28):**
+- `src/services/pckDisplayRows.js` (pure view-model):
+  - **score 2:** own `evidence`, else the evidence of the single `demonstrated_skills` item with exactly the same `skill_id`;
+  - **score 1:** the same positive text, plus `what_could_be_better` on a second line ("לשיפור:");
+  - **score 0:** unchanged.
+- **Not used:** score-2 text found only in `what_could_be_better`. Nothing is generated or matched by meaning.
+- **Legacy fallback** unchanged.
+- **Telemetry (A17):** `pckRowsWithoutText` on the PCK entry of turns whose feedback was shown.
+- **Unchanged:** the PCK request, the analysis object, scores, relevance, the decision, B27, student steering and the stored fields (`git diff -- server` is empty).
+
+**Tests:** client +30:
+- `pckDisplayRows.test.js` (every score path; deterministic matching, including ambiguous and malformed input; no mutation of a deep-frozen input; legacy shapes; the counter);
+- `pckSkillsDisplay.test.js` (score 1 renders both parts with a dedicated element; score 2 never shows a recommendation; fallback; empty row);
+- `chatTurnOrchestration` (counter logged only for shown feedback; the student agent receives the analysis object itself; the logged feedback fields are unchanged);
+- `callTelemetry` and `conversationContract`;
+- 4 PCK telemetry expectations extended additively.
+- **Before the change:** 11 client tests failed and the new view-model test file could not run.
+
+**Offline (real module, saved synthetic 1.4.x outputs):**
+
+| outputs | rows with text: before | after |
+|---|---:|---:|
+| Mode B 1.4.0 | 4.6% | 89.6% |
+| Mode B 1.4.1 | 7.0% | 86.8% |
+| frozen contexts, 1.4.1 | 73.5% | 98.0% |
+| frozen contexts, 1.4.2 | 52.9% | 97.6% |
+
+- Every displayed string is a verbatim model field.
+- No ambiguous skill matches.
+- **Remaining empty rows:** all score 2, mostly error-identification and error-leveraging.
+- **Score 1:** the positive part is rarely available from 3.1 (score-1 skills are not listed in `demonstrated_skills`), so it usually shows the improvement only.
+
+**Results:** `npm run test:all` was run twice and passed both times (242 frontend, 328 backend); the harness has 74 tests; the build compiles.
+
+**Live smoke** (unchanged 1.4.2 server, real client, the real sidebar rendered in jsdom; 46 calls):
+- rendering equals the view-model on 49 of 49 rows;
+- 43 of 49 rows have text;
+- `pckRowsWithoutText` is correct for all 37 shown feedbacks (6 empty rows counted);
+- 1 score-1 row rendered with both parts;
+- the analysis object is unchanged in 46 of 46; no retries.
+
+**Follow-up:**
+- move the conversation-log, admin-log and Excel renderers to the same view-model;
+- the score-1 positive part and the remaining score-2 gap need a model-side change (`pck_feedback_v2_plan.md`, X2).
+
 ## Original proposal (kept for reference; see §0.6 for what is still open)
 
 ## 1. Starting state (before the baseline)

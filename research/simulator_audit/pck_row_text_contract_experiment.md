@@ -177,3 +177,21 @@ The 1.4.1 recovery is preserved.
 - **The display-rule coverage is computed offline.** It shows what the sidebar would display from these outputs; the UI was not rendered.
 
 **Files** (scratchpad `c40/`): `row_text_block.txt`, `row_text_arm.cjs` (arm preload: A / B / Bp), `bench/pck_ab.bench.js`, `contexts.main.json`, `contexts.rep.json`, `results-{A,B,Bp}.jsonl`, `results-{A,Bp}-rep.jsonl`, `calls-{A,B,Bp,A2}.jsonl`, `rows-{A,B,Bp}.json`, `analyze.py`.
+
+## 9. Implemented as a display-only change in 1.4.3 (2026-10-13)
+
+The display rule of §7 was implemented as a view-model (`src/services/pckDisplayRows.js`, invariant B28), with one tightening: score-2 text found only in `what_could_be_better` is **not** shown. Its contract meaning is a recommendation, and treating it as evidence would require reading the text.
+
+**Coverage with the implemented rule:**
+
+| outputs | rows with text |
+|---|---:|
+| Mode B 1.4.0 | 89.6% (was 4.6%) |
+| Mode B 1.4.1 | 86.8% (was 7.0%) |
+| frozen contexts, 1.4.1 | 98.0% |
+| frozen contexts, 1.4.2 | 97.6% |
+
+**Live render smoke:** 49 of 49 rows render as specified; the empty-row counter is exact.
+
+Details: `regression_test_plan.md` §0.28.
+

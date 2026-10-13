@@ -1,5 +1,5 @@
 // LLM-call telemetry (A17, REVIEW): a strict, bounded whitelist of timing metadata.
-import { buildCallTelemetry, TELEMETRY_KEYS, TELEMETRY_BASE_KEYS, TELEMETRY_DUPLICATE_KEYS, TELEMETRY_QUOTE_CUT_KEYS, TELEMETRY_GARBLE_KEYS, TELEMETRY_SPEAKER_KEYS, DUPLICATE_OUTCOMES, countUnknownSpeakers } from "../services/callTelemetry";
+import { buildCallTelemetry, TELEMETRY_KEYS, TELEMETRY_BASE_KEYS, TELEMETRY_DUPLICATE_KEYS, TELEMETRY_QUOTE_CUT_KEYS, TELEMETRY_GARBLE_KEYS, TELEMETRY_SPEAKER_KEYS, TELEMETRY_PCK_DISPLAY_KEYS, DUPLICATE_OUTCOMES, countUnknownSpeakers } from "../services/callTelemetry";
 
 const META = {
 	agent: "pck",
@@ -95,7 +95,8 @@ describe("student duplicate-guard telemetry (1.3.11, A17 additive)", () => {
 	it("omits them when the server did not report them (PCK calls, older servers): backward compatible", () => {
 		expect(Object.keys(buildCallTelemetry("ok", META)).sort()).toEqual([...TELEMETRY_BASE_KEYS].sort());
 		// 1.4.2 appends the garbled-text and unknown-speaker counters (additive)
-		expect(TELEMETRY_KEYS).toEqual([...TELEMETRY_BASE_KEYS, ...TELEMETRY_DUPLICATE_KEYS, ...TELEMETRY_QUOTE_CUT_KEYS, ...TELEMETRY_GARBLE_KEYS, ...TELEMETRY_SPEAKER_KEYS]);
+		// 1.4.3 appends the PCK display counter (additive)
+		expect(TELEMETRY_KEYS).toEqual([...TELEMETRY_BASE_KEYS, ...TELEMETRY_DUPLICATE_KEYS, ...TELEMETRY_QUOTE_CUT_KEYS, ...TELEMETRY_GARBLE_KEYS, ...TELEMETRY_SPEAKER_KEYS, ...TELEMETRY_PCK_DISPLAY_KEYS]);
 	});
 
 	it("only accepts the known outcomes and non-negative integer counts; never text", () => {
@@ -178,6 +179,21 @@ describe("student garbled-text telemetry (1.4.2, A17 additive, detection only)",
 		expect(countUnknownSpeakers([], cast)).toBe(0);
 		expect(countUnknownSpeakers(null, cast)).toBe(0);
 		expect(countUnknownSpeakers([{ name: "תמר" }], null)).toBe(1);
+	});
+});
+
+describe("PCK display telemetry (1.4.3, A17 additive, content-free)", () => {
+	const PCK_META = { ...META, agent: "pck" };
+
+	it("keeps pckRowsWithoutText when reported, as a non-negative integer", () => {
+		expect(TELEMETRY_PCK_DISPLAY_KEYS).toEqual(["pckRowsWithoutText"]);
+		expect(buildCallTelemetry("ok", { ...PCK_META, pckRowsWithoutText: 2 }).pckRowsWithoutText).toBe(2);
+		expect(buildCallTelemetry("ok", { ...PCK_META, pckRowsWithoutText: "תגובה פדגוגית" }).pckRowsWithoutText).toBeNull();
+		expect(buildCallTelemetry("ok", { ...PCK_META, pckRowsWithoutText: -1 }).pckRowsWithoutText).toBeNull();
+	});
+
+	it("omits it when not reported (no feedback shown, older records)", () => {
+		expect("pckRowsWithoutText" in buildCallTelemetry("ok", PCK_META)).toBe(false);
 	});
 });
 

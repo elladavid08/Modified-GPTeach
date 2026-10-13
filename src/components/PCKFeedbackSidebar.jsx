@@ -1,4 +1,5 @@
 import React from 'react';
+import { buildPckDisplayRows } from '../services/pckDisplayRows';
 
 const SKILL_NAMES_HE = {
   'error-identification':           'זיהוי השגיאה',
@@ -31,9 +32,13 @@ function SkillDot({ color }) {
   );
 }
 
-function SkillRow({ skillId, score, text }) {
+// 1.4.3 display contract (src/services/pckDisplayRows.js): the main text is the positive part for score 1/2 and
+// the improvement for score 0; score 1 adds its improvement on a second line. All text comes from the PCK output.
+function SkillRow({ skillId, score, positive, improvement }) {
   const config = SCORE_CONFIG[score] !== undefined ? SCORE_CONFIG[score] : SCORE_CONFIG[0];
   const name = SKILL_NAMES_HE[skillId] || skillId;
+  const text = score === 1 || score === 2 ? positive : improvement;
+  const secondLine = score === 1 ? improvement : null;
   return (
     <div style={{
       display: 'flex',
@@ -46,6 +51,11 @@ function SkillRow({ skillId, score, text }) {
       <span style={{ fontSize: '0.88rem', color: '#333', lineHeight: '1.5' }}>
         <strong>{name}</strong>
         {text ? ': ' + text : ''}
+        {secondLine ? (
+          <span data-testid="pck-row-improvement" style={{ display: 'block', marginTop: '2px' }}>
+            {'לשיפור: ' + secondLine}
+          </span>
+        ) : null}
       </span>
     </div>
   );
@@ -128,30 +138,8 @@ export const PCKFeedbackSidebar = ({ feedback, isVisible, errorMessage }) => {
     );
   }
 
-  // Build per-skill rows from skills_assessment (has full score + evidence data)
-  var assessedSkills = (feedback.skills_assessment || []).filter(function(s) { return s.is_relevant; });
-
-  var skillRows;
-  if (assessedSkills.length > 0) {
-    skillRows = assessedSkills.map(function(s) {
-      return {
-        skillId: s.skill_id,
-        score: s.score,
-        // For demonstrated skills: use evidence; for missed: use what_could_be_better
-        text: s.score > 0 ? (s.evidence || '') : (s.what_could_be_better || ''),
-      };
-    });
-  } else {
-    // Fallback when skills_assessment is unavailable — text comes from detected/missed arrays
-    skillRows = [
-      ...(feedback.detected_skills || []).map(function(s) {
-        return { skillId: s.skill_id, score: 2, text: s.evidence || '' };
-      }),
-      ...(feedback.missed_opportunities || []).map(function(s) {
-        return { skillId: s.skill_id, score: 0, text: s.what_could_have_been_done || '' };
-      }),
-    ];
-  }
+  // Per-skill rows from the display view-model (1.4.3; legacy feedback without skills_assessment included)
+  var skillRows = buildPckDisplayRows(feedback);
 
   return (
     <div style={SIDEBAR_STYLE}>
@@ -173,7 +161,8 @@ export const PCKFeedbackSidebar = ({ feedback, isVisible, errorMessage }) => {
                   key={row.skillId}
                   skillId={row.skillId}
                   score={row.score}
-                  text={row.text}
+                  positive={row.positive}
+                  improvement={row.improvement}
                 />
               );
             })}

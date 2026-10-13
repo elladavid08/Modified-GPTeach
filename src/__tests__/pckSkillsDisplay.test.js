@@ -2,9 +2,8 @@
 // duplicated across several files; this catches drift. Also covers how the sidebar renders
 // skills_assessment rows.
 //
-// Deliberately NOT asserted (B12, decided DO NOT PROTECT): that score-1 rows hide the
-// improvement suggestion. Only "score-1 shows the evidence" is asserted, which stays true after
-// the planned change. Also not asserted: the number of rows (the 1-2 cap is not enforced yet, B8),
+// 1.4.3 (B12 implemented): score-1 rows show both what was done well and what to improve; score-2 rows show
+// positive evidence only; text comes from the display view-model (src/services/pckDisplayRows.js). Not asserted: the number of rows (the 1-2 cap is not enforced yet, B8),
 // or the exact empty-state placeholder text (B10, REVIEW: waiting / no-feedback / failure states may
 // be distinguished later).
 import React from "react";
@@ -110,3 +109,64 @@ describe("PCKFeedbackSidebar", () => {
 		expect(view.container.textContent).toContain("מינוף השגיאה ללמידה: LEGACY-MISSED");
 	});
 });
+
+describe("PCKFeedbackSidebar display contract (1.4.3)", () => {
+	let view;
+	afterEach(() => view && view.unmount());
+
+	it("score 1 visibly shows both the positive part and the improvement part", () => {
+		view = render(<PCKFeedbackSidebar isVisible={true} feedback={{
+			skills_assessment: [{ skill_id: "adapted-pedagogical-response", is_relevant: true, score: 1, evidence: "DID-WELL", what_could_be_better: "TO-IMPROVE" }],
+		}} />);
+		const text = view.container.textContent;
+		expect(text).toContain("תגובה פדגוגית מותאמת: DID-WELL");
+		const improvement = view.container.querySelector('[data-testid="pck-row-improvement"]');
+		expect(improvement).not.toBeNull();
+		expect(improvement.textContent).toContain("TO-IMPROVE");
+	});
+
+	it("score 1 without own evidence uses the matching demonstrated_skills text for the positive part", () => {
+		view = render(<PCKFeedbackSidebar isVisible={true} feedback={{
+			skills_assessment: [{ skill_id: "adapted-pedagogical-response", is_relevant: true, score: 1, what_could_be_better: "TO-IMPROVE" }],
+			detected_skills: [{ skill_id: "adapted-pedagogical-response", evidence: "FROM-DEMONSTRATED" }],
+		}} />);
+		expect(view.container.textContent).toContain("תגובה פדגוגית מותאמת: FROM-DEMONSTRATED");
+		expect(view.container.querySelector('[data-testid="pck-row-improvement"]').textContent).toContain("TO-IMPROVE");
+	});
+
+	it("score 2 shows positive evidence and never a recommendation", () => {
+		view = render(<PCKFeedbackSidebar isVisible={true} feedback={{
+			skills_assessment: [{ skill_id: "error-identification", is_relevant: true, score: 2, evidence: "DONE-WELL", what_could_be_better: "A-RECOMMENDATION" }],
+		}} />);
+		expect(view.container.textContent).toContain("זיהוי השגיאה: DONE-WELL");
+		expect(view.container.textContent).not.toContain("A-RECOMMENDATION");
+		expect(view.container.querySelector('[data-testid="pck-row-improvement"]')).toBeNull();
+	});
+
+	it("score 2 without own evidence falls back to demonstrated_skills (real 3.1 output shape)", () => {
+		view = render(<PCKFeedbackSidebar isVisible={true} feedback={{
+			skills_assessment: [{ skill_id: "adapted-pedagogical-response", is_relevant: true, score: 2, what_could_be_better: "" }],
+			detected_skills: [{ skill_id: "adapted-pedagogical-response", evidence: "FROM-DEMONSTRATED" }],
+		}} />);
+		expect(view.container.textContent).toContain("תגובה פדגוגית מותאמת: FROM-DEMONSTRATED");
+	});
+
+	it("score 2 with no usable text anywhere still shows the skill name only (nothing invented)", () => {
+		view = render(<PCKFeedbackSidebar isVisible={true} feedback={{
+			skills_assessment: [{ skill_id: "error-leveraging", is_relevant: true, score: 2, what_could_be_better: "MISPLACED" }],
+		}} />);
+		expect(view.container.textContent).toContain("מינוף השגיאה ללמידה");
+		expect(view.container.textContent).not.toContain("MISPLACED");
+		expect(view.container.textContent).not.toContain("מינוף השגיאה ללמידה:");
+	});
+
+	it("score 0 is unchanged: the skill's what_could_be_better", () => {
+		view = render(<PCKFeedbackSidebar isVisible={true} feedback={{
+			skills_assessment: [{ skill_id: "error-identification", is_relevant: true, score: 0, what_could_be_better: "MISSED-MOVE" }],
+			detected_skills: [{ skill_id: "error-identification", evidence: "NOT-SHOWN" }],
+		}} />);
+		expect(view.container.textContent).toContain("זיהוי השגיאה: MISSED-MOVE");
+		expect(view.container.textContent).not.toContain("NOT-SHOWN");
+	});
+});
+

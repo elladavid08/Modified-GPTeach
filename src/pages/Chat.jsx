@@ -13,6 +13,7 @@ import { ScenarioSelector } from "../components/ScenarioSelector";
 import { ConversationLog } from "../services/conversationLogger";
 import { buildFailedAttempt, FAILURE_MESSAGES_HE } from "../services/turnDiagnostics";
 import { buildCallTelemetry } from "../services/callTelemetry";
+import { buildPckDisplayRows, countRowsWithoutText } from "../services/pckDisplayRows";
 import { useAuth } from "../contexts/AuthContext";
 import ChatMessage from "../objects/ChatMessage";
 import "../style/ChatOnly.css";
@@ -282,6 +283,8 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 			if (impact_analysis.should_provide_feedback) {
 				setPckFeedback(formattedFeedback);
 				feedbackForLog = formattedFeedback;  // Only log feedback that was actually shown
+				// 1.4.3: content-free count of displayed skill rows with no usable text (display only; nothing changes)
+				pckTelemetry = buildCallTelemetry("ok", { ...pckMeta, pckRowsWithoutText: countRowsWithoutText(buildPckDisplayRows(formattedFeedback)) });
 			} else {
 				// Clear feedback if not needed
 				setPckFeedback(null);

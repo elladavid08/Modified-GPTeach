@@ -16,7 +16,9 @@ export const TELEMETRY_QUOTE_CUT_KEYS = ["quoteCutSuspected", "quoteCutPaddedAtt
 export const TELEMETRY_GARBLE_KEYS = ["garbleForeignScript", "garbleMixedScriptToken", "garbleCantillation", "garbleRepeatedFunctionWord", "garbleMarkup", "garbleReplies"];
 // Unknown speaker (1.4.2): optional, content-free client counter; only the browser knows the active cast
 export const TELEMETRY_SPEAKER_KEYS = ["unknownSpeaker"];
-export const TELEMETRY_KEYS = [...TELEMETRY_BASE_KEYS, ...TELEMETRY_DUPLICATE_KEYS, ...TELEMETRY_QUOTE_CUT_KEYS, ...TELEMETRY_GARBLE_KEYS, ...TELEMETRY_SPEAKER_KEYS];
+// PCK display (1.4.3): optional, content-free; displayed relevant skill rows with no usable text (shown feedback only)
+export const TELEMETRY_PCK_DISPLAY_KEYS = ["pckRowsWithoutText"];
+export const TELEMETRY_KEYS = [...TELEMETRY_BASE_KEYS, ...TELEMETRY_DUPLICATE_KEYS, ...TELEMETRY_QUOTE_CUT_KEYS, ...TELEMETRY_GARBLE_KEYS, ...TELEMETRY_SPEAKER_KEYS, ...TELEMETRY_PCK_DISPLAY_KEYS];
 export const DUPLICATE_OUTCOMES = ["none", "resolved", "dropped", "kept", "reask_failed"];
 const MAX_STRING_CHARS = 64;
 
@@ -49,6 +51,7 @@ export function buildCallTelemetry(status, meta = null, reason = null) {
 		...quoteCutFields(meta),
 		...countersIfReported(meta, TELEMETRY_GARBLE_KEYS),
 		...countersIfReported(meta, TELEMETRY_SPEAKER_KEYS),
+		...countersIfReported(meta, TELEMETRY_PCK_DISPLAY_KEYS),
 	};
 }
 

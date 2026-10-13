@@ -13,10 +13,28 @@
  * - Z: Patch version (bug fixes, minor improvements)
  */
 
-export const SYSTEM_VERSION = "1.4.2";
+export const SYSTEM_VERSION = "1.4.3";
 
 /**
  * Version History:
+ * 
+ * 1.4.3 (2026-10-13):
+ * - PCK sidebar display contract (pck_row_text_contract_experiment.md §7): each displayed skill
+ *   row now shows text the PCK model already returned, through a pure view-model
+ *   (src/services/pckDisplayRows.js). Since 1.3.4 (structured output) the model leaves a
+ *   skill's own "evidence" empty and writes it in demonstrated_skills, so most positive rows
+ *   showed only the skill name.
+ *   - score 2: the skill's evidence, else the evidence of the single demonstrated_skills item
+ *     with the same skill_id; never a recommendation.
+ *   - score 1: the same positive text (when it exists) plus, on a second line ("לשיפור:"), the
+ *     skill's what_could_be_better (B12 implemented).
+ *   - score 0: unchanged (what_could_be_better).
+ *   No text is generated, nothing is matched by meaning, and score-2 text found only in
+ *   what_could_be_better is not shown. Legacy feedback renders as before.
+ * - Unchanged: the PCK request (prompt, schema, model, config), the analysis object, scores,
+ *   relevance, the show/hide decision, B27, student steering, the stored conversation fields.
+ * - Telemetry (A17, additive, content-free): the PCK entry of a turn whose feedback was shown
+ *   carries pckRowsWithoutText (displayed skill rows with no usable text).
  * 
  * 1.4.2 (2026-10-13):
  * - Detection-only telemetry for garbled student text (student_garbled_text_investigation.md):

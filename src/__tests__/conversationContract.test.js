@@ -41,6 +41,9 @@ describe("conversation document contract validator", () => {
 		// 1.4.2: optional, content-free garbled-text counters and the unknown-speaker counter on the student entry
 		doc.turns[1].telemetry.student = { ...doc.turns[1].telemetry.student, garbleForeignScript: 1, garbleMixedScriptToken: 0, garbleCantillation: 0, garbleRepeatedFunctionWord: 0, garbleMarkup: 0, garbleReplies: 1, unknownSpeaker: 0 };
 		expect(validateConversationDoc(doc)).toEqual([]);
+		// 1.4.3: optional, content-free PCK display counter on the pck entry
+		doc.turns[1].telemetry.pck = { ...doc.turns[1].telemetry.pck, pckRowsWithoutText: 1 };
+		expect(validateConversationDoc(doc)).toEqual([]);
 		expect(validateConversationDoc(legacyFormatConversation(), { legacy: true })).toEqual([]);
 	});
 
@@ -56,6 +59,7 @@ describe("conversation document contract validator", () => {
 		["telemetry with text in a garble field", (t) => { t.telemetry = { pck: null, student: { status: "ok", garbleForeignScript: "איזה יظה" } }; }],
 		["telemetry with a negative garble count", (t) => { t.telemetry = { pck: null, student: { status: "ok", garbleReplies: -1 } }; }],
 		["telemetry with a speaker name in unknownSpeaker", (t) => { t.telemetry = { pck: null, student: { status: "ok", unknownSpeaker: "מעוין" } }; }],
+		["telemetry with feedback text in pckRowsWithoutText", (t) => { t.telemetry = { pck: { status: "ok", pckRowsWithoutText: "תגובה פדגוגית מותאמת" }, student: null }; }],
 	])("rejects %s", (_label, mutate) => {
 		const doc = currentFormatConversation();
 		mutate(doc.turns[1]);

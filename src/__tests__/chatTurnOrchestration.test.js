@@ -809,6 +809,9 @@ describe("LLM call telemetry", () => {
 		attempts: meta.attempts,
 	});
 
+	// 1.4.3: when PCK feedback is shown, the pck entry also carries the content-free pckRowsWithoutText count
+	const shownPckTelemetry = (meta, rowsWithoutText = 0) => ({ ...expectedTelemetry(meta), pckRowsWithoutText: rowsWithoutText });
+
 	function pckWithMeta(meta, analysis = FEEDBACK_ANALYSIS) {
 		getPCKFeedback.mockImplementationOnce(async (_t, _h, _s, _f, options) => {
 			if (options && options.onMeta) options.onMeta(meta);
@@ -835,7 +838,7 @@ describe("LLM call telemetry", () => {
 		studentsWithMeta(studentMeta);
 		await startLesson();
 		await sendTeacherMessage("מה ההגדרה של מלבן?");
-		expect(loggedTelemetry(0)).toEqual({ pck: expectedTelemetry(pckMeta), student: expectedTelemetry(studentMeta) });
+		expect(loggedTelemetry(0)).toEqual({ pck: shownPckTelemetry(pckMeta), student: expectedTelemetry(studentMeta) });
 	});
 
 	it("student duplicate-guard counters from the server are logged with the turn (1.3.11); PCK entry unchanged", async () => {
@@ -846,7 +849,7 @@ describe("LLM call telemetry", () => {
 		await startLesson();
 		await sendTeacherMessage("נכון");
 		expect(loggedTelemetry(0)).toEqual({
-			pck: expectedTelemetry(pckMeta),
+			pck: shownPckTelemetry(pckMeta),
 			student: { ...expectedTelemetry(studentMeta), duplicateRetries: 1, duplicateRepliesDropped: 1, duplicateRepliesKept: 0, duplicateOutcome: "dropped" },
 		});
 	});
@@ -860,7 +863,7 @@ describe("LLM call telemetry", () => {
 		await startLesson();
 		await sendTeacherMessage("יובל, תן או תני דוגמה למלבן שאינו ריבוע.");
 		expect(loggedTelemetry(0)).toEqual({
-			pck: expectedTelemetry(pckMeta),
+			pck: shownPckTelemetry(pckMeta),
 			student: { ...expectedTelemetry(studentMeta), ...dup, quoteCutSuspected: 1, quoteCutPaddedAttempts: 1 },
 		});
 	});
@@ -875,9 +878,41 @@ describe("LLM call telemetry", () => {
 		await startLesson();
 		await sendTeacherMessage("נכון");
 		expect(loggedTelemetry(0)).toEqual({
-			pck: expectedTelemetry(pckMeta),
+			pck: shownPckTelemetry(pckMeta),
 			student: { ...expectedTelemetry(studentMeta), ...dup, quoteCutSuspected: 0, quoteCutPaddedAttempts: 0, ...garble, unknownSpeaker: 1 },
 		});
+	});
+
+	it("1.4.3: shown feedback whose score-2 row has no usable text anywhere is counted; nothing else changes", async () => {
+		const pckMeta = META("pck", 2100);
+		const analysis = {
+			...FEEDBACK_ANALYSIS,
+			skills_assessment: [
+				{ skill_id: "error-identification", is_relevant: true, score: 2, what_could_be_better: "" }, // no text anywhere
+				{ skill_id: "adapted-pedagogical-response", is_relevant: true, score: 2 }, // demonstrated_skills fallback
+			],
+			demonstrated_skills: [{ skill_id: "adapted-pedagogical-response", evidence: "APR-EVIDENCE" }],
+		};
+		pckWithMeta(pckMeta, analysis);
+		studentsWithMeta(META("student", 900));
+		await startLesson();
+		await sendTeacherMessage("מה ההגדרה של מלבן?");
+		expect(loggedTelemetry(0).pck).toEqual(shownPckTelemetry(pckMeta, 1));
+		// presentation only: the student agent receives the PCK analysis object itself, unchanged
+		expect(studentCalls[0].impact).toBe(analysis);
+		// the logged feedback keeps the model's fields exactly (no display text written back)
+		const logged = logger().addTurn.mock.calls[0][2];
+		expect(logged.skills_assessment).toEqual(analysis.skills_assessment);
+		expect(logged.detected_skills).toEqual(analysis.demonstrated_skills);
+	});
+
+	it("1.4.3: no feedback shown means no pckRowsWithoutText field", async () => {
+		const pckMeta = META("pck", 2100);
+		pckWithMeta(pckMeta, NO_FEEDBACK_ANALYSIS);
+		studentsWithMeta(META("student", 900));
+		await startLesson();
+		await sendTeacherMessage("שלום");
+		expect(loggedTelemetry(0).pck).toEqual(expectedTelemetry(pckMeta));
 	});
 
 	it("telemetry stays with the correct turn across turns", async () => {
