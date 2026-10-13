@@ -10,6 +10,7 @@ import { PCKSummaryModal } from "../components/PCKSummaryModal";
 import { HistoryContext } from "../objects/ChatHistory";
 import { AppContext } from "../objects/AppContext";
 import { ScenarioSelector } from "../components/ScenarioSelector";
+import { TeacherBriefingPanel } from "../components/TeacherBriefingPanel";
 import { ConversationLog } from "../services/conversationLogger";
 import { buildFailedAttempt, FAILURE_MESSAGES_HE } from "../services/turnDiagnostics";
 import { buildCallTelemetry } from "../services/callTelemetry";
@@ -571,46 +572,13 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 					</div>
 				</div>
 
-			{/* Show rich briefing when teacher should initiate */}
-			{history.getLength() === 0 && scenario.initiated_by === "teacher" && !isQuerying && (
-			<div
-				style={{
-					padding: "15px 20px",
-					margin: "10px 15px",
-					backgroundColor: "#f8f9fa",
-					border: "2px solid #0d6efd",
-					borderRadius: "10px",
-					direction: "rtl",
-					flex: "0 0 auto"
-				}}
-			>
-			{/* Header */}
-			<div style={{ textAlign: "center", marginBottom: "15px" }}>
-				<div style={{ fontSize: "24px", marginBottom: "8px" }}>📚</div>
-				<div style={{ fontSize: "17px", fontWeight: "bold", color: "#0d6efd", marginBottom: "4px" }}>
-					אתה מתחיל את השיעור
-				</div>
-			</div>
-
-			{/* Teacher Briefing - Instructions only */}
-			{scenario.teacher_briefing && (
-				<div style={{ padding: "12px", backgroundColor: "#fff3cd", borderRadius: "6px" }}>
-					<div style={{ fontSize: "14px", fontWeight: "bold", color: "#856404", marginBottom: "8px" }}>
-						📋 הנחיות:
-					</div>
-					<div style={{ fontSize: "13px", color: "#333", whiteSpace: "pre-line", lineHeight: "1.6" }}>
-						{scenario.teacher_briefing}
-					</div>
-				</div>
-			)}
-
-			{/* Simple fallback if no teacher briefing */}
-			{!scenario.teacher_briefing && (
-				<div style={{ fontSize: "13px", color: "#555", fontStyle: "italic", textAlign: "center" }}>
-					{scenario.initial_prompt || "התחל את השיחה עם התלמידים"}
-				</div>
-			)}
-			</div>
+			{/* Teacher briefing (B20): open card before the first message, then a collapsible panel */}
+			{scenario.initiated_by === "teacher" && (
+				<TeacherBriefingPanel
+					briefing={scenario.teacher_briefing}
+					fallbackText={scenario.initial_prompt || "התחל את השיחה עם התלמידים"}
+					lessonStarted={history.getLength() > 0 || isQuerying}
+				/>
 			)}
 
 				{turnError && (

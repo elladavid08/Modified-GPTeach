@@ -4,7 +4,8 @@
 //   A2  displayed feedback is logged with its fields
 //   B9  previous feedback is cleared as soon as the teacher sends a new message
 //   B5/A6 (DECIDED) the session's cast is fixed across turns and recorded; SYSTEM_VERSION stamped
-//   B20 the teacher briefing is shown before the first message
+//   B20 (1.4.4) the teacher briefing is shown open before the first message and stays accessible
+//       (a collapsible panel at the top of the chat) for the rest of the session
 //   drawing path: a board drawing is attached to the teacher message, and logged, only when opted in
 //   C2/C3 (fixed) one simulation turn at a time: input/send locked and the typing indicator
 //         visible until the turn finishes; extra submits ignored; unlock on success and on every
@@ -116,7 +117,7 @@ function replyWith(text) {
 }
 
 let view;
-async function startLesson() {
+async function startLesson(chosen = scenario) {
 	view = render(
 		<AppContext.Provider value={{ students: allStudents, scenarios: scenarios.scenarios, TAname: "Teacher", UID: 1 }}>
 			<HistoryProvider>
@@ -124,7 +125,7 @@ async function startLesson() {
 			</HistoryProvider>
 		</AppContext.Provider>
 	);
-	click(findButtonByText(view.container, scenario.text));
+	click(findButtonByText(view.container, chosen.text));
 	click(findButtonByText(view.container, "התחל בשיעור"));
 	await flush();
 }
@@ -136,6 +137,9 @@ async function sendTeacherMessage(text) {
 }
 
 const sidebarText = () => view.container.textContent;
+// B20: the open pre-lesson card exists only until the first message; afterwards the collapsible panel.
+const preLessonBriefing = () => view.container.querySelector('[data-testid="teacher-briefing-prelesson"]');
+const briefingPanel = () => view.container.querySelector('[data-testid="teacher-briefing-panel"]');
 const logger = () => ConversationLog.instances[ConversationLog.instances.length - 1];
 
 beforeEach(() => {
@@ -150,7 +154,7 @@ afterEach(() => view && view.unmount());
 
 it("shows the teacher briefing before the first message (B20)", async () => {
 	await startLesson();
-	expect(view.container.textContent).toContain(scenario.teacher_briefing.slice(0, 40));
+	expect(preLessonBriefing().textContent).toContain(scenario.teacher_briefing);
 	expect(callAI).not.toHaveBeenCalled();
 	expect(getPCKFeedback).not.toHaveBeenCalled();
 });
@@ -510,9 +514,10 @@ describe("empty teacher messages (C4)", () => {
 		expect(getPCKFeedback).not.toHaveBeenCalled();
 		expect(callAI).not.toHaveBeenCalled();
 		expect(logger().addTurn).not.toHaveBeenCalled();
-		// No teacher message in history: the pre-lesson briefing (shown only while history is
-		// empty) is still visible and finish is still unavailable.
-		expect(view.container.textContent).toContain(scenario.teacher_briefing.slice(0, 40));
+		// No teacher message in history: the open pre-lesson briefing card (shown only while
+		// history is empty) is still there, and finish is still unavailable.
+		expect(preLessonBriefing()).not.toBeNull();
+		expect(briefingPanel()).toBeNull();
 		expect(finishButton().disabled).toBe(true);
 		// Turn lock not activated.
 		expect(view.container.querySelector("textarea").disabled).toBe(false);
@@ -572,7 +577,9 @@ describe("empty teacher messages (C4)", () => {
 		expect(loggedText).toBe("");
 		expect(loggedStudents).toEqual([{ name: allStudents[0].name, text: "STUDENT-REPLY" }]);
 		expect(loggedImage).toBe("iVBORimageonly");
-		expect(view.container.textContent).not.toContain(scenario.teacher_briefing.slice(0, 40)); // now in history
+		// The conversation has started: the pre-lesson card is replaced by the collapsible panel
+		expect(preLessonBriefing()).toBeNull();
+		expect(briefingPanel()).not.toBeNull();
 	});
 
 	it("keeps surrounding whitespace of a non-empty message unchanged", async () => {
@@ -1143,5 +1150,174 @@ describe("short teacher messages (1.3.10 conversational-move rule is prompt guid
 			expect(teacherMessages[teacherMessages.length - 1].text).toBe(texts[i]);
 		});
 		expect(logger().addTurn.mock.calls.map((c) => c[0])).toEqual(texts);
+	});
+});
+
+// ─── B20 (1.4.4): the teacher briefing stays accessible during the session ───
+
+describe("teacher briefing panel (B20, 1.4.4)", () => {
+	const toggle = () => view.container.querySelector('[data-testid="teacher-briefing-toggle"]');
+	const content = () => view.container.querySelector('[data-testid="teacher-briefing-content"]');
+	const isOpen = () => toggle().getAttribute("aria-expanded") === "true";
+	const bubbles = () => Array.from(view.container.querySelectorAll(".chatBubbleContainer")).map((b) => b.textContent);
+	const occurrences = (text) => view.container.textContent.split(text).length - 1;
+
+	beforeEach(() => getPCKFeedback.mockResolvedValue(NO_FEEDBACK_ANALYSIS));
+
+	it("is open and readable before the first message, with no collapse control yet", async () => {
+		await startLesson();
+		expect(preLessonBriefing().textContent).toContain(scenario.teacher_briefing);
+		expect(preLessonBriefing().textContent).toContain("אתה מתחיל את השיעור");
+		expect(briefingPanel()).toBeNull();
+		expect(toggle()).toBeNull();
+	});
+
+	it("after the first turn becomes a collapsed panel in the same place that still offers the briefing", async () => {
+		await startLesson();
+		await sendTeacherMessage("שלום כיתה");
+
+		expect(preLessonBriefing()).toBeNull();
+		expect(briefingPanel()).not.toBeNull();
+		expect(toggle().textContent).toContain("הנחיות לשיעור");
+		expect(isOpen()).toBe(false);
+		expect(content()).toBeNull();
+		expect(view.container.textContent).not.toContain(scenario.teacher_briefing);
+	});
+
+	it("the teacher can reopen it and collapse it again, any number of times", async () => {
+		await startLesson();
+		await sendTeacherMessage("שלום כיתה");
+
+		click(toggle());
+		expect(isOpen()).toBe(true);
+		expect(content().textContent).toBe(scenario.teacher_briefing);
+		click(toggle());
+		expect(isOpen()).toBe(false);
+		expect(content()).toBeNull();
+		click(toggle());
+		expect(isOpen()).toBe(true);
+		expect(content().textContent).toBe(scenario.teacher_briefing);
+	});
+
+	it("further turns neither remove it nor change the teacher's open / collapsed choice", async () => {
+		await startLesson();
+		await sendTeacherMessage("שאלה ראשונה");
+		click(toggle());
+		await sendTeacherMessage("שאלה שנייה");
+		await sendTeacherMessage("שאלה שלישית");
+		expect(isOpen()).toBe(true);
+		expect(content().textContent).toBe(scenario.teacher_briefing);
+
+		click(toggle());
+		await sendTeacherMessage("שאלה רביעית");
+		expect(briefingPanel()).not.toBeNull();
+		expect(isOpen()).toBe(false);
+		expect(getPCKFeedback).toHaveBeenCalledTimes(4);
+		expect(logger().addTurn).toHaveBeenCalledTimes(4);
+	});
+
+	it("opening and collapsing does not touch the conversation (messages, draft, feedback, calls, log)", async () => {
+		getPCKFeedback.mockResolvedValue(FEEDBACK_ANALYSIS);
+		await startLesson();
+		await sendTeacherMessage("שאלה ראשונה");
+		typeInto(textarea(), "טיוטה שלא נשלחה");
+		const before = { bubbles: bubbles(), sidebar: sidebarText().includes("SIDEBAR-EVIDENCE") };
+
+		click(toggle());
+		click(toggle());
+		click(toggle());
+		await flush();
+
+		expect(bubbles()).toEqual(before.bubbles);
+		expect(sidebarText().includes("SIDEBAR-EVIDENCE")).toBe(before.sidebar);
+		expect(before.sidebar).toBe(true);
+		expect(textarea().value).toBe("טיוטה שלא נשלחה");
+		expect(getPCKFeedback).toHaveBeenCalledTimes(1);
+		expect(callAI).toHaveBeenCalledTimes(1);
+		expect(logger().addTurn).toHaveBeenCalledTimes(1);
+		expect(isUnlocked()).toBe(true);
+	});
+
+	it("can be opened and closed while a turn is pending without affecting the lock or the turn", async () => {
+		const pck = deferred();
+		getPCKFeedback.mockReturnValueOnce(pck.promise);
+		const students = pendingStudents();
+		await startLesson();
+		await sendTeacherMessage("שאלה ראשונה");
+
+		expect(isLocked()).toBe(true);
+		expect(briefingPanel()).not.toBeNull();
+		click(toggle());
+		expect(isOpen()).toBe(true);
+		expect(content().textContent).toBe(scenario.teacher_briefing);
+		expect(isLocked()).toBe(true);
+
+		pck.resolve(NO_FEEDBACK_ANALYSIS);
+		await flush();
+		click(toggle());
+		expect(isLocked()).toBe(true);
+		students[0].resolve("STUDENT-REPLY");
+		await flush();
+
+		expect(isUnlocked()).toBe(true);
+		expect(getPCKFeedback).toHaveBeenCalledTimes(1);
+		expect(callAI).toHaveBeenCalledTimes(1);
+		expect(logger().addTurn).toHaveBeenCalledTimes(1);
+		expect(logger().addTurn.mock.calls[0][0]).toBe("שאלה ראשונה");
+	});
+
+	it("does not trigger or block finishing the conversation, and stays available after it", async () => {
+		const alertSpy = jest.spyOn(window, "alert").mockImplementation(() => {});
+		await startLesson();
+		await sendTeacherMessage("שאלה ראשונה");
+
+		click(toggle());
+		expect(logger().endSession).not.toHaveBeenCalled();
+		click(findButtonByText(view.container, "סיים שיחה"));
+		await flush();
+		expect(logger().endSession).toHaveBeenCalledTimes(1);
+		expect(logger().saveToLocalStorage).toHaveBeenCalledTimes(1);
+
+		expect(isOpen()).toBe(true);
+		click(toggle());
+		click(toggle());
+		expect(content().textContent).toBe(scenario.teacher_briefing);
+		expect(logger().endSession).toHaveBeenCalledTimes(1);
+		alertSpy.mockRestore();
+	});
+
+	it.each(scenarios.scenarios.map((s, i) => [i + 1, s]))(
+		"scenario %i renders its own full briefing before the lesson and in the reopened panel",
+		async (_n, chosen) => {
+			await startLesson(chosen);
+			expect(preLessonBriefing().textContent).toContain(chosen.teacher_briefing);
+
+			await sendTeacherMessage("שלום כיתה");
+			click(toggle());
+			expect(content().textContent).toBe(chosen.teacher_briefing);
+			// Shown once only (no duplicate in the sidebars or elsewhere)
+			expect(occurrences(chosen.teacher_briefing)).toBe(1);
+		}
+	);
+
+	it("is structurally RTL, keeps the briefing's line breaks, and sits in the chat column above the messages", async () => {
+		await startLesson();
+		await sendTeacherMessage("שלום כיתה");
+		click(toggle());
+
+		const panel = briefingPanel();
+		expect(panel.style.direction).toBe("rtl");
+		expect(toggle().tagName).toBe("BUTTON");
+		expect(toggle().getAttribute("type")).toBe("button");
+		expect(toggle().getAttribute("aria-controls")).toBe(content().id);
+		expect(content().style.whiteSpace).toBe("pre-line");
+		expect(content().style.overflowY).toBe("auto");
+		expect(content().style.maxHeight).not.toBe("");
+		// Not inside the form, so it can never submit a message
+		expect(toggle().closest("form")).toBeNull();
+		// Above the message list and the input, inside the same column
+		const messages = view.container.querySelector(".messagesWrapper");
+		expect(panel.compareDocumentPosition(messages) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(panel.compareDocumentPosition(textarea()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 	});
 });

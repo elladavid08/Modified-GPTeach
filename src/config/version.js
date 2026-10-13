@@ -13,10 +13,21 @@
  * - Z: Patch version (bug fixes, minor improvements)
  */
 
-export const SYSTEM_VERSION = "1.4.3";
+export const SYSTEM_VERSION = "1.4.4";
 
 /**
  * Version History:
+ * 
+ * 1.4.4 (2026-10-13):
+ * - Teacher briefing stays accessible (pilot request #6, B20): before the first message the
+ *   briefing is the same open card as before. Once the conversation starts, the card becomes a
+ *   one-line "📋 הנחיות לשיעור" toggle at the top of the chat, collapsed, which opens the same
+ *   briefing text (scrollable, at most 30% of the screen height) and can be opened and closed at
+ *   any time, also during a pending turn and after the session has ended
+ *   (src/components/TeacherBriefingPanel.jsx).
+ * - Display only: the open / closed state is local UI state. Unchanged: scenario data, prompts,
+ *   models, PCK, student generation, the turn lock, turn logging, finishing, the summary and the
+ *   stored conversation format (the briefing is not stored).
  * 
  * 1.4.3 (2026-10-13):
  * - PCK sidebar display contract (pck_row_text_contract_experiment.md §7): each displayed skill
