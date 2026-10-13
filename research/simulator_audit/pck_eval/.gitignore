@@ -1,2 +1,4 @@
 # Replay outputs (model output on the benchmark) stay local.
 results/
+# Participant-derived B200 evaluation artifacts: local only, never commit.
+local_b200/
