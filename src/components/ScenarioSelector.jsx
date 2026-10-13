@@ -11,7 +11,20 @@ function extractBriefingDescription(teacherBriefing) {
   return teacherBriefing.substring(0, cutoff).trim();
 }
 
-export const ScenarioSelector = ({ scenarios, onSelect }) => {
+/**
+ * Look of a scenario card the teacher has already attempted (pilot request #8, 1.4.4): a light green
+ * tint, a green border and an accent on the right (start) edge, plus a short caption. The card
+ * stays a normal, enabled button; the selected state keeps its existing look.
+ */
+const ATTEMPTED_CARD_STYLE = {
+  backgroundColor: '#f0fff4',
+  color: '#1a3a5c',
+  border: '2px solid #9ae6b4',
+  boxShadow: 'inset -5px 0 0 #38a169, 0 1px 3px rgba(0,0,0,0.08)',
+};
+const ATTEMPTED_CAPTION = '✓ התנסית בתרחיש זה';
+
+export const ScenarioSelector = ({ scenarios, onSelect, attemptedScenarioTexts }) => {
   const [activeIndex, setActiveIndex] = useState(null);
 
   const activeScenario = activeIndex !== null ? scenarios[activeIndex] : null;
@@ -49,9 +62,12 @@ export const ScenarioSelector = ({ scenarios, onSelect }) => {
       }}>
         {scenarios.map((scenario, idx) => {
           const isActive = activeIndex === idx;
+          const isAttempted = Boolean(attemptedScenarioTexts && attemptedScenarioTexts.has(scenario.text));
           return (
             <button
               key={idx}
+              data-testid="scenario-card"
+              data-attempted={isAttempted ? 'true' : undefined}
               onClick={() => setActiveIndex(isActive ? null : idx)}
               style={{
                 backgroundColor: isActive ? '#1a3a5c' : '#ffffff',
@@ -66,11 +82,17 @@ export const ScenarioSelector = ({ scenarios, onSelect }) => {
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 8,
+                ...(isAttempted && !isActive ? ATTEMPTED_CARD_STYLE : {}),
               }}
             >
               <span style={{ fontSize: 15, fontWeight: 'bold', lineHeight: 1.4 }}>
                 {scenario.text}
               </span>
+              {isAttempted && (
+                <span style={{ fontSize: 12, color: isActive ? '#c6f6d5' : '#276749' }}>
+                  {ATTEMPTED_CAPTION}
+                </span>
+              )}
             </button>
           );
         })}

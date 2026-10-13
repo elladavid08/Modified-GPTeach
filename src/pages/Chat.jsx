@@ -11,6 +11,8 @@ import { HistoryContext } from "../objects/ChatHistory";
 import { AppContext } from "../objects/AppContext";
 import { ScenarioSelector } from "../components/ScenarioSelector";
 import { TeacherBriefingPanel } from "../components/TeacherBriefingPanel";
+import { getConversationsByUser } from "../services/firestoreService";
+import { getAttemptedScenarioTexts } from "../services/attemptedScenarios";
 import { ConversationLog } from "../services/conversationLogger";
 import { buildFailedAttempt, FAILURE_MESSAGES_HE } from "../services/turnDiagnostics";
 import { buildCallTelemetry } from "../services/callTelemetry";
@@ -19,7 +21,17 @@ import { useAuth } from "../contexts/AuthContext";
 import ChatMessage from "../objects/ChatMessage";
 import "../style/ChatOnly.css";
 
+/**
+ * The chat page. Each visit to the scenario-selection screen is a fresh ChatSession: returning
+ * after a finished conversation ("חזרה לבחירת תרחיש", 1.4.4) remounts it, so every
+ * per-conversation state and ref starts from scratch (no page reload).
+ */
 export const Chat = () => {
+	const [sessionKey, setSessionKey] = useState(0);
+	return <ChatSession key={sessionKey} onReturnToSelection={() => setSessionKey((key) => key + 1)} />;
+};
+
+const ChatSession = ({ onReturnToSelection }) => {
 	const history = useContext(HistoryContext);
 	const appData = useContext(AppContext);
 	const { currentUser, userProfile } = useAuth();
@@ -78,6 +90,35 @@ export const Chat = () => {
 	}
 	
 	// Scenario is set by the ScenarioSelector — no random pre-selection
+
+	// #8: scenarios this teacher already attempted look different on the selection screen.
+	// Display only; if the load fails or is slow, the screen works as before without the styling.
+	const [attemptedScenarioTexts, setAttemptedScenarioTexts] = useState(() => new Set());
+	const currentUserId = currentUser ? currentUser.uid : null;
+	const scenarioList = appData.scenarios;
+	useEffect(() => {
+		if (!currentUserId || !scenarioList) {
+			return undefined;
+		}
+		let cancelled = false;
+		getConversationsByUser(currentUserId)
+			.then(({ conversations, error }) => {
+				if (cancelled) {
+					return;
+				}
+				if (error) {
+					console.warn("Previous conversations not loaded; scenarios shown without attempted marks:", error);
+					return;
+				}
+				setAttemptedScenarioTexts(getAttemptedScenarioTexts(conversations, currentUserId, scenarioList));
+			})
+			.catch((error) => {
+				console.warn("Previous conversations not loaded; scenarios shown without attempted marks:", error);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [currentUserId, scenarioList]);
 	
 	const students = appData.students ? appData.students.slice(0, Constants.NUM_STUDENTS) : [];
 	
@@ -416,6 +457,16 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 		alert(`שיחה הסתיימה!\n\nהשיחה נשמרה בהצלחה.\n\nמזהה שיחה: ${conversationLoggerRef.current.sessionId}\nמספר תגובות: ${conversationLoggerRef.current.turns.length}\nמשך זמן: ${conversationLoggerRef.current.stats.durationMinutes} דקות\n\nכעת תוכל לקבל ניתוח מקיף PCK של השיחה!`);
 	};
 	
+	// Back to the scenario-selection screen after the conversation is finished (1.4.4).
+	// Not while a turn or the summary request is still running, so nothing in flight is lost.
+	const canReturnToSelection = isSessionEnded && !isTurnInProgress && !isLoadingSummary;
+	const handleReturnToSelection = () => {
+		if (!canReturnToSelection || turnInProgressRef.current) {
+			return;
+		}
+		onReturnToSelection();
+	};
+
 	const handleGetSummary = async () => {
 		// If analysis was already generated, just re-show it without a new API call
 		if (summaryFeedback) {
@@ -466,8 +517,12 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 		return (
 			<ScenarioSelector
 				scenarios={appData.scenarios}
+				attemptedScenarioTexts={attemptedScenarioTexts}
 				onSelect={(chosen) => {
 					console.log("📝 Scenario selected:", chosen.text);
+					// A new conversation always starts with an empty chat history. The history provider
+					// sits above the router, so it can still hold an earlier conversation's messages.
+					history.resetHistory(0);
 					setScenario(chosen);
 				}}
 			/>
@@ -568,6 +623,17 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 							>
 								{isSessionEnded ? "✓ שיחה הסתיימה" : "סיים שיחה"}
 							</button>
+							{isSessionEnded && (
+								<button
+									type="button"
+									className="btn btn-primary btn-sm"
+									disabled={!canReturnToSelection}
+									onClick={handleReturnToSelection}
+									style={{ direction: "rtl", fontSize: "12px", padding: "4px 12px", fontWeight: "bold" }}
+								>
+									חזרה לבחירת תרחיש
+								</button>
+							)}
 						</div>
 					</div>
 				</div>

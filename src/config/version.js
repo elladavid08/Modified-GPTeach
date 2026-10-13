@@ -28,6 +28,25 @@ export const SYSTEM_VERSION = "1.4.4";
  * - Display only: the open / closed state is local UI state. Unchanged: scenario data, prompts,
  *   models, PCK, student generation, the turn lock, turn logging, finishing, the summary and the
  *   stored conversation format (the briefing is not stored).
+ * - Attempted scenarios are marked on the selection screen (pilot request #8): a scenario for which
+ *   the current teacher has at least one saved conversation with at least one logged turn (finished
+ *   or not) gets a light green card with a green right-hand accent and the caption
+ *   "✓ התנסית בתרחיש זה". It stays a normal, enabled card and starts a new conversation as before.
+ *   The teacher's own conversations are read with the existing /logs query
+ *   (getConversationsByUser) and matched on the stored scenario title, normalised (the
+ *   pre-2026-03-17 prefix "השיעור של השבוע הוא על " is stripped; src/services/attemptedScenarios.js).
+ *   If loading fails or is slow, the screen works as before without the marks. Nothing is stored,
+ *   no scenario id is added, and the conversation contract is unchanged.
+ * - Back to scenario selection: after "סיים שיחה" the chat header shows a "חזרה לבחירת תרחיש"
+ *   button that returns to the scenario-selection screen without a page reload (the chat session
+ *   is remounted, so all per-conversation state starts fresh and the attempted marks are reloaded).
+ *   It is disabled while a turn or the PCK summary request is still running. The top "סימולטור"
+ *   link is unchanged (it points to the page the teacher is already on, so it does nothing there).
+ * - Fix: a new conversation now always starts with an empty chat history. The history provider sits
+ *   above the router, so after leaving the chat page (e.g. "השיחות שלי") and coming back through
+ *   "סימולטור", the previous conversation's messages were still shown and sent to the PCK and
+ *   student agents as context of the new conversation. The history is now cleared when a scenario
+ *   is chosen. Prompts, models and the stored format are unchanged.
  * 
  * 1.4.3 (2026-10-13):
  * - PCK sidebar display contract (pck_row_text_contract_experiment.md §7): each displayed skill

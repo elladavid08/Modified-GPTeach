@@ -4,6 +4,11 @@
 //   A2  displayed feedback is logged with its fields
 //   B9  previous feedback is cleared as soon as the teacher sends a new message
 //   B5/A6 (DECIDED) the session's cast is fixed across turns and recorded; SYSTEM_VERSION stamped
+//   #8 (1.4.4) the selection screen marks scenarios this teacher already attempted (own saved
+//       conversations only, via getConversationsByUser); a failed or slow load changes nothing else
+//   1.4.4 after "סיים שיחה" a "חזרה לבחירת תרחיש" button returns to the selection screen (never
+//       during a pending turn or summary request); every new conversation starts with an empty
+//       chat history, also after leaving the chat page and coming back
 //   B20 (1.4.4) the teacher briefing is shown open before the first message and stays accessible
 //       (a collapsible panel at the top of the chat) for the rest of the session
 //   drawing path: a board drawing is attached to the teacher message, and logged, only when opted in
@@ -34,7 +39,8 @@ import { AppContext } from "../objects/AppContext";
 import { HistoryProvider } from "../objects/ChatHistory";
 import ChatMessage from "../objects/ChatMessage";
 import callAI from "../utils/ai.js";
-import { getPCKFeedback } from "../services/genai.js";
+import { getPCKFeedback, getPCKSummary } from "../services/genai.js";
+import { getConversationsByUser } from "../services/firestoreService";
 import { ConversationLog } from "../services/conversationLogger";
 import { SYSTEM_VERSION } from "../config/version";
 import { FAILURE_MESSAGES_HE } from "../services/turnDiagnostics";
@@ -44,6 +50,7 @@ import { render, flush, click, typeInto, submit, findButtonByText, deferred } fr
 
 jest.mock("../utils/ai.js", () => ({ __esModule: true, default: jest.fn() }));
 jest.mock("../services/genai.js", () => ({ getPCKFeedback: jest.fn(), getPCKSummary: jest.fn() }));
+jest.mock("../services/firestoreService", () => ({ getConversationsByUser: jest.fn() }));
 jest.mock("../contexts/AuthContext", () => ({
 	useAuth: () => ({ currentUser: { uid: "test-uid" }, userProfile: { fullName: "Test", role: "teacher" } }),
 }));
@@ -117,7 +124,7 @@ function replyWith(text) {
 }
 
 let view;
-async function startLesson(chosen = scenario) {
+async function renderSelectionScreen() {
 	view = render(
 		<AppContext.Provider value={{ students: allStudents, scenarios: scenarios.scenarios, TAname: "Teacher", UID: 1 }}>
 			<HistoryProvider>
@@ -125,6 +132,11 @@ async function startLesson(chosen = scenario) {
 			</HistoryProvider>
 		</AppContext.Provider>
 	);
+	await flush();
+}
+
+async function startLesson(chosen = scenario) {
+	await renderSelectionScreen();
 	click(findButtonByText(view.container, chosen.text));
 	click(findButtonByText(view.container, "התחל בשיעור"));
 	await flush();
@@ -149,6 +161,7 @@ beforeEach(() => {
 	board.include = false;
 	board.image = null;
 	replyWith("STUDENT-REPLY");
+	getConversationsByUser.mockResolvedValue({ conversations: [], error: null });
 });
 afterEach(() => view && view.unmount());
 
@@ -1319,5 +1332,284 @@ describe("teacher briefing panel (B20, 1.4.4)", () => {
 		const messages = view.container.querySelector(".messagesWrapper");
 		expect(panel.compareDocumentPosition(messages) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 		expect(panel.compareDocumentPosition(textarea()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+	});
+});
+
+// ─── #8 (1.4.4): attempted scenarios on the selection screen ─────────────────
+
+describe("attempted scenarios on the selection screen (#8, 1.4.4)", () => {
+	const cards = () => Array.from(view.container.querySelectorAll('[data-testid="scenario-card"]'));
+	const card = (text) => cards().find((c) => c.textContent.includes(text));
+	const markedTitles = () => cards().filter((c) => c.getAttribute("data-attempted") === "true").map((c) => c.textContent);
+	const [A, B] = scenarios.scenarios;
+	const saved = (scenarioText, extra = {}) => ({
+		id: `session_${Math.random()}`,
+		userId: "test-uid",
+		endTime: null,
+		scenario: { text: scenarioText },
+		turns: [{ turnNumber: 1 }],
+		...extra,
+	});
+
+	beforeEach(() => getPCKFeedback.mockResolvedValue(NO_FEEDBACK_ANALYSIS));
+
+	it("reads only the current teacher's own conversations, once, with the existing /logs query", async () => {
+		await renderSelectionScreen();
+		expect(getConversationsByUser).toHaveBeenCalledTimes(1);
+		expect(getConversationsByUser).toHaveBeenCalledWith("test-uid");
+	});
+
+	it("no previous conversations: six cards, none marked", async () => {
+		await renderSelectionScreen();
+		expect(cards().map((c) => c.textContent)).toEqual(scenarios.scenarios.map((s) => s.text));
+		expect(markedTitles()).toEqual([]);
+	});
+
+	it("marks exactly the scenarios with saved conversations: unfinished, finished, repeated and legacy-titled", async () => {
+		getConversationsByUser.mockResolvedValue({
+			conversations: [
+				saved(A.text), // never finished
+				saved(A.text, { endTime: "2026-10-01T10:00:00.000Z" }), // finished, same scenario
+				saved("השיעור של השבוע הוא על " + B.text), // legacy title prefix
+			],
+			error: null,
+		});
+		await renderSelectionScreen();
+		expect(markedTitles()).toHaveLength(2);
+		expect(card(A.text).getAttribute("data-attempted")).toBe("true");
+		expect(card(B.text).getAttribute("data-attempted")).toBe("true");
+		scenarios.scenarios.slice(2).forEach((s) => expect(card(s.text).getAttribute("data-attempted")).toBeNull());
+	});
+
+	it("ignores conversations of another user and conversations with no logged turn", async () => {
+		getConversationsByUser.mockResolvedValue({
+			conversations: [saved(A.text, { userId: "other-teacher" }), saved(B.text, { turns: [] })],
+			error: null,
+		});
+		await renderSelectionScreen();
+		expect(markedTitles()).toEqual([]);
+	});
+
+	it("an attempted scenario starts a new conversation normally", async () => {
+		getConversationsByUser.mockResolvedValue({ conversations: [saved(A.text)], error: null });
+		await renderSelectionScreen();
+		expect(card(A.text).disabled).toBe(false);
+
+		click(card(A.text));
+		click(findButtonByText(view.container, "התחל בשיעור"));
+		await flush();
+		expect(preLessonBriefing().textContent).toContain(A.teacher_briefing);
+		expect(ConversationLog).toHaveBeenCalledTimes(1);
+		expect(logger().args[0]).toBe(A);
+
+		await sendTeacherMessage("שלום כיתה");
+		expect(getPCKFeedback).toHaveBeenCalledTimes(1);
+		expect(callAI).toHaveBeenCalledTimes(1);
+		expect(logger().addTurn).toHaveBeenCalledTimes(1);
+		expect(logger().addTurn.mock.calls[0][0]).toBe("שלום כיתה");
+	});
+
+	it.each([
+		["the query reports an error", () => getConversationsByUser.mockResolvedValue({ conversations: [], error: "Missing or insufficient permissions." })],
+		["the query throws", () => getConversationsByUser.mockRejectedValue(new Error("offline"))],
+	])("when %s, the selection screen works normally without attempted styling", async (_label, arrange) => {
+		const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+		arrange();
+		await renderSelectionScreen();
+		expect(cards()).toHaveLength(6);
+		expect(markedTitles()).toEqual([]);
+
+		click(card(A.text));
+		click(findButtonByText(view.container, "התחל בשיעור"));
+		await flush();
+		await sendTeacherMessage("שלום כיתה");
+		expect(logger().args[0]).toBe(A);
+		expect(logger().addTurn).toHaveBeenCalledTimes(1);
+		warnSpy.mockRestore();
+	});
+
+	it("does not wait for a slow load: the teacher can choose and start before it returns", async () => {
+		const pending = deferred();
+		getConversationsByUser.mockReturnValue(pending.promise);
+		await renderSelectionScreen();
+		expect(cards()).toHaveLength(6);
+		expect(markedTitles()).toEqual([]);
+
+		click(card(A.text));
+		click(findButtonByText(view.container, "התחל בשיעור"));
+		await flush();
+		pending.resolve({ conversations: [saved(A.text)], error: null }); // arrives after the lesson started
+		await flush();
+		await sendTeacherMessage("שלום כיתה");
+		expect(logger().addTurn).toHaveBeenCalledTimes(1);
+		expect(cards()).toHaveLength(0); // selection screen is gone; nothing re-renders it
+	});
+});
+
+// ─── 1.4.4: back to scenario selection after finishing ───────────────────────
+
+describe("return to scenario selection (1.4.4)", () => {
+	const RETURN_LABEL = "חזרה לבחירת תרחיש";
+	const returnButton = () => findButtonByText(view.container, RETURN_LABEL);
+	const finishButton = () => findButtonByText(view.container, "סיים שיחה");
+	const scenarioCards = () => view.container.querySelectorAll('[data-testid="scenario-card"]');
+	const bubbleTexts = () => Array.from(view.container.querySelectorAll(".chatBubbleContainer")).map((b) => b.textContent);
+	const [, B] = scenarios.scenarios;
+	let alertSpy;
+
+	beforeEach(() => {
+		getPCKFeedback.mockResolvedValue(NO_FEEDBACK_ANALYSIS);
+		alertSpy = jest.spyOn(window, "alert").mockImplementation(() => {});
+	});
+	afterEach(() => alertSpy.mockRestore());
+
+	async function finishLesson() {
+		click(finishButton());
+		await flush();
+	}
+
+	async function chooseScenario(chosen) {
+		click(findButtonByText(view.container, chosen.text));
+		click(findButtonByText(view.container, "התחל בשיעור"));
+		await flush();
+	}
+
+	it("is not offered before the conversation is finished", async () => {
+		await startLesson();
+		expect(returnButton()).toBeUndefined();
+		await sendTeacherMessage("שאלה ראשונה");
+		expect(returnButton()).toBeUndefined();
+	});
+
+	it("appears, enabled, in the chat header once the conversation is finished; finishing itself is unchanged", async () => {
+		await startLesson();
+		await sendTeacherMessage("שאלה ראשונה");
+		await finishLesson();
+
+		expect(logger().endSession).toHaveBeenCalledTimes(1);
+		expect(logger().saveToLocalStorage).toHaveBeenCalledTimes(1);
+		expect(findButtonByText(view.container, "שיחה הסתיימה")).toBeTruthy();
+		expect(returnButton()).toBeTruthy();
+		expect(returnButton().disabled).toBe(false);
+		expect(returnButton().getAttribute("type")).toBe("button");
+		// same header button group as the summary button
+		expect(returnButton().parentElement).toBe(findButtonByText(view.container, "קבל ניתוח PCK").parentElement);
+	});
+
+	it("returns to the scenario-selection screen without touching the finished conversation", async () => {
+		await startLesson();
+		await sendTeacherMessage("שאלה ראשונה");
+		await finishLesson();
+		const finished = logger();
+
+		click(returnButton());
+		await flush();
+
+		expect(scenarioCards()).toHaveLength(6);
+		expect(view.container.querySelector("textarea")).toBeNull();
+		expect(bubbleTexts()).toEqual([]);
+		expect(finished.endSession).toHaveBeenCalledTimes(1);
+		expect(finished.addTurn).toHaveBeenCalledTimes(1);
+		expect(finished.addSummaryFeedback).not.toHaveBeenCalled();
+		// the selection screen reloads the teacher's conversations, so the finished scenario can be marked
+		expect(getConversationsByUser).toHaveBeenCalledTimes(2);
+	});
+
+	it("a scenario chosen after returning starts a clean, separate conversation", async () => {
+		await startLesson();
+		await sendTeacherMessage("הודעה מהשיחה הקודמת");
+		await finishLesson();
+		const finished = logger();
+		click(returnButton());
+		await flush();
+
+		await chooseScenario(B);
+		expect(ConversationLog).toHaveBeenCalledTimes(2);
+		expect(logger()).not.toBe(finished);
+		expect(logger().args[0]).toBe(B);
+		expect(preLessonBriefing().textContent).toContain(B.teacher_briefing);
+		expect(bubbleTexts()).toEqual([]);
+		expect(returnButton()).toBeUndefined();
+		expect(finishButton().disabled).toBe(true);
+
+		await sendTeacherMessage("הודעה חדשה");
+		expect(getPCKFeedback).toHaveBeenCalledTimes(2);
+		expect(getPCKFeedback.mock.calls[1][0]).toBe("הודעה חדשה");
+		expect(getPCKFeedback.mock.calls[1][1].map((m) => m.text)).toEqual(["הודעה חדשה"]);
+		expect(studentCalls[1].messages.map((m) => m.text)).toEqual(["הודעה חדשה"]);
+		expect(logger().addTurn).toHaveBeenCalledTimes(1);
+		expect(logger().addTurn.mock.calls[0][0]).toBe("הודעה חדשה");
+		expect(finished.addTurn).toHaveBeenCalledTimes(1);
+	});
+
+	it("is disabled and ignored while a turn sent after finishing is still pending", async () => {
+		await startLesson();
+		await sendTeacherMessage("שאלה ראשונה");
+		await finishLesson();
+
+		const pck = deferred();
+		getPCKFeedback.mockReturnValueOnce(pck.promise);
+		await sendTeacherMessage("שאלה אחרי הסיום");
+		expect(returnButton().disabled).toBe(true);
+		click(returnButton());
+		await flush();
+		expect(scenarioCards()).toHaveLength(0);
+
+		pck.resolve(NO_FEEDBACK_ANALYSIS);
+		await flush();
+		expect(logger().addTurn).toHaveBeenCalledTimes(2);
+		expect(returnButton().disabled).toBe(false);
+	});
+
+	it("is disabled and ignored while the PCK summary is being generated", async () => {
+		const summary = deferred();
+		getPCKSummary.mockReturnValueOnce(summary.promise);
+		await startLesson();
+		await sendTeacherMessage("שאלה ראשונה");
+		await finishLesson();
+
+		click(findButtonByText(view.container, "קבל ניתוח PCK"));
+		await flush();
+		expect(returnButton().disabled).toBe(true);
+		click(returnButton());
+		await flush();
+		expect(scenarioCards()).toHaveLength(0);
+
+		summary.resolve({ summary: "SUMMARY-TEXT" });
+		await flush();
+		expect(logger().addSummaryFeedback).toHaveBeenCalledWith("SUMMARY-TEXT");
+		expect(returnButton().disabled).toBe(false);
+	});
+
+	it("leaving the chat page and coming back does not carry old messages into the next conversation", async () => {
+		// The chat history provider lives above the router (App.js), so it outlives the chat page.
+		let setShowChat;
+		function Shell() {
+			const [showChat, show] = React.useState(true);
+			setShowChat = show;
+			return showChat ? <Chat /> : <div>OTHER-PAGE</div>;
+		}
+		view = render(
+			<AppContext.Provider value={{ students: allStudents, scenarios: scenarios.scenarios, TAname: "Teacher", UID: 1 }}>
+				<HistoryProvider>
+					<Shell />
+				</HistoryProvider>
+			</AppContext.Provider>
+		);
+		await flush();
+		await chooseScenario(scenario);
+		await sendTeacherMessage("הודעה מהשיחה הקודמת");
+
+		const { act } = require("react");
+		act(() => setShowChat(false)); // e.g. "השיחות שלי"
+		act(() => setShowChat(true)); // e.g. "סימולטור"
+		await flush();
+		await chooseScenario(B);
+
+		expect(bubbleTexts()).toEqual([]);
+		expect(preLessonBriefing().textContent).toContain(B.teacher_briefing);
+		await sendTeacherMessage("הודעה חדשה");
+		expect(getPCKFeedback.mock.calls[1][1].map((m) => m.text)).toEqual(["הודעה חדשה"]);
+		expect(studentCalls[1].messages.map((m) => m.text)).toEqual(["הודעה חדשה"]);
 	});
 });

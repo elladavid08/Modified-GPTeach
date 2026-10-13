@@ -31,7 +31,7 @@ export const TeacherBriefingPanel = ({ briefing, fallbackText, lessonStarted }) 
 			>
 				{/* Header */}
 				<div style={{ textAlign: "center", marginBottom: "15px" }}>
-					<div style={{ fontSize: "24px", marginBottom: "8px" }}>📚</div>
+					<div style={{ fontSize: "24px", marginBottom: "8px" }}><span role="img" aria-label="books">📚</span></div>
 					<div style={{ fontSize: "17px", fontWeight: "bold", color: "#0d6efd", marginBottom: "4px" }}>
 						אתה מתחיל את השיעור
 					</div>
@@ -41,7 +41,7 @@ export const TeacherBriefingPanel = ({ briefing, fallbackText, lessonStarted }) 
 				{briefing && (
 					<div style={{ padding: "12px", backgroundColor: "#fff3cd", borderRadius: "6px" }}>
 						<div style={{ fontSize: "14px", fontWeight: "bold", color: "#856404", marginBottom: "8px" }}>
-							📋 הנחיות:
+							<span role="img" aria-label="clipboard">📋</span> הנחיות:
 						</div>
 						<div style={{ fontSize: "13px", color: "#333", whiteSpace: "pre-line", lineHeight: "1.6" }}>
 							{briefing}
@@ -90,7 +90,7 @@ export const TeacherBriefingPanel = ({ briefing, fallbackText, lessonStarted }) 
 					cursor: "pointer"
 				}}
 			>
-				<span style={{ fontWeight: "bold" }}>📋 הנחיות לשיעור</span>
+				<span style={{ fontWeight: "bold" }}><span role="img" aria-label="clipboard">📋</span> הנחיות לשיעור</span>
 				<span style={{ fontSize: "12px" }}>{isOpen ? "הסתר ▴" : "הצג ▾"}</span>
 			</button>
 			{isOpen && (
