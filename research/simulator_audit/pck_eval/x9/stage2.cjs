@@ -63,8 +63,8 @@ function extractContext(stage1Prompt) {
   return { lesson: lesson.trim(), history: history.trim(), teacher };
 }
 
-function buildPrompt(ctx, skillIds) {
-  const rubric = skillIds.map((id) => `- ${id}\n  ${RUBRIC[id].join('\n  ')}`).join('\n');
+function buildPrompt(ctx, skillIds, rubricSet = RUBRIC) {
+  const rubric = skillIds.map((id) => `- ${id}\n  ${rubricSet[id].join('\n  ')}`).join('\n');
   return `You score a Hebrew geometry teacher's latest move for specific PCK skills. Another step has already decided that feedback is given and which skills are relevant; do not question that. Your only task is to give each listed skill a score 0, 1 or 2 for the teacher's latest message.
 
 ## Lesson Context

@@ -61,6 +61,7 @@ sdk.GenerativeModel.prototype.generateContent = async function (request) {
       log({ stage: 2, rep: i, nSkills: ids.length, ...run, scores: undefined });
     }
   }
+  if (process.env.S2_RECORD_CTX === '1' && st2.status === 'scored') st2.ctx = ctx; // LOCAL replay files only (participant text)
   log({ ...s1rec, stage2Status: st2.status, nSkills: ids.length });
   const augmented = { ...parsed, _stage2: st2 };
   const newText = JSON.stringify(augmented);
