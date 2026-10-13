@@ -2,7 +2,7 @@
 
 **Verified against:** branch `feature/post-pilot-improvements`, HEAD `69e04ef` (49 commits on `main..HEAD`), `SYSTEM_VERSION` **1.4.3**, on 2026-10-13.
 
-**Update (same day):** #6 is implemented as **1.4.4**, uncommitted in the working tree on top of that HEAD. Everything else below is unchanged.
+**Update (same day):** #6 and #8 are implemented as **1.4.4**. #6 is committed (`9f1c018`); #8 and the return-to-selection fix (§2) are uncommitted in the working tree on top of it. Everything else below is unchanged.
 
 **Tests on that HEAD:**
 - client: 265 / 265 pass (`npx jest --config jest.config.js`);
@@ -26,6 +26,8 @@ This document contains no participant data. Counts from the pilot are aggregates
   - The conflicts exist because the same model split was made twice: as the 1.4.0 commit here and as the hotfix on `main`.
   - They are expected to resolve to this branch's side, but that has not been done.
 
+**Release blocker (2026-10-13, `student_misconception_opportunity_investigation.md`):** on the 1.4.4 student setup, the scenario misconception usually appears (29 of 36 synthetic conversations with production-like casts), but it is still held when the teacher explains in only 5 of 36. In 24 of the 29 conversations where it appears, the carrier talks themself out of it after the teacher's diagnostic questions, with no teaching. See item 12. A small fix is proposed but not implemented.
+
 **Status legend:**
 - **DONE**: implemented, tested and versioned; the user-visible problem is addressed.
 - **PARTIAL**: improved, but part of the request remains.
@@ -46,18 +48,20 @@ This document contains no participant data. Counts from the pilot are aggregates
 | 3 | Voice input | **OPEN** (design first) | — |
 | 4 | Feedback too long | **PARTIAL** | 1.4.0, 1.4.1, 1.4.3 |
 | 5 | Yellow / score-1 feedback unclear | **DONE** (display) | 1.4.3 (+ researcher views, no bump) |
-| 6 | Initial teacher briefing disappears | **DONE** (uncommitted on this branch) | 1.4.4 |
+| 6 | Initial teacher briefing disappears | **DONE** (`9f1c018`) | 1.4.4 |
 | 7 | Drawing-tool improvements | **OPEN** | — (related: 1.3.3 image-only turns) |
-| 8 | Mark completed simulations | **OPEN** | — |
+| 8 | Visually mark scenarios already attempted | **DONE** (uncommitted on this branch) | 1.4.4 |
 | 9 | Students drawing | **DEFERRED** | — |
 | 10 | Preserve teacher-message line breaks | **DONE** in the chat, agents and storage; researcher viewers still collapse them | 1.3.7 |
 | 11 | Student returns to a resolved difficulty | **NOT REPRODUCED** | (indirect: 1.3.8, 1.3.9, 1.4.0) |
-| 12 | Student reaches the correct answer too early | **OPEN** (one contributing cause fixed in 1.4.1) | 1.4.1 (partial) |
+| 12 | Student reaches the correct answer too early | **OPEN: release blocker** (one contributing cause fixed in 1.4.1; investigated 2026-10-13) | 1.4.1 (partial) |
 | 13 | Summary contradicts in-conversation feedback | **DONE** | 1.3.1 |
 
 ### Per-item detail
 
 #### 1. Multiple students show inconsistent difficulties: PARTIAL
+
+- **2026-10-13 investigation (item 12):** on 1.4.4 a single student carries the misconception in 25 of 29 conversations where it appears, and a conflicting misconception appeared in 1 of 36. The 2.5 student spread it to several students in 20 of 36. Any fix that makes misconceptions persist must therefore name one carrier.
 
 - **User-visible problem:** in a multi-student class, students' difficulties did not stay consistent with who holds which misconception. A student would take on another's idea, or the cast would behave as one voice.
 - **Changes:**
@@ -171,7 +175,7 @@ This document contains no participant data. Counts from the pilot are aggregates
   - `regression_test_plan.md` §0.30.
 - **Remaining limitations:**
   - The briefing's last sentence ("…כתבו הודעה בחלון השיחה והתחילו את השיעור") is reused as is and reads as stale mid-lesson. Changing the text is a scenario-content decision.
-  - Not yet committed or deployed.
+  - Committed in `9f1c018`; not yet deployed.
 
 #### 7. Drawing-tool improvements: OPEN
 
@@ -184,13 +188,25 @@ This document contains no participant data. Counts from the pilot are aggregates
 - **Remaining:** per-feature UI work (each is low risk; `change_map.md` §7). Separately, design decisions on PCK visibility of drawings (B17: PCK does not see drawings) and vector-state storage.
 - **Next step:** prioritise features with the educational team.
 
-#### 8. Mark completed simulations: OPEN
+#### 8. Visually mark scenarios already attempted: DONE (1.4.4)
 
-- **User-visible problem:** the scenario selection screen does not show which lessons the teacher has already done.
-- **Current code:**
-  - `ScenarioSelector.jsx` has no per-user data.
-  - Conversation records snapshot `scenario.text`, but no scenario id (A9).
-- **Remaining:** see §3.2.
+- **User-visible problem:** teachers asked to complete all six scenarios over several days forget which ones they already did. The request is a visual distinction, not completion tracking or locking.
+- **Change (1.4.4):** an attempted card looks different on the selection screen: a light green card, a green accent on the right edge, and the caption "✓ התנסית בתרחיש זה". It remains fully clickable and starts a new conversation as before.
+- **Rule:** at least one saved conversation of the current teacher, with at least one logged turn, for that scenario, finished or not.
+  - The conversation document is only created with the first logged turn, so merely opening a scenario does not count.
+- **Data source:** the teacher's own conversations, read with the existing `/logs` query (`getConversationsByUser`).
+  - They are matched on the stored scenario title (A9), normalised; the pre-2026-03-17 prefix "השיעור של השבוע הוא על " is stripped.
+  - If loading fails or is slow, the screen works as before without marks.
+- **Data contract:** unchanged. No `completed` state, no `scenarioId`, nothing stored.
+- **Evidence:**
+  - `attemptedScenarios.test.js` (20);
+  - 8 page-level tests in `chatTurnOrchestration.test.js`;
+  - `regression_test_plan.md` §0.31.
+- **Remaining limitations:**
+  - Matching on titles: a future title edit would silently drop the marks (never a false mark). The durable fix is an additive scenario id.
+  - The Firestore read rule is not in this repository. Check `/logs` with the demo account; if the read is denied, the screen simply shows no marks.
+  - A fresh account shows no marks until it has logged a turn.
+  - Not yet committed or deployed.
 
 #### 9. Students drawing: DEFERRED
 
@@ -224,6 +240,8 @@ This document contains no participant data. Counts from the pilot are aggregates
 
 #### 11. Student returns to a resolved difficulty: NOT REPRODUCED
 
+- **Also in the 2026-10-13 investigation:** no regression after teaching in 96 conversations. The observed problem is the opposite: carriers resolve too early (item 12).
+
 - **User-visible problem:** in the pilot, a student who had understood went back to the misconception.
 - **Changes:** no dedicated fix. These are likely contributors:
   - speaker identity (1.3.8);
@@ -247,8 +265,39 @@ This document contains no participant data. Counts from the pilot are aggregates
 - **Evidence:**
   - Premature correctness is otherwise unchanged: 7 of 24 carriers on 1.3.12 and 1.4.0, 6 of 24 on 1.4.1 (`student_stability_replay.md` §12.3 and §13.3).
   - It occurs mostly in scenarios where the direct question invites self-correction.
-- **Remaining:** there is no targeted fix.
-- **Next step:** a scenario-level carrier instruction experiment on Mode B (`student_stability_replay.md` §11.6).
+- **Investigation (2026-10-13, `student_misconception_opportunity_investigation.md`):** 96 synthetic conversations, all 6 scenarios. The teacher probes neutrally, probes the misconception without giving the answer, asks a diagnostic question and "does everyone agree?", and only then explains.
+  - **On 1.4.4 with production-like casts (36):**
+    - the misconception appears in 29;
+    - it survives at least one teacher turn in 15;
+    - it is held until the explanation in only 5 (3 weakly);
+    - in 7 the students are correct before the teacher can respond.
+  - **By scenario,** held until the explanation:
+
+    | scenario | 1 | 2 | 3 | 4 | 5 | 6 |
+    |---|---:|---:|---:|---:|---:|---:|
+    | held at T6 (of 6) | 1 | 0 | 2 (weak) | 2 | 0 | 0 |
+
+  - **Designed casts (24):** held in 4.
+  - **Mechanism:**
+    - PCK rates a good probing or diagnostic question as positive / understanding "improved" (36 of 36 at the probe and at "explain how you thought");
+    - the student prompt makes that binding ("MUST show understanding progress", "OVERRIDES ALL OTHER INSTRUCTIONS");
+    - no student is designated as the carrier, and peers often give the full correct argument;
+    - `gemini-3.5-flash-lite` follows the steering more literally than 2.5: under identical steering, 2.5 held the misconception in 29 of 36 but spread it to several students in 20 of 36.
+  - **The earlier Mode B persistence** (17–18 of 24) came largely from its bare "אוקיי" probe, which PCK punishes with "misconception_reinforced" steering.
+- **Carrier prototype (2026-10-13, `student_misconception_carrier_experiment.md`), experimental only, not promoted:**
+  - **Design:** one carrier per session, chosen in code; a carrier rule in the student prompt; the PCK "improved" steering scoped to tone and progress for the carrier.
+  - **Result:** on the same bench, the misconception is held until the teacher explains in **29 of 36** (1.4.4: 6 of 36), with no regressions in failures, repetition or latency. The carrier resolves after the explanation.
+  - **Still short of the targets:**
+    - peers often share the idea (11–14 of 36 conversations) or give the full resolution or counterexample first (16–20 of 36);
+    - scenarios 2 and 4 stay weak (held in 2–4 of 6);
+    - three peer wordings changed nothing.
+  - **Decision pending:** promote the smallest version (v1, as 1.5.0, with an additive `misconceptionCarrier` field) with the limitation documented, or first try a structural peer control.
+- **Remaining:** a production fix is needed before teachers practise the scenarios.
+- **Next step (proposed, not implemented):**
+  - one designated misconception carrier per session, chosen in code and stored as an additive field;
+  - a single carrier rule in the student prompt: the carrier keeps the misconception through questions and probes and changes their mind only after the teacher addresses it; peers may doubt but do not resolve it first;
+  - scope the PCK "override" to tone and progress;
+  - validate on the same bench and on Mode B, with explicit success thresholds (investigation §5).
 
 #### 13. Summary contradicts in-conversation feedback: DONE
 
@@ -288,6 +337,7 @@ This document contains no participant data. Counts from the pilot are aggregates
 | **Missed-misconception PCK fix** (B27) | 1.4.1 | **Prompt:** one Gate-0 clarification: a hedged or tag-question incorrect claim followed by a bare acknowledgement is a missed error-identification.<br>**Guard:** a display guard on bare "אוקיי" / "יפה" / "נכון". | `pck_missed_misconception_experiment.md`; `pck_bare_ack_guard.test.mjs`; Mode B §13: critical-moment feedback 10 of 18 → 15 of 16; 21 invalid praises suppressed | One self-contradictory claim was still missed. Praise for peer redirects is a rubric question. |
 | **Garbled-text telemetry** | 1.4.2 | Six content-free counters for garbled student text (foreign script, mixed-script tokens, cantillation marks, doubled function words, markup). Nothing the teacher sees changes. | `student_garble.test.mjs`; `student_garbled_text_investigation.md` | About 2% of replies are garbled (9–10 per roughly 515 replies in Mode B). Detection only; no fix yet. |
 | **PCK row-text / display consistency** (B28) | 1.4.3, + `93ff57b` (no bump) | See §1, item 5. Researcher, admin and annotation views use the same view-model. | `pckDisplayRows.test.js`, `pckDisplayConsistency.test.js`; §0.28–§0.29 | Some score > 0 rows (about 2–12%) have no text anywhere. They are now counted. |
+| **Back to scenario selection** and a clean history per conversation | 1.4.4 (uncommitted) | **Button:** after "סיים שיחה", a "חזרה לבחירת תרחיש" button in the chat header returns to the selection screen without a reload. It is disabled while a turn or the summary request is running.<br>**Fix:** the chat history (whose provider sits above the router) is cleared when a scenario is chosen. Before, leaving the chat via the navbar and coming back carried the old messages into the next conversation's display and model context. | 7 tests in `chatTurnOrchestration.test.js`; `regression_test_plan.md` §0.32 | The navbar "סימולטור" link still does nothing while on the chat page (unchanged; no navigation redesign). "שיחה חדשה" still reloads the page at any time, including during a turn. |
 
 Other prompt changes in the same period:
 - 1.3.10: conversational-move rule.
@@ -314,29 +364,6 @@ Implemented in 1.4.4 as a collapsible panel at the top of the chat, not in the l
 
 ### 3.2 #8: a completed-simulation indicator
 
-- **Scope:**
-  - On the selection screen, mark each scenario the teacher has completed (a "✓ הושלם" badge on the card).
-  - Read the teacher's own conversations with the existing `firestoreService.getConversationsByUser(currentUser.uid)`, the same query the teacher-facing `/logs` page already uses.
-  - Map them to scenarios with a pure, tested helper.
-  - If the fetch fails or is slow, show no badges; never block selection.
-  - The selection screen appears again after "שיחה חדשה" (a page reload), so badges refresh naturally.
-- **Product decision needed:** what "completed" means.
-  - **Recommended:** `endTime` set, which means the teacher clicked "סיים שיחה".
-  - **Alternatives:** a summary was generated, or a minimum number of turns.
-  - Partial conversations do exist. In the pilot export, 41 of 133 conversations had no `endTime`. A conversation document is only created after the first logged turn.
-- **Scenario identity (A9, the `scenario.text` / `scenarioId` issue):** this does **not block** a display-only indicator today.
-  - The six active titles have been byte-identical since commit `1eb3da6` (2026-03-17), so they cover every pilot-era record.
-  - The titles are unique, as asserted in `configContracts.test.js`.
-  - Records from before 2026-03-17 use a "השיעור של השבוע הוא על " prefix, which one normalisation step can strip.
-  - The risk is silent: a future title edit would make badges disappear (false negatives, never false positives).
-  - The durable fix is an additive `scenario.id` in the config and the stored snapshot, plus a text→id map for old records. That is a data-contract change, so it should not be made tonight.
-- **Data contract:** no change if matching uses `scenario.text`.
-- **Dependencies:**
-  - Firestore must allow a teacher to read their own conversations. The rules are not in the repository, but `/logs` relies on the same query.
-  - **Verify on the demo account by opening `/logs`.**
-  - The query fetches full documents (turns, including drawings), at most 100, unordered. That is fine for a typical teacher, but slow for heavy accounts.
-  - A fresh demo account shows no badges until a conversation has been finished.
-- **Versioning:** UI change, so `1.4.4`.
-- **Risk:** low to medium. It is the only one of the two that reads user data on the selection screen, and it depends on the Firestore rule and on the "completed" definition.
+Implemented in 1.4.4 as an "attempted" marking, as the educational team specified: no completion definition, no badge for completion, no locking. See §1, item 8.
 
 **Neither candidate changes prompts, models, PCK decisions, student behaviour or the stored conversation format.**

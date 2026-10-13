@@ -40,7 +40,7 @@ test('only the runner and the analyzer write files, and only under results/ (and
   for (const f of sources(HARNESS)) {
     const rel = path.relative(HARNESS, f);
     const writes = /writeFileSync|copyFileSync|mkdirSync/.test(readFileSync(f, 'utf8'));
-    if (writes) assert.ok(['bench/run.bench.js', 'analyze.js', 'scripts/render_assets.js', 'scripts/import_historical.js'].includes(rel), rel);
+    if (writes) assert.ok(['bench/run.bench.js', 'bench/opportunity.bench.js', 'bench/carrier_identity.bench.js', 'analyze.js', 'scripts/render_assets.js', 'scripts/import_historical.js'].includes(rel), rel);
   }
   assert.match(readFileSync(path.join(HARNESS, '.gitignore'), 'utf8'), /^results\/$/m);
 });
