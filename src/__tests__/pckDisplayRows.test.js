@@ -1,7 +1,7 @@
 // PCK sidebar display contract (1.4.3): a pure view-model that turns the PCK feedback object into display rows
 // using ONLY text the model already returned. It never invents text, never changes score / relevance / the
 // show-hide decision, and never mutates the feedback object. See research/simulator_audit/pck_row_text_contract_experiment.md.
-import { buildPckDisplayRows, countRowsWithoutText, matchDemonstratedEvidence } from "../services/pckDisplayRows";
+import { buildPckDisplayRows, countRowsWithoutText, formatPckRowText, matchDemonstratedEvidence, pckRowText } from "../services/pckDisplayRows";
 
 const deepFreeze = (o) => { Object.values(o).forEach((v) => v && typeof v === "object" && deepFreeze(v)); return Object.freeze(o); };
 
@@ -162,5 +162,36 @@ describe("countRowsWithoutText (content-free count)", () => {
 		expect(countRowsWithoutText(rows)).toBe(3);
 		expect(countRowsWithoutText([])).toBe(0);
 		expect(countRowsWithoutText(null)).toBe(0);
+	});
+});
+
+describe("row text (shared by the sidebar, log viewers and exports)", () => {
+	it("score 2: positive as the main text, no improvement", () => {
+		const r = { score: 2, positive: "P", improvement: null };
+		expect(pckRowText(r)).toEqual({ main: "P", improvement: null });
+		expect(formatPckRowText(r)).toBe("P");
+	});
+
+	it("score 1 with both parts: positive, then the improvement on its own labelled line", () => {
+		const r = { score: 1, positive: "P", improvement: "I" };
+		expect(pckRowText(r)).toEqual({ main: "P", improvement: "I" });
+		expect(formatPckRowText(r)).toBe("P\nלשיפור: I");
+	});
+
+	it("score 1 with the improvement only: just the labelled improvement line", () => {
+		const r = { score: 1, positive: null, improvement: "I" };
+		expect(pckRowText(r)).toEqual({ main: null, improvement: "I" });
+		expect(formatPckRowText(r)).toBe("לשיפור: I");
+	});
+
+	it("score 0 / missing score: the improvement as the main text (unchanged)", () => {
+		expect(pckRowText({ score: 0, positive: null, improvement: "I" })).toEqual({ main: "I", improvement: null });
+		expect(formatPckRowText({ score: undefined, positive: null, improvement: "I" })).toBe("I");
+	});
+
+	it("a row without text, or no row: empty", () => {
+		expect(pckRowText({ score: 2, positive: null, improvement: null })).toEqual({ main: null, improvement: null });
+		expect(formatPckRowText({ score: 2, positive: null, improvement: null })).toBe("");
+		expect(formatPckRowText(null)).toBe("");
 	});
 });

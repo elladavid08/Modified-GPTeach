@@ -3,6 +3,7 @@ import { getAllConversations, getConversation, deleteConversation } from '../ser
 import { getPCKSummary } from '../services/genai';
 import { PCKSummaryModal } from '../components/PCKSummaryModal';
 import { ConversationDetail } from './ConversationLogs';
+import { buildAssessedPckRow, formatPckRowText } from '../services/pckDisplayRows';
 
 // ---------- PCK skill definitions ----------
 const SKILL_IDS = [
@@ -262,7 +263,8 @@ const AdminConversationLogs = () => {
           skillData.push('לא רלוונטי', '');
           return;
         }
-        var explanation = skill.score > 0 ? (skill.evidence || '') : (skill.what_could_be_better || '');
+        // Same text as the sidebar / log viewer (B28); a score-1 cell holds both parts on separate lines.
+        var explanation = formatPckRowText(buildAssessedPckRow(skill, feedback.detected_skills));
         skillData.push(skill.score, explanation);
       });
       var date = t.date ? new Date(t.date).toLocaleDateString('he-IL') : '';

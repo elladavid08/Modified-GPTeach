@@ -21,6 +21,11 @@
  *
  * Legacy feedback without any relevant skills_assessment entry keeps the previous fallback: rows from
  * `detected_skills` (shown as score 2) and `missed_opportunities` (score 0).
+ *
+ * Every view of already-generated feedback reads this module (B28): the teacher sidebar, the conversation-log
+ * viewer (also used by the admin viewer), the admin "model output" CSV and the Excel export. Row text is shown
+ * the same way everywhere (pckRowText / formatPckRowText): the main text after the skill name, and for score 1
+ * the improvement on its own line labelled "לשיפור:".
  */
 
 const nonEmpty = (value) => (typeof value === "string" && value.trim() !== "" ? value.trim() : null);
@@ -53,20 +58,43 @@ export function buildPckDisplayRows(feedback) {
 		];
 	}
 
-	return relevant.map((s) => {
-		if (s.score === 1 || s.score === 2) {
-			const own = nonEmpty(s.evidence);
-			const fallback = own ? null : matchDemonstratedEvidence(demonstrated, s.skill_id);
-			return {
-				skillId: s.skill_id,
-				score: s.score,
-				positive: own || fallback,
-				improvement: s.score === 1 ? nonEmpty(s.what_could_be_better) : null,
-				positiveSource: own ? "evidence" : fallback ? "demonstrated_skills" : null,
-			};
-		}
-		return { skillId: s.skill_id, score: s.score, positive: null, improvement: nonEmpty(s.what_could_be_better), positiveSource: null };
-	});
+	return relevant.map((s) => buildAssessedPckRow(s, demonstrated));
+}
+
+/** The display row of one skills_assessment entry (the caller has decided the entry is shown). */
+export function buildAssessedPckRow(s, demonstrated) {
+	if (s.score === 1 || s.score === 2) {
+		const own = nonEmpty(s.evidence);
+		const fallback = own ? null : matchDemonstratedEvidence(demonstrated, s.skill_id);
+		return {
+			skillId: s.skill_id,
+			score: s.score,
+			positive: own || fallback,
+			improvement: s.score === 1 ? nonEmpty(s.what_could_be_better) : null,
+			positiveSource: own ? "evidence" : fallback ? "demonstrated_skills" : null,
+		};
+	}
+	return { skillId: s.skill_id, score: s.score, positive: null, improvement: nonEmpty(s.what_could_be_better), positiveSource: null };
+}
+
+export const PCK_IMPROVEMENT_LABEL = "לשיפור:";
+
+/** The text a row shows: `main` after the skill name; `improvement` (score 1 only) on its own labelled line. */
+export function pckRowText(row) {
+	if (!row) {
+		return { main: null, improvement: null };
+	}
+	const positiveScore = row.score === 1 || row.score === 2;
+	return {
+		main: (positiveScore ? row.positive : row.improvement) || null,
+		improvement: (row.score === 1 && row.improvement) || null,
+	};
+}
+
+/** Plain-text form of a row's text for exports: the main text, then "לשיפור: <improvement>" ("" if no text). */
+export function formatPckRowText(row) {
+	const { main, improvement } = pckRowText(row);
+	return [main, improvement ? `${PCK_IMPROVEMENT_LABEL} ${improvement}` : null].filter(Boolean).join("\n");
 }
 
 /** Content-free: number of rows that would be displayed without any text. */

@@ -1013,8 +1013,70 @@ Before the fix, 4 tests failed. The harness has a version-aware example set and 
 - the analysis object is unchanged in 46 of 46; no retries.
 
 **Follow-up:**
-- move the conversation-log, admin-log and Excel renderers to the same view-model;
+- ~~move the conversation-log, admin-log and Excel renderers to the same view-model~~ (done, §0.29);
 - the score-1 positive part and the remaining score-2 gap need a model-side change (`pck_feedback_v2_plan.md`, X2).
+
+### 0.29 Researcher views use the PCK display contract (2026-10-13, no version change)
+
+**Defect:** after 1.4.3 only the teacher sidebar used the view-model (B28). The researcher views still showed score 1 / 2 rows from the skill's own `evidence` only. For 1.4.x records, most rows were a bare skill name, and score-1 rows lost the improvement text, so researchers saw less than the teacher did.
+
+**Old display / export paths (all copied the pre-1.4.3 rule):**
+- `src/pages/ConversationLogs.jsx` `PCKFeedbackBullets`. It is rendered by `ConversationDetail`, which serves both the user's conversation-log viewer and the admin viewer's detail panel.
+- `src/pages/AdminConversationLogs.jsx` `exportModelOutput` (`model_output_for_researcher.csv`, column `הסבר מודל`).
+- `src/services/exportConversationExcel.js` `formatPCKFeedback` (PCK column of the conversation table).
+
+**Not changed:**
+- `exportForExperts` writes empty skill columns for annotators and uses no model text.
+- Model inputs that list feedback are not display, and changing them would change model behaviour:
+  - summary prompt `pckMoments` and the PCK feedback-history summary in `server/server.js`;
+  - the student prompt in `src/utils/ai.js`.
+
+**Change (presentation only):**
+- `pckDisplayRows.js` gains three exports, and the existing contract is unchanged:
+  - `buildAssessedPckRow` (the existing per-entry rule, factored out);
+  - `pckRowText` (`main` text, plus the score-1 `improvement`);
+  - `formatPckRowText` (plain text: main, then `לשיפור: …` on its own line).
+- The sidebar renders through `pckRowText`. Its output is identical; rows get a `data-testid="pck-row"`.
+- **Log viewer:** rows come from `buildPckDisplayRows`, with the same two-part score-1 rendering as the sidebar.
+- **Admin CSV:**
+  - the score and relevance columns are computed as before;
+  - `הסבר מודל` is `formatPckRowText(buildAssessedPckRow(entry, detected_skills))`.
+- **Excel:**
+  - same sheet, columns and `name [label]` blocks;
+  - block text is `formatPckRowText(row)`, so a score-1 cell keeps both parts.
+- **Unchanged:** the PCK prompt, schema, model calls, relevance, scores, `should_provide_feedback`, student steering, stored data and `server/`.
+
+**Version:** no `systemVersion` bump.
+- A6 versions *generated* data: the stamp separates conversations produced by different prompt, agent or model behaviour.
+- This change alters neither how conversations are generated nor what is stored. A record's stamp cannot describe how a later viewer renders it.
+- A bump would label conversations as different whose generation is identical to 1.4.3.
+- The teacher sidebar's output is unchanged.
+
+**Tests:** `pckDisplayConsistency.test.js` (18) and `pckDisplayRows.test.js` (+5).
+- **Fixture:** one synthetic conversation, `pckDisplayContractConversation`, with these cases:
+  - score 2 own evidence; score 2 via `demonstrated_skills`;
+  - score 1 with both parts; score 1 with improvement only; score 1 with the positive part from `demonstrated_skills`;
+  - score 0; no-text rows; a relevant row without a score;
+  - ambiguous (duplicate id), malformed (object evidence, null, string, no id) and wrong-case fallback entries;
+  - legacy v1.0 feedback; a turn without feedback; all-irrelevant feedback.
+- **Checks:**
+  - the fixture goes through the view-model, the sidebar, `ConversationDetail` and the admin page (rendered with mocked Firestore reads; turns marked and the CSV exported) and through the Excel export;
+  - per-skill `[name, main, improvement]` is compared with a hand-written expectation and across views;
+  - the admin CSV score column equals the stored score;
+  - the stored object is deep-frozen and byte-identical afterwards.
+- **Mutation check:** restoring the old rule in the CSV, the Excel export or the log viewer fails the matching tests.
+
+**Remaining differences (legacy, by design of the column layout):**
+- **Admin CSV, legacy feedback:** feedback without `skills_assessment` still exports empty skill columns, because the CSV has a per-skill *model score* column and a legacy row has no model score. Viewers and Excel show those rows as before.
+- **Admin CSV, duplicate skill ids:** if `skills_assessment` holds the same skill id twice, the CSV (one column per skill) shows the first entry. The viewers show every relevant entry.
+
+**Legacy edges where the researcher views now differ from what they showed before** (they now match the sidebar):
+- **Strict types.**
+  - The old views treated any truthy `is_relevant` as relevant and any `score > 0` as positive. The view-model requires `is_relevant === true` and `score` ∈ {1, 2}.
+  - A pre-schema record with `is_relevant: "true"` or `score: "2"` (strings) would now be shown differently: the legacy fallback, or the improvement text.
+  - The admin CSV keeps its own (truthy) relevance check for the score column, so it would still list such an entry.
+  - Since 1.3.4 (B23 schema) stored values are booleans and integers. Older records were not inspected, because the exported records are participant data.
+- **Whitespace and robustness.** Text is trimmed, whitespace-only text counts as no text, and non-object entries in the legacy arrays are skipped (the old code would throw).
 
 ## Original proposal (kept for reference; see §0.6 for what is still open)
 

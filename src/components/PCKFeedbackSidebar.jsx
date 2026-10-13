@@ -1,5 +1,5 @@
 import React from 'react';
-import { buildPckDisplayRows } from '../services/pckDisplayRows';
+import { buildPckDisplayRows, pckRowText, PCK_IMPROVEMENT_LABEL } from '../services/pckDisplayRows';
 
 const SKILL_NAMES_HE = {
   'error-identification':           'זיהוי השגיאה',
@@ -37,10 +37,9 @@ function SkillDot({ color }) {
 function SkillRow({ skillId, score, positive, improvement }) {
   const config = SCORE_CONFIG[score] !== undefined ? SCORE_CONFIG[score] : SCORE_CONFIG[0];
   const name = SKILL_NAMES_HE[skillId] || skillId;
-  const text = score === 1 || score === 2 ? positive : improvement;
-  const secondLine = score === 1 ? improvement : null;
+  const { main: text, improvement: secondLine } = pckRowText({ score, positive, improvement });
   return (
-    <div style={{
+    <div data-testid="pck-row" style={{
       display: 'flex',
       alignItems: 'flex-start',
       padding: '8px 0',
@@ -53,7 +52,7 @@ function SkillRow({ skillId, score, positive, improvement }) {
         {text ? ': ' + text : ''}
         {secondLine ? (
           <span data-testid="pck-row-improvement" style={{ display: 'block', marginTop: '2px' }}>
-            {'לשיפור: ' + secondLine}
+            {PCK_IMPROVEMENT_LABEL + ' ' + secondLine}
           </span>
         ) : null}
       </span>

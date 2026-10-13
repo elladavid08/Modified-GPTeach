@@ -4,6 +4,7 @@ import { getPCKSummary } from '../services/genai';
 import { saveSummaryFeedback } from '../services/conversationLogger';
 import { PCKSummaryModal } from '../components/PCKSummaryModal';
 import { useAuth } from '../contexts/AuthContext';
+import { buildPckDisplayRows, pckRowText, PCK_IMPROVEMENT_LABEL } from '../services/pckDisplayRows';
 
 const SKILL_NAMES_HE = {
   'error-identification':         'זיהוי השגיאה',
@@ -58,30 +59,9 @@ function PCKLegend() {
   );
 }
 
+// Rows and text come from the shared display contract (B28), the same as the teacher sidebar.
 function PCKFeedbackBullets({ pckFeedback }) {
-  const assessedSkills = (pckFeedback.skills_assessment || []).filter(s => s.is_relevant);
-
-  let skillRows;
-  if (assessedSkills.length > 0) {
-    skillRows = assessedSkills.map(s => ({
-      skillId: s.skill_id,
-      score: s.score,
-      text: s.score > 0 ? (s.evidence || '') : (s.what_could_be_better || ''),
-    }));
-  } else {
-    skillRows = [
-      ...(pckFeedback.detected_skills || []).map(s => ({
-        skillId: s.skill_id,
-        score: 2,
-        text: s.evidence || '',
-      })),
-      ...(pckFeedback.missed_opportunities || []).map(s => ({
-        skillId: s.skill_id,
-        score: 0,
-        text: s.what_could_have_been_done || '',
-      })),
-    ];
-  }
+  const skillRows = buildPckDisplayRows(pckFeedback);
 
   if (skillRows.length === 0) return null;
 
@@ -90,8 +70,10 @@ function PCKFeedbackBullets({ pckFeedback }) {
       <div style={{ fontWeight: 'bold', marginBottom: '8px', color: '#155724' }}>💡 משוב PCK:</div>
       <PCKLegend />
       <div style={{ display: 'flex', flexDirection: 'column' }}>
-        {skillRows.map((row, i) => (
-          <div key={i} style={{
+        {skillRows.map((row, i) => {
+          const { main, improvement } = pckRowText(row);
+          return (
+          <div key={i} data-testid="pck-row" style={{
             display: 'flex',
             alignItems: 'flex-start',
             padding: '8px 0',
@@ -101,10 +83,16 @@ function PCKFeedbackBullets({ pckFeedback }) {
             <SkillBullet color={SCORE_COLOR[row.score] !== undefined ? SCORE_COLOR[row.score] : SCORE_COLOR[0]} />
             <span style={{ fontSize: '0.88rem', color: '#333', lineHeight: '1.5' }}>
               <strong>{SKILL_NAMES_HE[row.skillId] || row.skillId}</strong>
-              {row.text ? ': ' + row.text : ''}
+              {main ? ': ' + main : ''}
+              {improvement ? (
+                <span data-testid="pck-row-improvement" style={{ display: 'block', marginTop: '2px' }}>
+                  {PCK_IMPROVEMENT_LABEL + ' ' + improvement}
+                </span>
+              ) : null}
             </span>
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

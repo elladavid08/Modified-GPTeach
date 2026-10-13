@@ -9,13 +9,15 @@
  *  - turn.pckFeedback      – object | null
  *    - .feedback_message             Hebrew summary string
  *    - .skills_assessment[]          [{ skill_id, is_relevant, score, evidence, what_could_be_better }]
- *    - .detected_skills[]            fallback – [{ skill_id, evidence }]
- *    - .missed_opportunities[]       fallback – [{ skill_id, what_could_have_been_done }]
+ *    - .detected_skills[]            [{ skill_id, evidence }] (positive-text fallback; legacy rows)
+ *    - .missed_opportunities[]       legacy rows – [{ skill_id, what_could_have_been_done }]
+ *    Per-skill rows and text come from the shared display contract (src/services/pckDisplayRows.js, B28).
  *  - conversation.summaryFeedback – plain Hebrew markdown string | null
  */
 
 import * as XLSX from 'xlsx-js-style';
 import { saveAs } from 'file-saver';
+import { buildPckDisplayRows, formatPckRowText } from './pckDisplayRows';
 
 // ─── Hebrew PCK skill name mapping (matches ConversationLogs.jsx) ──────────────
 const SKILL_NAMES_HE = {
@@ -143,7 +145,8 @@ function formatDateTime(val) {
 
 /**
  * Formats a pckFeedback object into a readable multi-line Hebrew string.
- * Mirrors the logic in PCKFeedbackBullets in ConversationLogs.jsx.
+ * Same rows and text as the sidebar and PCKFeedbackBullets (shared view-model, B28): per skill a
+ * "name [label]" line, then its text; a score-1 skill keeps both parts ("לשיפור: …" on its own line).
  */
 function formatPCKFeedback(pckFeedback) {
   if (!pckFeedback) return '';
@@ -155,32 +158,14 @@ function formatPCKFeedback(pckFeedback) {
     lines.push('');
   }
 
-  const assessedSkills = (pckFeedback.skills_assessment || []).filter(s => s.is_relevant);
-
-  if (assessedSkills.length > 0) {
-    assessedSkills.forEach(s => {
-      const name  = SKILL_NAMES_HE[s.skill_id] || s.skill_id;
-      const label = SCORE_LABELS[s.score] !== undefined ? SCORE_LABELS[s.score] : '';
-      const text  = s.score > 0 ? (s.evidence || '') : (s.what_could_be_better || '');
-      lines.push(`${name} [${label}]`);
-      if (text) lines.push(text);
-      lines.push('');
-    });
-  } else {
-    // Fallback to detected_skills / missed_opportunities
-    (pckFeedback.detected_skills || []).forEach(s => {
-      const name = SKILL_NAMES_HE[s.skill_id] || s.skill_id;
-      lines.push(`${name} [${SCORE_LABELS[2]}]`);
-      if (s.evidence) lines.push(s.evidence);
-      lines.push('');
-    });
-    (pckFeedback.missed_opportunities || []).forEach(s => {
-      const name = SKILL_NAMES_HE[s.skill_id] || s.skill_id;
-      lines.push(`${name} [${SCORE_LABELS[0]}]`);
-      if (s.what_could_have_been_done) lines.push(s.what_could_have_been_done);
-      lines.push('');
-    });
-  }
+  buildPckDisplayRows(pckFeedback).forEach(row => {
+    const name  = SKILL_NAMES_HE[row.skillId] || row.skillId;
+    const label = SCORE_LABELS[row.score] !== undefined ? SCORE_LABELS[row.score] : '';
+    const text  = formatPckRowText(row);
+    lines.push(`${name} [${label}]`);
+    if (text) lines.push(text);
+    lines.push('');
+  });
 
   return lines.join('\n').trim();
 }
