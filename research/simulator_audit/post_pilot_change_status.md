@@ -291,6 +291,7 @@ This document contains no participant data. Counts from the pilot are aggregates
     - peers often share the idea (11–14 of 36 conversations) or give the full resolution or counterexample first (16–20 of 36);
     - scenarios 2 and 4 stay weak (held in 2–4 of 6);
     - three peer wordings changed nothing.
+  - **Peer control (2026-10-14, experiment §8), failed:** an explicit open/addressed state from a teacher-move classifier gated the peer role, the "addressed" flag and peer progress hints. It did not reduce peer resolution before teaching: 16 of 36, the same as v1. Peers still give one-step definition arguments and the kite counterexample. Stopped before Mode B, per plan.
   - **Decision pending:** promote the smallest version (v1, as 1.5.0, with an additive `misconceptionCarrier` field) with the limitation documented, or first try a structural peer control.
 - **Remaining:** a production fix is needed before teachers practise the scenarios.
 - **Next step (proposed, not implemented):**

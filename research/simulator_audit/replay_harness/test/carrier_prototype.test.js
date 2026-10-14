@@ -7,6 +7,7 @@ import path from 'path';
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 import { CARRIER_PATCH, buildCarrierModule, selectCarrier } from '../prototype/carrier.js';
+import { parseAddressedJudge, nextMisconceptionState, addressedJudgePrompt } from '../prototype/addressedJudge.js';
 
 const HARNESS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO = path.resolve(HARNESS, '../../..');
@@ -18,7 +19,7 @@ test('every patch anchor occurs exactly once in the production ai.js', () => {
 });
 
 test('the patched module parses, has absolute imports, and keeps every production branch for no carrier', () => {
-  for (const variant of ['v1', 'v2', 'v3']) {
+  for (const variant of ['v1', 'v2', 'v3', 'pc1']) {
   const out = buildCarrierModule(AI, path.join(REPO, 'src/utils'), { variant });
   assert.doesNotMatch(out, /from "\.\.?\//);
   require('@babel/parser').parse(out, { sourceType: 'module', plugins: ['jsx'] });
@@ -32,6 +33,11 @@ test('the patched module parses, has absolute imports, and keeps every productio
   assert.match(out, /MISCONCEPTION CARRIER FOR THIS LESSON/);
   if (variant === 'v2') assert.match(out, /must NOT name or describe a counterexample/);
   if (variant === 'v3') assert.match(out, /do not know the full answer yet either/);
+  if (variant === 'pc1') {
+    assert.match(out, /LESSON STATE \(set by the lesson - do not judge it yourself\)/);
+    assert.match(out, /state\.student_reaction_hints\.map\(\(h\) => carrierHintView\(scenario, h\)\)/);
+    assert.match(out, /carrierAddressedFlag\(scenario, impact_analysis\)/);
+  }
   }
 });
 
@@ -40,4 +46,20 @@ test('selectCarrier: first non-low-participation cast member, else the first', (
   assert.equal(selectCarrier([p('A', 'low'), p('B', 'high'), p('C', 'medium')]), 'B');
   assert.equal(selectCarrier([p('A', 'medium'), p('B', 'high')]), 'A');
   assert.equal(selectCarrier([p('A', 'low'), p('B', 'low')]), 'A');
+});
+
+test('addressed judge: strict one-word parsing and a sticky, conservative state', async () => {
+  assert.equal(parseAddressedJudge('ADDRESSED'), true);
+  assert.equal(parseAddressedJudge(' not_addressed\n'), false);
+  assert.equal(parseAddressedJudge('NOT ADDRESSED'), false);
+  assert.equal(parseAddressedJudge('maybe'), null);
+  assert.match(addressedJudgePrompt('M', 'T'), /a good diagnostic question|asks students to explain their thinking/);
+  const yes = async () => 'ADDRESSED'; const no = async () => 'NOT_ADDRESSED'; const bad = async () => '???'; const err = async () => { throw new Error('down'); };
+  assert.equal((await nextMisconceptionState('open', 'M', 'explain', yes)).state, 'addressed');
+  assert.equal((await nextMisconceptionState('open', 'M', 'why?', no)).state, 'open');
+  assert.equal((await nextMisconceptionState('open', 'M', 'x', bad)).state, 'open');
+  assert.equal((await nextMisconceptionState('open', 'M', 'x', err)).state, 'open');
+  const sticky = await nextMisconceptionState('addressed', 'M', 'why?', no);
+  assert.equal(sticky.state, 'addressed');
+  assert.equal(sticky.judged, false);
 });

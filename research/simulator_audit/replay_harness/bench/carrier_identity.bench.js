@@ -60,3 +60,40 @@ it('carrier prototype: inert without a carrier, student-prompt-only with one', a
   }
   }
 });
+
+it('pc1: without a state it equals v1; while open it fixes the peer role and hides "addressed" / peer progress', async () => {
+  const ai = fs.readFileSync(path.join(REPO, 'src/utils/ai.js'), 'utf8');
+  const load = (variant, tag) => {
+    const local = path.join(__dirname, '..', 'results', `.ai.${tag}.check.${process.pid}.js`);
+    fs.mkdirSync(path.dirname(local), { recursive: true });
+    fs.writeFileSync(local, buildCarrierModule(ai, path.join(REPO, 'src/utils'), { variant }));
+    return { fn: require(local).default, local }; // eslint-disable-line global-require
+  };
+  const v1 = load('v1', 'v1'); const pc = load('pc1', 'pc1');
+  try {
+    const students = ['רועי', 'תמר', 'הילה'].map((n) => personas.students[n]);
+    const carrier = selectCarrier(students);
+    const impact = { pedagogical_quality: 'positive', addressed_misconception: true, how_addressed: 'HOW-TEXT', misconception_risk: 'low', predicted_student_state: { understanding_level: 'improved', response_tone: 'curious', student_reaction_hints: [{ student: 'הילה', reaction_type: 'understanding_progress', reason: 'PEER-REASON' }, { student: carrier, reaction_type: 'understanding_progress', reason: 'CARRIER-REASON' }] } };
+    for (const scenario of scenarioConfig.scenarios) {
+      for (const imp of [null, impact]) {
+        const sc = { ...scenario, misconception_carrier: carrier };
+        expect(JSON.stringify(await capturePrompt(pc.fn, sc, students, imp))).toBe(JSON.stringify(await capturePrompt(v1.fn, sc, students, imp)));
+        expect(JSON.stringify(await capturePrompt(pc.fn, scenario, students, imp))).toBe(JSON.stringify(await capturePrompt(productionCallAI, scenario, students, imp)));
+        const open = (await capturePrompt(pc.fn, { ...sc, misconception_state: 'open' }, students, imp)).messages[0].content;
+        const done = (await capturePrompt(pc.fn, { ...sc, misconception_state: 'addressed' }, students, imp)).messages[0].content;
+        expect(open).toContain('the teacher has NOT yet addressed');
+        expect(done).toContain('the teacher has now addressed');
+        if (imp) {
+          expect(open).toContain('**Misconception WAS NOT Addressed**: (lesson state: not yet addressed)');
+          expect(open).toContain('הילה: partial_understanding');
+          expect(open).not.toContain('PEER-REASON');
+          expect(open).toContain(`${carrier}: understanding_progress`); // the carrier hint is left to the carrier rule
+          expect(done).toContain('**Misconception WAS Addressed**: HOW-TEXT');
+          expect(done).toContain('הילה: understanding_progress - PEER-REASON');
+        }
+      }
+    }
+  } finally {
+    fs.unlinkSync(v1.local); fs.unlinkSync(pc.local);
+  }
+});

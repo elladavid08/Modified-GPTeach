@@ -25,6 +25,9 @@
 //   carrier  = the misconception-carrier prototype v1 (prototype/carrier.js); carrier2 / carrier3 = its v2 / v3 variants: ai.js patched in a copy written to
 //              results/<run>/ai.carrier.js; one carrier per session (selectCarrier) is passed to the STUDENT call
 //              only (scenario.misconception_carrier). PCK receives the unmodified scenario.
+//   carrierpc = prototype pc1: v1 + an explicit misconception state ('open' -> 'addressed', sticky) set each teacher
+//              turn by prototype/addressedJudge.js through the local /api/completion endpoint (run in parallel with
+//              PCK, only while 'open'); the state is passed to the student call as scenario.misconception_state.
 //
 // 1.1.0 (bench-only, applied to both arms): scenario 5's probe and check target the configured misconception
 // ("equal AND perpendicular diagonals => square"); student / PCK call telemetry is recorded; the first student
@@ -48,6 +51,7 @@ import { DRAWINGS } from '../lib/assets.js';
 import { misconceptionClaims } from '../lib/teacher.js';
 import { firstTurnAddendum } from '../lib/turnFlow.js';
 import { buildCarrierModule, selectCarrier } from '../prototype/carrier.js';
+import { nextMisconceptionState } from '../prototype/addressedJudge.js';
 
 jest.setTimeout(6 * 60 * 60 * 1000);
 const HARNESS = path.resolve(__dirname, '..');
@@ -114,10 +118,18 @@ export function randomCast(scenarioId, repeat) {
 const env = process.env;
 const list = (v, dflt) => (v ? v.split(',').map((x) => Number(x.trim())) : dflt);
 
+/** pc1 state judge through the local server's existing /api/completion endpoint. */
+async function completionJudge(prompt) {
+  const r = await fetch(`${process.env.REACT_APP_API_URL}/api/completion`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, options: { max_tokens: 16 } }) });
+  const j = await r.json();
+  if (!r.ok || !j.success) throw new Error(`completion ${r.status}: ${j && j.error}`);
+  return j.text;
+}
+
 it('opportunity', async () => {
   const castKind = env.OPP_CASTS;
   const studentArm = env.OPP_STUDENT || 'current';
-  if (!['current', 'carrier', 'carrier2', 'carrier3'].includes(studentArm)) throw new Error('OPP_STUDENT must be current or carrier / carrier2 / carrier3 (prototype v1 / v2 / v3)');
+  if (!['current', 'carrier', 'carrier2', 'carrier3', 'carrierpc'].includes(studentArm)) throw new Error('OPP_STUDENT must be current or carrier / carrier2 / carrier3 / carrierpc (prototype v1 / v2 / v3 / pc1)');
   if (!['random', 'designed'].includes(castKind)) throw new Error('Set OPP_CASTS=random or OPP_CASTS=designed');
   const scenarioIds = list(env.OPP_SCENARIOS, [1, 2, 3, 4, 5, 6]);
   const runId = env.OPP_RUN_ID || `O-${castKind}-${new Date().toISOString().replace(/[:.]/g, '-')}`;
@@ -135,7 +147,7 @@ it('opportunity', async () => {
   let callAI = productionCallAI;
   if (studentArm !== 'current') {
     const patched = path.join(outDir, 'ai.carrier.js');
-    fs.writeFileSync(patched, buildCarrierModule(fs.readFileSync(path.join(REPO, 'src/utils/ai.js'), 'utf8'), path.join(REPO, 'src/utils'), { variant: { carrier: 'v1', carrier2: 'v2', carrier3: 'v3' }[studentArm] }));
+    fs.writeFileSync(patched, buildCarrierModule(fs.readFileSync(path.join(REPO, 'src/utils/ai.js'), 'utf8'), path.join(REPO, 'src/utils'), { variant: { carrier: 'v1', carrier2: 'v2', carrier3: 'v3', carrierpc: 'pc1' }[studentArm] }));
     callAI = require(patched).default; // eslint-disable-line global-require
   }
   // Provenance: keep the first student system prompt of the run
@@ -161,8 +173,8 @@ it('opportunity', async () => {
       const students = cast.map((name) => personas.students[name]);
       const id = `O-s${scenarioId}-${tag}`;
       const carrier = studentArm !== 'current' ? selectCarrier(students) : null;
-      const studentScenario = carrier ? { ...scenario, misconception_carrier: carrier } : scenario;
-      const conv = { conversationId: id, runId, scenarioId, slug: plan.slug, castKind, studentArm, cast, carrier, carrierDetected: null, turns: [] };
+      let misconceptionState = studentArm === 'carrierpc' ? 'open' : null;
+      const conv = { conversationId: id, runId, scenarioId, slug: plan.slug, castKind, studentArm, cast, carrier, carrierDetected: null, addressedAtTurn: null, turns: [] };
       const messages = [];
       const feedbackHistory = [];
       for (const step of turns) {
@@ -174,6 +186,9 @@ it('opportunity', async () => {
         const image = drawing ? fs.readFileSync(path.join(HARNESS, drawing.file)).toString('base64') : null;
         messages.push(new ChatMessage('Teacher', text, 'user', image));
 
+        // pc1: classify the teacher's move (only while 'open'), in parallel with PCK
+        const judgeStart = Date.now();
+        const judgeP = misconceptionState ? nextMisconceptionState(misconceptionState, scenario.misconception_focus, text, completionJudge).then((r) => ({ ...r, ms: Date.now() - judgeStart })) : Promise.resolve(null);
         let impact = null;
         const pck = { ok: false };
         try {
@@ -193,6 +208,12 @@ it('opportunity', async () => {
           impact = null;
         }
 
+        const judged = await judgeP;
+        if (judged) {
+          if (judged.state === 'addressed' && misconceptionState !== 'addressed') conv.addressedAtTurn = step.label;
+          misconceptionState = judged.state;
+        }
+        const studentScenario = carrier ? { ...scenario, misconception_carrier: carrier, ...(misconceptionState ? { misconception_state: misconceptionState } : {}) } : scenario;
         const addendum = messages.length === 1 ? firstTurnAddendum(scenario) : '';
         let replies = null;
         const student = { ok: true };
@@ -208,7 +229,7 @@ it('opportunity', async () => {
           const first = out.find((r) => r.claim);
           if (first) conv.carrierDetected = first.student;
         }
-        conv.turns.push({ label: step.label, teacher: text, drawing: step.drawing || null, pck, student, replies: out });
+        conv.turns.push({ label: step.label, teacher: text, drawing: step.drawing || null, pck, misconceptionState: misconceptionState || undefined, judge: judged || undefined, student, replies: out });
         fs.writeFileSync(path.join(outDir, 'conversations', `${id}.json`), JSON.stringify(conv, null, 2));
       }
       process.stdout.write(`${id} done\n`);

@@ -24,6 +24,17 @@
 //                 the full argument): the peers do not know the full answer yet either - they can sense that something
 //                 may be off, doubt, ask or add a partial observation, but cannot yet explain why the idea is wrong
 //                 or come up with a counterexample until the teacher has addressed it.
+//   pc1           v1 + ONE structural peer control (2026-10-14): an explicit session state
+//                 scenario.misconception_state = 'open' | 'addressed', set by the bench from a separate teacher-move
+//                 classifier (prototype/addressedJudge.js), never by the student model or by PCK. While 'open':
+//                   - the peer line of the carrier block becomes a state-dependent role rule (peers may react, doubt,
+//                     disagree, ask or offer partial reasoning, but not the complete correction or a counterexample
+//                     that settles it); once 'addressed', peers reason it through normally;
+//                   - the student prompt renders PCK's addressed_misconception as NOT addressed;
+//                   - PCK reaction hints of "understanding_progress" for a PEER are rendered as "partial_understanding"
+//                     (an existing reaction type), without the hint's reason text.
+//                 The carrier text, carrier selection, PCK request/model/output and routing are unchanged. Without
+//                 misconception_state the pc1 module behaves exactly like v1.
 
 /** Session-level carrier: the first cast member whose participation baseline is not "low", else the first.
  *  The cast is already a uniform random draw, so this keeps the carrier random while avoiding a student who
@@ -80,7 +91,42 @@ function applyChanges(h, changes, label) {
   }
   return h;
 }
+const PC1_CHANGES = [
+  [
+    "s += \`- The other students may agree, hesitate, ask a question or add a partial idea, but must NOT give the full correct explanation or the decisive counterexample before the teacher has addressed the misconception.\\n\`;",
+    "if (scenario.misconception_state === 'open') {\n\t\ts += \`- LESSON STATE (set by the lesson - do not judge it yourself): the teacher has NOT yet addressed \${c}'s misconception. Until that changes, the other students may react to \${c}'s idea, doubt it, disagree, ask questions or offer partial reasoning, but they do not give the complete correction or a counterexample that settles it.\\n\`;\n\t} else if (scenario.misconception_state === 'addressed') {\n\t\ts += \`- LESSON STATE (set by the lesson): the teacher has now addressed \${c}'s misconception. All students may reason it through and give correct arguments normally.\\n\`;\n\t} else {\n\t\ts += \`- The other students may agree, hesitate, ask a question or add a partial idea, but must NOT give the full correct explanation or the decisive counterexample before the teacher has addressed the misconception.\\n\`;\n\t}",
+  ],
+];
+const PC1_HELPERS_EXTRA = `
+// ---- pc1: explicit misconception state (research harness; not production) ----
+function carrierStateOpen(scenario) {
+	return Boolean(scenario.misconception_carrier) && scenario.misconception_state === 'open';
+}
+function carrierAddressedFlag(scenario, impact_analysis) {
+	return carrierStateOpen(scenario) ? false : impact_analysis.addressed_misconception;
+}
+function carrierHintView(scenario, hint) {
+	if (carrierStateOpen(scenario) && hint.student !== scenario.misconception_carrier && hint.reaction_type === 'understanding_progress') {
+		return { ...hint, reaction_type: 'partial_understanding', reason: undefined };
+	}
+	return hint;
+}
+`;
+/** Extra ai.js replacements for pc1 only (runtime-gated on scenario.misconception_state). */
+const PC1_PATCH = [
+  {
+    id: 'pc1-addressed-flag',
+    from: "\t\t\tretStr += `**Misconception ${impact_analysis.addressed_misconception ? 'WAS' : 'WAS NOT'} Addressed**: ${impact_analysis.how_addressed || ''}\\n`;",
+    to: "\t\t\tretStr += `**Misconception ${carrierAddressedFlag(scenario, impact_analysis) ? 'WAS' : 'WAS NOT'} Addressed**: ${carrierStateOpen(scenario) ? '(lesson state: not yet addressed)' : (impact_analysis.how_addressed || '')}\\n`;",
+  },
+  {
+    id: 'pc1-peer-hints',
+    from: "\t\t\t\tstate.student_reaction_hints.forEach((hint) => {\n",
+    to: "\t\t\t\tstate.student_reaction_hints.map((h) => carrierHintView(scenario, h)).forEach((hint) => {\n",
+  },
+];
 function helpersFor(variant) {
+  if (variant === 'pc1') return applyChanges(CARRIER_HELPERS_V1, PC1_CHANGES, 'pc1') + PC1_HELPERS_EXTRA;
   if (variant === 'v1') return CARRIER_HELPERS_V1;
   if (variant === 'v2') return applyChanges(CARRIER_HELPERS_V1, V2_CHANGES, 'v2');
   if (variant === 'v3') return applyChanges(applyChanges(CARRIER_HELPERS_V1, V2_CHANGES, 'v2'), V3_CHANGES, 'v3');
@@ -122,7 +168,7 @@ export const CARRIER_PATCH = [
  */
 export function buildCarrierModule(aiSource, srcUtilsDir, { variant = 'v1' } = {}) {
   let out = aiSource;
-  for (const p of CARRIER_PATCH) {
+  for (const p of variant === 'pc1' ? [...CARRIER_PATCH, ...PC1_PATCH] : CARRIER_PATCH) {
     const n = out.split(p.from).length - 1;
     if (n !== 1) throw new Error(`carrier patch "${p.id}": expected 1 match in ai.js, found ${n}`);
     out = out.replace(p.from, () => p.to);

@@ -9,6 +9,8 @@
 - The 1.4.4 UI and reliability work (briefing panel, attempted-scenario marks, return to selection, history reset) is untouched and separable.
 - All conversations are synthetic.
 
+> **Update (2026-10-14):** one structural peer control (pc1: an explicit open/addressed state gating the peers) did not reduce peer resolution (16 of 36, the same as v1). The experiment stopped before Mode B; see §8.
+
 ## 1. Answer
 
 **Partial pass.**
@@ -191,3 +193,113 @@ Labels are local (`results/OX-manual-labels.json`, git-ignored).
   - a teacher who addresses the carrier directly would likely see fewer peer resolutions.
 - **6 conversations per scenario per arm.**
 - **Scenario 3's T7** asks about an equal-sided rectangle (a square), which the T6 explanation does not cover. "Partial" there reflects the script, not stubbornness.
+
+## 8. Follow-up (2026-10-14): one structural peer control (pc1). Result: fails, stopped before Mode B
+
+**Question:** can peers be kept from resolving the carrier's misconception before the teacher addresses it, without changing the validated carrier behaviour?
+
+**Answer: no, not with this mechanism.**
+- A peer still gives the full resolution or the decisive counterexample before teaching in **16 of 36** conversations, the same as carrier v1 (16 of 36).
+- The carrier behaviour is preserved: held until teaching in 30 of 36.
+- Per the brief, no Mode B run was made and no further prompt rules were added.
+
+### 8.1 The change (prototype pc1, `prototype/carrier.js` + `prototype/addressedJudge.js`)
+
+The change is one mechanism: an **explicit session state**, `misconception_state = 'open' | 'addressed'`, kept by code instead of being judged by the student model or by PCK.
+
+- **Transition:** a separate one-word classifier ("ADDRESSED" / "NOT_ADDRESSED") reads the teacher's latest message and the scenario misconception.
+  - ADDRESSED: an explanation, a counterexample (even as a question), a teacher-led check against the definition, or an explicit confirmation of a correct argument.
+  - NOT_ADDRESSED: questions, "explain how you thought", "does everyone agree?", acknowledgements, praise.
+  - It runs once per teacher turn, only while the state is open, through the server's existing `/api/completion` endpoint (gemini-3.1-flash-lite). It could run in parallel with PCK.
+  - The state is sticky once addressed. A judge failure keeps the state open.
+- **What the state gates, in the student prompt only (while open):**
+  - **Peer role:** the peer line of the carrier block becomes a state-dependent role rule. Peers may react, doubt, disagree, ask or offer partial reasoning, but not the complete correction or a counterexample that settles it. Once addressed: "all students may reason it through normally".
+  - **"Addressed" flag:** PCK's `addressed_misconception` is rendered as "WAS NOT Addressed (lesson state: not yet addressed)".
+  - **Peer hints:** PCK hints of `understanding_progress` for a **peer** are rendered as `partial_understanding` (an existing reaction type), without the reason text.
+- **Unchanged:** carrier selection, the carrier persistence rule, the PCK request, model and output, routing, the duplicate guard.
+- **Inert without a state:** pc1 without a state is byte-identical to v1, and without a carrier to production (`bench/carrier_identity.bench.js`).
+
+### 8.2 Results (36 conversations, same seeded casts and bench as A and B)
+
+| | A: 1.4.4 | B: carrier v1 | **C: v1 + pc1** | target |
+|---|---:|---:|---:|---|
+| intended misconception appears | 26 | 35 | **36** | ≥ 90% ✓ |
+| carrier holds it until teaching | 6 (5 weak) | 29 | **30** (2 weak) | ≥ 85% ≈ (83%) |
+| a different, conflicting misconception from a peer | 0 | 0 | **0** | ≤ 5% ✓ |
+| a peer agrees with or argues the carrier's same idea | — | 14 | **15** | (acceptable per the brief) |
+| peer full resolution (argument) before teaching | 5 | 12 | **12** | ≤ 10% ✗ |
+| peer decisive counterexample before teaching | 5 | 4 | **4** | ≤ 10% ≈ (11%) |
+| any peer resolution before teaching | 10 | 16 | **16** | — |
+| carrier self-corrects before teaching | 20 of 26 | 6 of 35 | **6 of 36** (4 after a peer argument, 2 spontaneous, both in scenario 4 after the judge had unlocked the peers) | spontaneous ≤ 10% ✓ |
+| carrier resolves after the explanation | 6 of 6 | 26 of 29 | **26 of 30** (+4 partial, 0 stuck) | ≥ 90% ✓ |
+
+In A and B, yesterday's single peer-resolution label was split: every scenario-2 resolution was the kite counterexample; all others were arguments.
+
+**By scenario (C):**
+
+| scenario | held at T6 | peer full resolution | peer counterexample | peer agrees with carrier |
+|---|---:|---:|---:|---:|
+| 1 square ⊂ rectangle | 6 | 1 | 0 | 5 |
+| 2 perpendicular ⇒ rhombus | 4 | 0 | 4 (the kite, now usually hedged) | 2 |
+| 3 rectangle must look long | 6 | 2 | 0 | 2 |
+| 4 diagonal bisects the angle | 2 (weak) | 4 | 0 | 0 |
+| 5 equal and perpendicular ⇒ square | 6 | 0 | 0 | 4 |
+| 6 rhombus not a kite | 6 | 5 | 0 | 2 |
+
+**Compared with B** (held / any peer resolution):
+
+| scenario | B | C |
+|---|---|---|
+| 1 | 5 / 2 | 6 / 1 |
+| 2 | 4 / 4 | 4 / 4 |
+| 3 | 6 / 1 | 6 / 2 |
+| 4 | 2 / 4 | 2 / 4 |
+| 5 | 6 / 0 | 6 / 0 |
+| 6 | 6 / 5 | 6 / 5 |
+
+**Scenarios 2 and 4 are not fixed.**
+
+### 8.3 Failure modes
+
+1. **The peer resolutions are not driven by the inputs this mechanism controls.**
+   - With the "addressed" flag hidden, peer progress hints downgraded and an explicit "not yet addressed" role rule, peers still produce the argument when it is **a one-step inference from the definition**:
+     - scenario 6: four equal sides ⇒ two pairs of equal adjacent sides;
+     - scenario 1: a square has four right angles;
+     - scenario 4: 90° would have to split into 45°.
+   - They also produce **a textbook counterexample** (scenario 2: the kite).
+   - The model treats "partial reasoning" as license to state that one step. When the whole correction is one step, partial and full cannot be separated in wording.
+   - The one visible effect: the kite is now often raised as a hedged question ("…כמו דלתון? לא בטוח"), which is still the decisive counterexample.
+2. **The classifier has a scenario-specific false positive.**
+   - It called scenario 4's neutral "מה אתם יודעים על האלכסונים במלבן?" ADDRESSED in 5 of 6 conversations (and the probe in the sixth), and scenario 6's "ומה ההגדרה של מעוין?" once.
+   - So in scenario 4 the peer control was effectively off from T2 or T3; scenario 4's result in C does not test pc1.
+   - Elsewhere the classifier was correct: NOT_ADDRESSED on every probe, diagnostic and "agree?" turn; ADDRESSED on all 29 explanations reached while still open. Latency p50 0.56 s, p90 0.94 s.
+   - This is fixable, but fixing it would not change failure mode 1.
+
+### 8.4 Natural participation and other measures
+
+| T1–T5 (before teaching) | A | B v1 | C |
+|---|---:|---:|---:|
+| replies per turn | 1.93 | 2.12 | 2.22 |
+| turns with a peer reply | — | 93% | 88% |
+| peer replies per turn / mean length | — | 1.19 / 95 | 1.28 / 94 |
+| peer replies containing a question | — | 35% | 37% |
+| silent turns (`responses: []`) | 0 | 0 | 0 |
+
+**Natural participation:** peers stay active and natural. They doubt, ask, offer hedged partial reasoning, and more often side with the carrier's intuition. Nothing reads as scripted or artificially confused.
+
+**Other measures (C):**
+- **Failures and retries:** 0 failures; 0 student or PCK retries.
+- **Repetition:** 0 duplicate-guard re-asks; 0 duplicates or near-repeats.
+- **Garbled replies:** 4.
+- **Unknown speakers:** 0.
+- **Teacher-attribution candidates:** 74 (A 87, B 78).
+- **Latency:** student p50 1.28 s, PCK p50 2.42 s. Lower than A and B, but this reflects server load (C ran alone), not the prototype.
+- **Invented teacher attributions by the carrier:** "אמרת קודם ש…" still occurs occasionally, as in B.
+
+### 8.5 Where this leaves the release
+
+- **Peer resolution cannot be controlled through the student prompt and steering.** Carrier v1, pc1, and the earlier wording variants v2 and v3 all land at 16–20 of 36. Stacking more rules is not justified.
+- **What remains structurally possible (not built):**
+  - **An output-side "peer-resolution guard,"** modelled on the duplicate guard. While the state is open, a classifier checks each generated peer reply for a full correction or counterexample of the carrier's misconception; a flagged reply is re-asked once, else dropped. It would reuse the explicit state and judge (with the scenario-4 false positive fixed), at the cost of one more classification call per turn while open.
+  - **Accept peer contributions as a realistic dynamic.** The carrier still holds the misconception until teaching in 30 of 36, so the teacher still has to address it; a peer's correct argument becomes material the teacher can leverage. This means re-scoping the peer targets to "the carrier still needs the teacher".
+- **The carrier v1 result itself stands:** 6 → 29–30 of 36 held until teaching, no regressions.
