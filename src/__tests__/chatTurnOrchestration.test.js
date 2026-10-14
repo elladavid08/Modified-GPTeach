@@ -9,8 +9,14 @@
 //   1.4.4 after "סיים שיחה" a "חזרה לבחירת תרחיש" button returns to the selection screen (never
 //       during a pending turn or summary request); every new conversation starts with an empty
 //       chat history, also after leaving the chat page and coming back
+//   1.5.0 "חזרה לבחירת תרחיש" is also available before finishing: an unfinished conversation asks
+//       first (finish via the existing flow / return anyway / continue); returning without finishing
+//       changes nothing that was logged, waits for queued log writes, and adds no stored state
 //   B20 (1.4.4) the teacher briefing is shown open before the first message and stays accessible
 //       (a collapsible panel at the top of the chat) for the rest of the session
+//   1.5.0 one misconception carrier per session, chosen from the fixed cast when the scenario is selected,
+//       passed to the student agent only (PCK and the logged scenario snapshot get the unmodified scenario),
+//       unchanged across turns, and recorded additively in the conversation log
 //   drawing path: a board drawing is attached to the teacher message, and logged, only when opted in
 //   C2/C3 (fixed) one simulation turn at a time: input/send locked and the typing indicator
 //         visible until the turn finishes; extra submits ignored; unlock on success and on every
@@ -45,6 +51,7 @@ import { ConversationLog } from "../services/conversationLogger";
 import { SYSTEM_VERSION } from "../config/version";
 import { FAILURE_MESSAGES_HE } from "../services/turnDiagnostics";
 import personas from "../config/students/personas";
+import { selectMisconceptionCarrier } from "../services/misconceptionCarrier";
 import scenarios from "../config/scenarios/geometry_scenarios";
 import { render, flush, click, typeInto, submit, findButtonByText, deferred } from "../testUtils/dom";
 
@@ -118,15 +125,15 @@ const NO_FEEDBACK_ANALYSIS = {
 const studentCalls = [];
 function replyWith(text) {
 	callAI.mockImplementation((history, students, scen, addendum, impact, onResponse) => {
-		studentCalls.push({ messages: history.getMessages().slice(), students, impact });
+		studentCalls.push({ messages: history.getMessages().slice(), students, scenario: scen, impact });
 		onResponse([new ChatMessage(students[0].name, text, "assistant")]);
 	});
 }
 
 let view;
-async function renderSelectionScreen() {
+async function renderSelectionScreen(scenarioList = scenarios.scenarios) {
 	view = render(
-		<AppContext.Provider value={{ students: allStudents, scenarios: scenarios.scenarios, TAname: "Teacher", UID: 1 }}>
+		<AppContext.Provider value={{ students: allStudents, scenarios: scenarioList, TAname: "Teacher", UID: 1 }}>
 			<HistoryProvider>
 				<Chat />
 			</HistoryProvider>
@@ -135,8 +142,8 @@ async function renderSelectionScreen() {
 	await flush();
 }
 
-async function startLesson(chosen = scenario) {
-	await renderSelectionScreen();
+async function startLesson(chosen = scenario, scenarioList = scenarios.scenarios) {
+	await renderSelectionScreen(scenarioList);
 	click(findButtonByText(view.container, chosen.text));
 	click(findButtonByText(view.container, "התחל בשיעור"));
 	await flush();
@@ -195,6 +202,54 @@ it("keeps the cast fixed within the session and records it in the logger (B5, DE
 	expect(studentCalls).toHaveLength(2);
 	studentCalls.forEach((call) => expect(call.students).toEqual(recordedCast));
 	expect(ConversationLog).toHaveBeenCalledTimes(1);
+});
+
+describe("misconception carrier (1.5.0)", () => {
+	it("chooses one carrier from the session cast and passes it to the student agent only, unchanged across turns", async () => {
+		getPCKFeedback.mockResolvedValue(NO_FEEDBACK_ANALYSIS);
+		await startLesson();
+		await sendTeacherMessage("שאלה ראשונה");
+		await sendTeacherMessage("שאלה שנייה");
+		await sendTeacherMessage("שאלה שלישית");
+
+		const recordedCast = logger().args[1];
+		const carrier = selectMisconceptionCarrier(recordedCast, scenario);
+		expect(recordedCast.map((s) => s.name)).toContain(carrier.name);
+		expect(studentCalls).toHaveLength(3);
+		studentCalls.forEach((call) => {
+			expect(call.scenario).toEqual({ ...scenario, misconception_carrier: carrier.name });
+			expect(call.students).toEqual(recordedCast);
+		});
+		expect(getPCKFeedback).toHaveBeenCalledTimes(3);
+		getPCKFeedback.mock.calls.forEach((call) => expect(call[2]).toBe(scenario)); // PCK: unmodified scenario
+		expect(scenario).not.toHaveProperty("misconception_carrier");
+	});
+
+	it("records the carrier additively in the conversation log; the scenario snapshot stays unmodified", async () => {
+		await startLesson();
+		expect(ConversationLog).toHaveBeenCalledTimes(1);
+		const [scen, cast, , , version, options] = logger().args;
+		expect(scen).toBe(scenario);
+		expect(version).toBe(SYSTEM_VERSION);
+		expect(options).toEqual({ misconceptionCarrier: selectMisconceptionCarrier(cast, scenario) });
+		expect(options.misconceptionCarrier).toEqual({ name: expect.any(String), personaId: expect.any(String), rule: "first-non-low-v1" });
+	});
+
+	it("a scenario without a misconception focus gets no carrier: unmodified scenario to the students, null logged", async () => {
+		getPCKFeedback.mockResolvedValue(NO_FEEDBACK_ANALYSIS);
+		const plain = { ...scenario, text: "תרחיש בלי תפיסה שגויה", misconception_focus: undefined };
+		await startLesson(plain, [plain]);
+		await sendTeacherMessage("שאלה");
+		expect(studentCalls[0].scenario).toBe(plain);
+		expect(logger().args[5]).toEqual({ misconceptionCarrier: null });
+	});
+
+	it("the carrier is not revealed to the teacher", async () => {
+		getPCKFeedback.mockResolvedValue(FEEDBACK_ANALYSIS);
+		await startLesson();
+		await sendTeacherMessage("שאלה");
+		expect(view.container.textContent).not.toMatch(/carrier|misconception_carrier/i);
+	});
 });
 
 it("runs PCK analysis before the student agent and passes the analysis to it (B1)", async () => {
@@ -1454,6 +1509,7 @@ describe("return to scenario selection (1.4.4)", () => {
 	const finishButton = () => findButtonByText(view.container, "סיים שיחה");
 	const scenarioCards = () => view.container.querySelectorAll('[data-testid="scenario-card"]');
 	const bubbleTexts = () => Array.from(view.container.querySelectorAll(".chatBubbleContainer")).map((b) => b.textContent);
+	const leaveDialog = () => view.container.querySelector('[data-testid="leave-conversation-dialog"]');
 	const [, B] = scenarios.scenarios;
 	let alertSpy;
 
@@ -1474,13 +1530,6 @@ describe("return to scenario selection (1.4.4)", () => {
 		await flush();
 	}
 
-	it("is not offered before the conversation is finished", async () => {
-		await startLesson();
-		expect(returnButton()).toBeUndefined();
-		await sendTeacherMessage("שאלה ראשונה");
-		expect(returnButton()).toBeUndefined();
-	});
-
 	it("appears, enabled, in the chat header once the conversation is finished; finishing itself is unchanged", async () => {
 		await startLesson();
 		await sendTeacherMessage("שאלה ראשונה");
@@ -1492,8 +1541,10 @@ describe("return to scenario selection (1.4.4)", () => {
 		expect(returnButton()).toBeTruthy();
 		expect(returnButton().disabled).toBe(false);
 		expect(returnButton().getAttribute("type")).toBe("button");
-		// same header button group as the summary button
-		expect(returnButton().parentElement).toBe(findButtonByText(view.container, "קבל ניתוח PCK").parentElement);
+		// 1.5.0: first in the header row (the right-hand side in RTL), where "שיחה חדשה" used to be
+		const summaryGroup = findButtonByText(view.container, "קבל ניתוח PCK").parentElement;
+		expect(returnButton().parentElement).toBe(summaryGroup.parentElement);
+		expect(summaryGroup.parentElement.firstElementChild).toBe(returnButton());
 	});
 
 	it("returns to the scenario-selection screen without touching the finished conversation", async () => {
@@ -1529,7 +1580,7 @@ describe("return to scenario selection (1.4.4)", () => {
 		expect(logger().args[0]).toBe(B);
 		expect(preLessonBriefing().textContent).toContain(B.teacher_briefing);
 		expect(bubbleTexts()).toEqual([]);
-		expect(returnButton()).toBeUndefined();
+		expect(leaveDialog()).toBeNull();
 		expect(finishButton().disabled).toBe(true);
 
 		await sendTeacherMessage("הודעה חדשה");
@@ -1613,3 +1664,245 @@ describe("return to scenario selection (1.4.4)", () => {
 		expect(studentCalls[1].messages.map((m) => m.text)).toEqual(["הודעה חדשה"]);
 	});
 });
+
+describe("return to scenario selection before finishing (1.5.0)", () => {
+	const returnButton = () => view.container.querySelector('[data-testid="return-to-selection"]');
+	const finishButton = () => findButtonByText(view.container, "סיים שיחה");
+	const scenarioCards = () => view.container.querySelectorAll('[data-testid="scenario-card"]');
+	const bubbleTexts = () => Array.from(view.container.querySelectorAll(".chatBubbleContainer")).map((b) => b.textContent);
+	const dialog = () => view.container.querySelector('[data-testid="leave-conversation-dialog"]');
+	const dialogButton = (label) => Array.from(dialog().querySelectorAll("button")).find((b) => b.textContent.trim() === label);
+	const [, B] = scenarios.scenarios;
+	let alertSpy;
+
+	beforeEach(() => {
+		getPCKFeedback.mockResolvedValue(NO_FEEDBACK_ANALYSIS);
+		alertSpy = jest.spyOn(window, "alert").mockImplementation(() => {});
+	});
+	afterEach(() => alertSpy.mockRestore());
+
+	async function clickReturn() {
+		click(returnButton());
+		await flush();
+	}
+
+	it("is offered during an active conversation, on the right of the header where שיחה חדשה was", async () => {
+		await startLesson();
+		await sendTeacherMessage("שאלה ראשונה");
+		expect(returnButton()).toBeTruthy();
+		expect(returnButton().textContent).toContain("חזרה לבחירת תרחיש");
+		expect(returnButton().disabled).toBe(false);
+		expect(returnButton().getAttribute("type")).toBe("button");
+		const headerRow = finishButton().parentElement.parentElement;
+		expect(headerRow.style.direction).toBe("rtl");
+		expect(headerRow.firstElementChild).toBe(returnButton());
+	});
+
+	it("is the only way out of the session: no שיחה חדשה, a single חזרה לבחירת תרחיש", async () => {
+		await startLesson();
+		await sendTeacherMessage("שאלה ראשונה");
+		const labels = () => Array.from(view.container.querySelectorAll("button")).map((b) => b.textContent.trim());
+		expect(labels().filter((t) => t.includes("שיחה חדשה"))).toEqual([]);
+		expect(labels().filter((t) => t === "חזרה לבחירת תרחיש")).toHaveLength(1);
+		expect(view.container.querySelectorAll('[data-testid="return-to-selection"]')).toHaveLength(1);
+		click(finishButton());
+		await flush();
+		expect(labels().filter((t) => t.includes("שיחה חדשה"))).toEqual([]);
+		expect(labels().filter((t) => t === "חזרה לבחירת תרחיש")).toHaveLength(1);
+	});
+
+	it("unfinished conversation: asks first, with the three choices, and does not leave or finish", async () => {
+		await startLesson();
+		await sendTeacherMessage("שאלה ראשונה");
+		await clickReturn();
+
+		expect(dialog()).toBeTruthy();
+		expect(dialog().getAttribute("role")).toBe("dialog");
+		expect(dialog().getAttribute("aria-modal")).toBe("true");
+		expect(dialog().getAttribute("dir")).toBe("rtl");
+		expect(dialog().textContent).toContain("השיחה עדיין לא הסתיימה");
+		expect(dialog().textContent).toContain("מומלץ לסיים את השיחה ולקבל משוב מסכם");
+		expect(dialog().textContent).toContain("תתחיל שיחה חדשה");
+		expect(dialog().textContent).not.toMatch(/להמשיך אותה|לחזור אליה|תוכל להמשיך/); // no resume promise
+		expect(dialogButton("סיים שיחה וקבל משוב")).toBeTruthy();
+		expect(dialogButton("חזרה לבחירת תרחיש")).toBeTruthy();
+		expect(dialogButton("המשך בשיחה")).toBeTruthy();
+
+		expect(scenarioCards()).toHaveLength(0);
+		expect(logger().endSession).not.toHaveBeenCalled();
+	});
+
+	it("המשך בשיחה closes the dialog and the conversation goes on", async () => {
+		await startLesson();
+		await sendTeacherMessage("שאלה ראשונה");
+		await clickReturn();
+		click(dialogButton("המשך בשיחה"));
+		await flush();
+
+		expect(dialog()).toBeNull();
+		expect(scenarioCards()).toHaveLength(0);
+		expect(bubbleTexts().join(" ")).toContain("שאלה ראשונה");
+		await sendTeacherMessage("שאלה שנייה");
+		expect(logger().addTurn).toHaveBeenCalledTimes(2);
+		expect(logger().endSession).not.toHaveBeenCalled();
+		expect(ConversationLog).toHaveBeenCalledTimes(1);
+	});
+
+	it("Escape also cancels", async () => {
+		await startLesson();
+		await sendTeacherMessage("שאלה ראשונה");
+		await clickReturn();
+		const { act } = require("react");
+		act(() => {
+			document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+		});
+		await flush();
+		expect(dialog()).toBeNull();
+		expect(scenarioCards()).toHaveLength(0);
+	});
+
+	it("סיים שיחה וקבל משוב runs the existing finish flow exactly once and stays in the conversation", async () => {
+		await startLesson();
+		await sendTeacherMessage("שאלה ראשונה");
+		await clickReturn();
+		click(dialogButton("סיים שיחה וקבל משוב"));
+		await flush();
+
+		expect(dialog()).toBeNull();
+		expect(logger().endSession).toHaveBeenCalledTimes(1);
+		expect(logger().saveToLocalStorage).toHaveBeenCalledTimes(1);
+		expect(alertSpy).toHaveBeenCalledTimes(1); // the existing finish confirmation
+		expect(scenarioCards()).toHaveLength(0);
+		expect(findButtonByText(view.container, "שיחה הסתיימה")).toBeTruthy();
+		expect(findButtonByText(view.container, "קבל ניתוח PCK")).toBeTruthy();
+
+		// finished now: the same button returns directly, without asking again
+		await clickReturn();
+		expect(dialog()).toBeNull();
+		expect(scenarioCards()).toHaveLength(6);
+		expect(logger().endSession).toHaveBeenCalledTimes(1);
+	});
+
+	it("חזרה לבחירת תרחיש leaves without finishing; the logged conversation is untouched", async () => {
+		await startLesson();
+		await sendTeacherMessage("שאלה ראשונה");
+		await sendTeacherMessage("שאלה שנייה");
+		const left = logger();
+		const loggedTurns = left.addTurn.mock.calls.map((c) => c.slice(0, 2));
+		await clickReturn();
+		click(dialogButton("חזרה לבחירת תרחיש"));
+		await flush();
+
+		expect(scenarioCards()).toHaveLength(6);
+		expect(view.container.querySelector("textarea")).toBeNull();
+		expect(left.endSession).not.toHaveBeenCalled();
+		expect(left.saveToLocalStorage).not.toHaveBeenCalled();
+		expect(left.addSummaryFeedback).not.toHaveBeenCalled();
+		expect(left.addFailedAttempt).not.toHaveBeenCalled();
+		expect(left.addTurn.mock.calls.map((c) => c.slice(0, 2))).toEqual(loggedTurns);
+		expect(alertSpy).not.toHaveBeenCalled();
+		expect(getPCKSummary).not.toHaveBeenCalled();
+		// the selection screen reloads the teacher's conversations (attempted marks)
+		expect(getConversationsByUser).toHaveBeenCalledTimes(2);
+	});
+
+	it("a scenario chosen after leaving without finishing starts a clean, separate conversation", async () => {
+		await startLesson();
+		await sendTeacherMessage("הודעה מהשיחה הקודמת");
+		const left = logger();
+		await clickReturn();
+		click(dialogButton("חזרה לבחירת תרחיש"));
+		await flush();
+
+		click(findButtonByText(view.container, B.text));
+		click(findButtonByText(view.container, "התחל בשיעור"));
+		await flush();
+		expect(ConversationLog).toHaveBeenCalledTimes(2);
+		expect(logger()).not.toBe(left);
+		expect(logger().args[0]).toBe(B);
+		expect(bubbleTexts()).toEqual([]);
+		expect(preLessonBriefing().textContent).toContain(B.teacher_briefing);
+
+		await sendTeacherMessage("הודעה חדשה");
+		expect(getPCKFeedback.mock.calls[1][1].map((m) => m.text)).toEqual(["הודעה חדשה"]);
+		expect(studentCalls[1].messages.map((m) => m.text)).toEqual(["הודעה חדשה"]);
+		expect(left.addTurn).toHaveBeenCalledTimes(1);
+	});
+
+	it("before the first message there is nothing to finish: it returns directly", async () => {
+		await startLesson();
+		await clickReturn();
+		expect(dialog()).toBeNull();
+		expect(scenarioCards()).toHaveLength(6);
+		expect(logger().endSession).not.toHaveBeenCalled();
+	});
+
+	it("is disabled and ignored while a turn is pending (no dialog, no navigation)", async () => {
+		await startLesson();
+		const pck = deferred();
+		getPCKFeedback.mockReturnValueOnce(pck.promise);
+		await sendTeacherMessage("שאלה ראשונה");
+
+		expect(returnButton().disabled).toBe(true);
+		await clickReturn();
+		expect(dialog()).toBeNull();
+		expect(scenarioCards()).toHaveLength(0);
+
+		pck.resolve(NO_FEEDBACK_ANALYSIS);
+		await flush();
+		expect(logger().addTurn).toHaveBeenCalledTimes(1);
+		expect(returnButton().disabled).toBe(false);
+	});
+
+	it("is disabled while finishing is pending behind a slow log write", async () => {
+		await startLesson();
+		const write = deferred();
+		logger().addTurn.mockImplementationOnce(() => write.promise);
+		await sendTeacherMessage("שאלה ראשונה");
+		click(finishButton());
+		await flush();
+
+		expect(logger().endSession).not.toHaveBeenCalled(); // finish waits for the log write
+		expect(returnButton().disabled).toBe(true);
+		await clickReturn();
+		expect(dialog()).toBeNull();
+		expect(scenarioCards()).toHaveLength(0);
+
+		write.resolve();
+		await flush();
+		expect(logger().endSession).toHaveBeenCalledTimes(1);
+		expect(returnButton().disabled).toBe(false);
+	});
+
+	it("leaving without finishing waits for a queued log write before navigating", async () => {
+		await startLesson();
+		const write = deferred();
+		logger().addTurn.mockImplementationOnce(() => write.promise);
+		await sendTeacherMessage("שאלה ראשונה");
+		await clickReturn();
+		click(dialogButton("חזרה לבחירת תרחיש"));
+		await flush();
+
+		expect(scenarioCards()).toHaveLength(0); // still writing the turn
+		expect(returnButton().disabled).toBe(true);
+
+		write.resolve();
+		await flush();
+		expect(scenarioCards()).toHaveLength(6);
+		expect(ConversationLog.instances[0].endSession).not.toHaveBeenCalled();
+	});
+
+	it("finishing from the dialog cannot be repeated: the header finish button is then disabled", async () => {
+		await startLesson();
+		await sendTeacherMessage("שאלה ראשונה");
+		await clickReturn();
+		click(dialogButton("סיים שיחה וקבל משוב"));
+		await flush();
+		const finished = findButtonByText(view.container, "שיחה הסתיימה");
+		expect(finished.disabled).toBe(true);
+		click(finished);
+		await flush();
+		expect(logger().endSession).toHaveBeenCalledTimes(1);
+	});
+});
+

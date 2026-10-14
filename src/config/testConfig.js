@@ -45,7 +45,7 @@ export const PRE_TEST = {
         prefix: "יובל",
         text: "הצורה בצד איננה ריבוע כי הוא לא ישר, הוא כזה מסובב",
       },
-      image: "/images/rotated-square.png",
+      image: "/images/rotated-square-transparent.png",
       imageAlt: "ריבוע מסובב",
       questionText: "מה דעתך על הטענה של יובל?",
       questionsIncorrect: INCORRECT_QUESTIONS,
@@ -91,7 +91,7 @@ export const POST_TEST = {
         prefix: "אלון",
         text: "הצורה בצד איננה מקבילית כי יש בה זוויות ישרות",
       },
-      image: "/images/rotated-parallelogram.png",
+      image: "/images/rotated-rectangle-transparent.png", // a rotated rectangle (a parallelogram with right angles)
       imageAlt: "מקבילית מסובבת",
       questionText: "מה דעתך על הטענה של אלון?",
       questionsIncorrect: INCORRECT_QUESTIONS,

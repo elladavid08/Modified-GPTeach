@@ -249,6 +249,42 @@ describe("ConversationLog", () => {
 		});
 	});
 
+	describe("misconception carrier (1.5.0, additive)", () => {
+		const carrier = { name: students[1].name, personaId: students[1].id, rule: "first-non-low-v1" };
+
+		it("stores the session carrier with the first saved document and in toJSON", async () => {
+			const log = new ConversationLog(scenario, students, "u1", profile, "1.5.0", { misconceptionCarrier: carrier });
+			expect(log.toJSON().misconceptionCarrier).toEqual(carrier);
+			await log.addTurn("t1", [{ name: students[0].name, text: "s1" }], null);
+			expect(saveConversation.mock.calls[0][0].misconceptionCarrier).toEqual(carrier); // lazy init document
+			await log.addTurn("t2", [{ name: students[1].name, text: "s2" }], null);
+			expect(lastSavedDoc().misconceptionCarrier).toEqual(carrier);
+			expect(validateConversationDoc(lastSavedDoc())).toEqual([]);
+		});
+
+		it("stores only name, personaId and rule (a copy)", async () => {
+			const extra = { ...carrier, prompt: "should not be stored" };
+			const log = new ConversationLog(scenario, students, "u1", profile, "1.5.0", { misconceptionCarrier: extra });
+			await log.addTurn("t1", [{ name: students[0].name, text: "s1" }], null);
+			expect(lastSavedDoc().misconceptionCarrier).toEqual(carrier);
+		});
+
+		it("stores null without a carrier, including when the option is omitted (callers before 1.5.0)", async () => {
+			const log = new ConversationLog(scenario, students, "u1", profile, "1.5.0", { misconceptionCarrier: null });
+			await log.addTurn("t1", [{ name: students[0].name, text: "s1" }], null);
+			expect(lastSavedDoc().misconceptionCarrier).toBeNull();
+			const old = new ConversationLog(scenario, students, "u1", profile, "1.4.4");
+			expect(old.toJSON().misconceptionCarrier).toBeNull();
+			expect(validateConversationDoc(lastSavedDoc())).toEqual([]);
+		});
+
+		it("does not change the scenario snapshot", async () => {
+			const log = new ConversationLog(scenario, students, "u1", profile, "1.5.0", { misconceptionCarrier: carrier });
+			await log.addTurn("t1", [{ name: students[0].name, text: "s1" }], null);
+			expect(lastSavedDoc().scenario).not.toHaveProperty("misconception_carrier");
+		});
+	});
+
 	describe("turn telemetry (A17, REVIEW)", () => {
 		const okPck = { status: "ok", reason: null, model: "gemini-2.5-flash-lite", latencyMs: 2100, clientLatencyMs: 2300, finishReason: "STOP", attempts: 1 };
 		const okStudent = { ...okPck, latencyMs: 900, clientLatencyMs: 1000 };

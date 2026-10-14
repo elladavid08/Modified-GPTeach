@@ -1,4 +1,4 @@
-import React, { useState, useContext, useEffect, useRef } from "react";
+import React, { useState, useContext, useEffect, useRef, useCallback } from "react";
 import { Constants } from "../config/constants";
 import { SYSTEM_VERSION } from "../config/version";
 import callAI from "../utils/ai.js";
@@ -7,6 +7,7 @@ import { Messages } from "../components/Messages";
 import { LessonTargetsSidebar } from "../components/LessonTargetsSidebar";
 import { PCKFeedbackSidebar } from "../components/PCKFeedbackSidebar";
 import { PCKSummaryModal } from "../components/PCKSummaryModal";
+import { LeaveConversationDialog } from "../components/LeaveConversationDialog";
 import { HistoryContext } from "../objects/ChatHistory";
 import { AppContext } from "../objects/AppContext";
 import { ScenarioSelector } from "../components/ScenarioSelector";
@@ -14,6 +15,7 @@ import { TeacherBriefingPanel } from "../components/TeacherBriefingPanel";
 import { getConversationsByUser } from "../services/firestoreService";
 import { getAttemptedScenarioTexts } from "../services/attemptedScenarios";
 import { ConversationLog } from "../services/conversationLogger";
+import { selectMisconceptionCarrier, withMisconceptionCarrier } from "../services/misconceptionCarrier";
 import { buildFailedAttempt, FAILURE_MESSAGES_HE } from "../services/turnDiagnostics";
 import { buildCallTelemetry } from "../services/callTelemetry";
 import { buildPckDisplayRows, countRowsWithoutText } from "../services/pckDisplayRows";
@@ -23,8 +25,8 @@ import "../style/ChatOnly.css";
 
 /**
  * The chat page. Each visit to the scenario-selection screen is a fresh ChatSession: returning
- * after a finished conversation ("חזרה לבחירת תרחיש", 1.4.4) remounts it, so every
- * per-conversation state and ref starts from scratch (no page reload).
+ * ("חזרה לבחירת תרחיש": after finishing since 1.4.4, also before finishing since 1.5.0) remounts it,
+ * so every per-conversation state and ref starts from scratch (no page reload).
  */
 export const Chat = () => {
 	const [sessionKey, setSessionKey] = useState(0);
@@ -38,6 +40,9 @@ const ChatSession = ({ onReturnToSelection }) => {
 	const [isQuerying, setIsQuerying] = useState(false);
 	const [hasInitiated, setHasInitiated] = useState(false);
 	const [scenario, setScenario] = useState(null);
+	// 1.5.0: the student who holds the scenario's misconception, chosen once from the fixed cast when the
+	// scenario is selected; passed to the student agent only (never to PCK, never shown) and logged additively.
+	const [misconceptionCarrier, setMisconceptionCarrier] = useState(null);
 	const [pckFeedback, setPckFeedback] = useState(null);
 	const [feedbackHistory, setFeedbackHistory] = useState([]);
 	const [isSessionEnded, setIsSessionEnded] = useState(false);
@@ -131,11 +136,12 @@ const ChatSession = ({ onReturnToSelection }) => {
 				students, 
 				currentUser.uid, 
 				userProfile, 
-				SYSTEM_VERSION
+				SYSTEM_VERSION,
+				{ misconceptionCarrier }
 			);
 			console.log("✅ Conversation logger initialized:", conversationLoggerRef.current.sessionId);
 		}
-	}, [scenario, students, currentUser, userProfile]);
+	}, [scenario, students, currentUser, userProfile, misconceptionCarrier]);
 
 	/** Add the teacher's message and wait for a response */
 	async function addUserResponse(TAmessage) {
@@ -367,7 +373,7 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 			await callAI(
 				history, 
 				students, 
-				scenario, 
+				withMisconceptionCarrier(scenario, misconceptionCarrier), // the carrier reaches the students only
 				addendum,
 				impact_analysis,  // NEW: Pass impact_analysis to student agent
 				async (aiMessages, _codePieces, _students, studentMeta) => {
@@ -423,6 +429,8 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 
 	// Handle finishing the conversation
 	const finishRequestedRef = useRef(false);
+	// Finish requested, waiting for queued turn log entries (1.5.0: blocks returning to selection meanwhile)
+	const [isFinishing, setIsFinishing] = useState(false);
 
 	const handleFinishConversation = () => {
 		// Not available while a turn is in progress; ignore repeated requests
@@ -434,11 +442,13 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 			return;
 		}
 		finishRequestedRef.current = true;
+		setIsFinishing(true);
 
 		// Finish only after queued turn log entries are written, so no turn is skipped or reordered
 		turnLogQueueRef.current = turnLogQueueRef.current
 			.then(finishConversation)
-			.catch((error) => console.error("❌ Error finishing conversation:", error));
+			.catch((error) => console.error("❌ Error finishing conversation:", error))
+			.then(() => setIsFinishing(false));
 	};
 
 	const finishConversation = () => {
@@ -457,14 +467,43 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 		alert(`שיחה הסתיימה!\n\nהשיחה נשמרה בהצלחה.\n\nמזהה שיחה: ${conversationLoggerRef.current.sessionId}\nמספר תגובות: ${conversationLoggerRef.current.turns.length}\nמשך זמן: ${conversationLoggerRef.current.stats.durationMinutes} דקות\n\nכעת תוכל לקבל ניתוח מקיף PCK של השיחה!`);
 	};
 	
-	// Back to the scenario-selection screen after the conversation is finished (1.4.4).
-	// Not while a turn or the summary request is still running, so nothing in flight is lost.
-	const canReturnToSelection = isSessionEnded && !isTurnInProgress && !isLoadingSummary;
-	const handleReturnToSelection = () => {
-		if (!canReturnToSelection || turnInProgressRef.current) {
+	// Back to the scenario-selection screen: after finishing (1.4.4), and since 1.5.0 also before.
+	// Never while a turn, a pending finish, the summary request or a previous return is in progress.
+	// An unfinished conversation asks first (LeaveConversationDialog). Leaving without finishing does
+	// not finish, change or mark anything: logged turns stay as they are, no state is stored, and the
+	// next scenario selection starts a new conversation (there is no resume).
+	const [showLeaveDialog, setShowLeaveDialog] = useState(false);
+	const [isLeaving, setIsLeaving] = useState(false);
+	const leavingRef = useRef(false);
+	const canReturnToSelection = !isTurnInProgress && !isLoadingSummary && !isFinishing && !isLeaving;
+
+	const leaveToSelection = () => {
+		if (turnInProgressRef.current || leavingRef.current) {
 			return;
 		}
-		onReturnToSelection();
+		leavingRef.current = true;
+		setIsLeaving(true);
+		setShowLeaveDialog(false);
+		// Leave only after queued turn log entries are written, so nothing in flight is lost
+		turnLogQueueRef.current.then(() => onReturnToSelection());
+	};
+
+	const handleReturnToSelection = () => {
+		if (!canReturnToSelection || turnInProgressRef.current || leavingRef.current) {
+			return;
+		}
+		// Finished, or nothing said yet (nothing to finish or lose): return directly
+		if (isSessionEnded || history.getLength() === 0) {
+			leaveToSelection();
+			return;
+		}
+		setShowLeaveDialog(true);
+	};
+
+	const closeLeaveDialog = useCallback(() => setShowLeaveDialog(false), []);
+	const finishFromLeaveDialog = () => {
+		setShowLeaveDialog(false);
+		handleFinishConversation(); // the existing finish flow; the teacher stays to get the summary
 	};
 
 	const handleGetSummary = async () => {
@@ -523,6 +562,7 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 					// A new conversation always starts with an empty chat history. The history provider
 					// sits above the router, so it can still hold an earlier conversation's messages.
 					history.resetHistory(0);
+					setMisconceptionCarrier(selectMisconceptionCarrier(students, chosen));
 					setScenario(chosen);
 				}}
 			/>
@@ -573,18 +613,16 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 						direction: "rtl",
 						marginTop: "5px"
 					}}>
+						{/* The only way out of the session (replaces the former "שיחה חדשה" page reload, 1.5.0) */}
 						<button
-							className="btn btn-outline-success btn-sm"
-							disabled={
-								Constants.IS_PRODUCTION &&
-								(isQuerying || history.getLength() === 0)
-							}
-							onClick={() => {
-								window.location.reload();
-							}}
-							style={{ direction: "rtl", fontSize: "12px", padding: "4px 12px" }}
+							type="button"
+							data-testid="return-to-selection"
+							className={isSessionEnded ? "btn btn-primary btn-sm" : "btn btn-outline-secondary btn-sm"}
+							disabled={!canReturnToSelection}
+							onClick={handleReturnToSelection}
+							style={{ direction: "rtl", fontSize: "12px", padding: "4px 12px", fontWeight: isSessionEnded ? "bold" : "normal" }}
 						>
-							שיחה חדשה
+							חזרה לבחירת תרחיש
 						</button>
 
 						<h2
@@ -617,23 +655,12 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 							)}
 							<button
 								className="btn btn-primary btn-sm"
-								disabled={isSessionEnded || history.getLength() === 0 || isTurnInProgress}
+								disabled={isSessionEnded || history.getLength() === 0 || isTurnInProgress || isFinishing}
 								onClick={handleFinishConversation}
 								style={{ direction: "rtl", fontSize: "12px", padding: "4px 12px" }}
 							>
 								{isSessionEnded ? "✓ שיחה הסתיימה" : "סיים שיחה"}
 							</button>
-							{isSessionEnded && (
-								<button
-									type="button"
-									className="btn btn-primary btn-sm"
-									disabled={!canReturnToSelection}
-									onClick={handleReturnToSelection}
-									style={{ direction: "rtl", fontSize: "12px", padding: "4px 12px", fontWeight: "bold" }}
-								>
-									חזרה לבחירת תרחיש
-								</button>
-							)}
 						</div>
 					</div>
 				</div>
@@ -675,6 +702,16 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 				errorMessage={pckError}
 			/>
 			
+			{/* 1.5.0: returning to scenario selection before finishing */}
+			{showLeaveDialog && (
+				<LeaveConversationDialog
+					onFinish={finishFromLeaveDialog}
+					onLeave={leaveToSelection}
+					onCancel={closeLeaveDialog}
+					disabled={isTurnInProgress || isFinishing || isLeaving}
+				/>
+			)}
+
 			{/* PCK Summary Modal */}
 			{showSummary && (
 				<PCKSummaryModal

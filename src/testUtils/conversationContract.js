@@ -95,6 +95,23 @@ export function validateConversationDoc(doc, { legacy = false } = {}) {
 		errors.push("studentRefs missing or malformed (expected v<version>_<id>)");
 	}
 
+	// misconceptionCarrier (1.5.0): optional additive provenance field, null or exactly {name, personaId, rule};
+	// the persona must belong to the recorded cast.
+	if ("misconceptionCarrier" in doc && doc.misconceptionCarrier !== null) {
+		const c = doc.misconceptionCarrier;
+		if (!isObj(c)) errors.push("misconceptionCarrier must be an object or null");
+		else {
+			for (const key of Object.keys(c)) {
+				if (!["name", "personaId", "rule"].includes(key)) errors.push(`misconceptionCarrier.${key} is not an allowed field`);
+			}
+			for (const key of ["name", "personaId", "rule"]) {
+				if (!isStr(c[key])) errors.push(`misconceptionCarrier.${key} must be a string`);
+			}
+			if (isStr(c.personaId) && Array.isArray(doc.studentRefs) && !doc.studentRefs.some((r) => r.endsWith(`_${c.personaId}`)))
+				errors.push("misconceptionCarrier.personaId is not in studentRefs");
+		}
+	}
+
 	// failedAttempts (A16): optional additive list; never part of turns[], never a turnNumber.
 	if ("failedAttempts" in doc) {
 		if (!Array.isArray(doc.failedAttempts)) errors.push("failedAttempts must be an array");

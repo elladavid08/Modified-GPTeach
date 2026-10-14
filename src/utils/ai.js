@@ -328,6 +328,37 @@ function convertResponseToMessages(aiResponse, fromCode, students) {
 	}
 }
 
+/*
+ * Misconception carrier (1.5.0, services/misconceptionCarrier.js). Active only when the scenario passed to the student
+ * agent carries `misconception_carrier` (the designated student's name, fixed for the session by Chat.jsx); without
+ * it every branch below emits the 1.4.4 prompt. The texts are frozen to the validated research prototype v1
+ * (__tests__/fixtures/studentPromptCarrierV1.json): change them only with a new validation.
+ */
+function carrierPeers(students, scenario) {
+	return students.map((s) => s.name).filter((n) => n !== scenario.misconception_carrier).join(", ");
+}
+
+/** Replaces the "ONE or TWO students" misconception lifecycle: one named student owns the misconception. */
+function carrierBlock(students, scenario) {
+	const c = scenario.misconception_carrier;
+	let s = "\n\n🎯 MISCONCEPTION CARRIER FOR THIS LESSON (fixed for the whole lesson):\n";
+	s += `${c} sincerely holds this misconception: ${scenario.misconception_focus}\n`;
+	s += `- ${c} is the ONLY student who holds it. The other students (${carrierPeers(students, scenario)}) do not hold it and do not introduce any other misconception about this topic.\n`;
+	s += `- When the relevant concept comes up (the teacher asks about it or it becomes relevant), ${c} expresses this idea naturally, in their own words, as genuine thinking - confident or hesitant according to their persona. Never repeat the same sentence; vary the wording and the reasoning.\n`;
+	s += `- ${c} KEEPS the misconception while the teacher only asks or reacts: questions such as "why?", "explain how you thought", "are you sure?", "does everyone agree?", "is it always true?", acknowledgements, praise, or moving on. These are not teaching. In response ${c} explains or defends their reasoning and may sound a little less sure, but does not reach the correct conclusion by themself.\n`;
+	s += `- ${c} revises the misconception only after the teacher actually addresses the mathematical issue: explains it, shows or draws a counterexample, leads a check against the definition, or explicitly confirms a correct argument. Then ${c} engages with it and, if it was clear, shows the new understanding in their own words.\n`;
+	s += `- The other students may agree, hesitate, ask a question or add a partial idea, but must NOT give the full correct explanation or the decisive counterexample before the teacher has addressed the misconception.\n`;
+	s += "- Once the misconception has been addressed and understood, continue the lesson normally.\n";
+	return s;
+}
+
+/** PCK steering sets tone, confidence and progress; it cannot by itself resolve the carrier's misconception
+ *  (PCK rates a good diagnostic question positive / improved / addressed_misconception). */
+function carrierSteeringException(scenario) {
+	const c = scenario.misconception_carrier;
+	return `**Exception - the misconception carrier (${c}):** the rules below set tone, confidence and conversational progress. They cannot by themselves resolve ${c}'s misconception. Until the teacher has actually addressed it (an explanation, a counterexample, a definition check led by the teacher, or explicitly confirming a correct argument - judged from the teacher's messages, not from this analysis), "progress" or "improved" for ${c} means explaining their reasoning more clearly, considering a doubt, or sounding less certain - not reaching the correct conclusion - and "Misconception WAS Addressed" does not apply to ${c}.\n\n`;
+}
+
 /** Turn the information into a paragraph */
 function makeProsePrompt(students, scenario, addendum, impact_analysis = null) {
 	let retStr = "";
@@ -366,7 +397,7 @@ function makeProsePrompt(students, scenario, addendum, impact_analysis = null) {
 	if (scenario.ai_prior_knowledge) {
 		retStr += `\nPrior knowledge: ${scenario.ai_prior_knowledge}`;
 	}
-	if (scenario.misconception_focus) {
+	if (scenario.misconception_focus && !scenario.misconception_carrier) {
 		retStr += `\nPossible misconception to watch for: ${scenario.misconception_focus}`;
 	}
 	if (scenario.ai_pedagogical_focus && scenario.ai_pedagogical_focus.length > 0) {
@@ -375,7 +406,9 @@ function makeProsePrompt(students, scenario, addendum, impact_analysis = null) {
 			retStr += `\n- ${focus}`;
 		});
 	}
-	retStr += `\nScenario context is BACKGROUND ONLY. Do not force the misconception into every turn, do not copy fixed wording, and do not treat the pedagogical focus as a script. Base student responses on the actual conversation, the student personas, and the teacher's latest move.`;
+	retStr += scenario.misconception_carrier
+		? `\nScenario context is BACKGROUND ONLY: do not copy fixed wording and do not treat the pedagogical focus as a script. Base student responses on the actual conversation, the student personas, and the teacher's latest move. The lesson's misconception belongs to one designated student (see MISCONCEPTION CARRIER below).`
+		: `\nScenario context is BACKGROUND ONLY. Do not force the misconception into every turn, do not copy fixed wording, and do not treat the pedagogical focus as a script. Base student responses on the actual conversation, the student personas, and the teacher's latest move.`;
 	
 	// Natural conversation flow instructions
 	retStr += `\n\n🎭 NATURAL CONVERSATION FLOW (CRITICAL):`;
@@ -523,7 +556,9 @@ function makeProsePrompt(students, scenario, addendum, impact_analysis = null) {
 	}
 	
 	// Add misconception focus if specified
-	if (scenario.misconception_focus) {
+	if (scenario.misconception_focus && scenario.misconception_carrier) {
+		retStr += carrierBlock(students, scenario);
+	} else if (scenario.misconception_focus) {
 		retStr += "\n\n🎯 TARGETED MISCONCEPTION FOR THIS LESSON:\n";
 		retStr += scenario.misconception_focus + "\n";
 		retStr += "\n⚠️ MISCONCEPTION LIFECYCLE (IMPORTANT):\n";
@@ -545,7 +580,9 @@ function makeProsePrompt(students, scenario, addendum, impact_analysis = null) {
 		retStr += "🎯🎯🎯 CRITICAL: PCK EXPERT ANALYSIS - THIS OVERRIDES ALL OTHER INSTRUCTIONS 🎯🎯🎯\n";
 		retStr += "=".repeat(80) + "\n";
 		retStr += "A PCK expert has analyzed the teacher's last instructional move.\n";
-		retStr += "⚠️ THE FOLLOWING ANALYSIS TAKES PRIORITY OVER SCENARIO MISCONCEPTION INSTRUCTIONS!\n";
+		retStr += scenario.misconception_carrier
+			? `⚠️ THE FOLLOWING ANALYSIS TAKES PRIORITY OVER THE OTHER SCENARIO INSTRUCTIONS, EXCEPT THE MISCONCEPTION CARRIER RULE: it cannot by itself resolve ${scenario.misconception_carrier}'s misconception.\n`
+			: "⚠️ THE FOLLOWING ANALYSIS TAKES PRIORITY OVER SCENARIO MISCONCEPTION INSTRUCTIONS!\n";
 		retStr += "⚠️ Student reactions MUST reflect the pedagogical quality determined by the expert!\n\n";
 		
 		retStr += `**Overall Pedagogical Quality**: ${impact_analysis.pedagogical_quality}\n`;
@@ -608,6 +645,9 @@ function makeProsePrompt(students, scenario, addendum, impact_analysis = null) {
 		}
 		
 		retStr += "⚠️ **MANDATORY ALIGNMENT RULES** (NON-NEGOTIABLE):\n\n";
+		if (scenario.misconception_carrier) {
+			retStr += carrierSteeringException(scenario);
+		}
 		retStr += "**If pedagogical_quality = 'positive':**\n";
 		retStr += "  → Students MUST show understanding progress\n";
 		retStr += "  → Use expressions like: 'אה עכשיו הבנתי!', 'אז זה אומר ש...', 'נכון, אז...'\n";

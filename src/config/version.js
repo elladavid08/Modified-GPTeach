@@ -13,10 +13,50 @@
  * - Z: Patch version (bug fixes, minor improvements)
  */
 
-export const SYSTEM_VERSION = "1.4.4";
+export const SYSTEM_VERSION = "1.5.0";
 
 /**
  * Version History:
+ * 
+ * 1.5.0 (2026-10-14):
+ * - Misconception carrier (release blocker #12, "students drop the scenario misconception before
+ *   the teacher addresses it"): each conversation designates ONE student of the fixed cast as the
+ *   student who holds the scenario's misconception. Chosen once, when the scenario is selected, by
+ *   rule "first-non-low-v1" (the first cast member whose participation baseline is not "low", else
+ *   the first; src/services/misconceptionCarrier.js), and unchanged for the whole conversation.
+ * - Student prompt (src/utils/ai.js), only when a carrier is set: the "ONE or TWO students"
+ *   misconception lifecycle and the "Possible misconception to watch for" line are replaced by a
+ *   MISCONCEPTION CARRIER block (the carrier expresses the idea in their own words and keeps it
+ *   while the teacher only asks, probes, praises or acknowledges; revises it only after the
+ *   teacher explains it, shows a counterexample, leads a definition check or confirms a correct
+ *   argument; the other students do not hold it or introduce another misconception about the
+ *   topic). The PCK block no longer claims priority over this rule, and an exception paragraph
+ *   scopes "positive / improved / addressed" to tone, confidence and progress for the carrier.
+ *   Texts are the research prototype v1 unchanged (frozen by
+ *   src/__tests__/fixtures/studentPromptCarrierV1.json; validation in
+ *   research/simulator_audit/student_misconception_carrier_experiment.md).
+ * - The carrier is passed to the student agent only. PCK (model, prompt, request, output), the
+ *   PCK feedback shown to the teacher, routing, the duplicate guard and the UI are unchanged; the
+ *   carrier is never shown to the teacher. Without a carrier the student prompt is byte-identical
+ *   to 1.4.4.
+ * - Conversation log: additive top-level field misconceptionCarrier = {name, personaId, rule}
+ *   (null when the scenario has no misconception focus), saved with the first logged turn and on
+ *   every later save. The scenario snapshot is unchanged. Conversations before 1.5.0 have no such
+ *   field; readers treat it as "no designated carrier".
+ * - Return to scenario selection before finishing: "חזרה לבחירת תרחיש" is in the chat header for
+ *   the whole session, on the right where "שיחה חדשה" was. "שיחה חדשה" (a page reload) is removed:
+ *   this is the only way out of the session. A finished conversation (or one with no message yet) returns directly. An
+ *   unfinished one opens a confirmation dialog (src/components/LeaveConversationDialog.jsx):
+ *   "סיים שיחה וקבל משוב" (the existing finish flow; the teacher stays to get the summary),
+ *   "חזרה לבחירת תרחיש" (leave without finishing) or "המשך בשיחה". It is disabled during a turn,
+ *   a pending finish, the summary request and while leaving; leaving waits for queued log writes.
+ *   Nothing is stored for leaving: no new field and no unfinished state; there is no resume; the
+ *   next selection starts a new conversation.
+ * - Drawing board (pilot request #7, partial): Undo ("בטל פעולה אחרונה"; one step per pen stroke,
+ *   drawn shape, move / resize / rotate, deletion, eraser stroke or "נקה הכל"; up to 50 steps) and
+ *   a 4-colour palette (black default, blue, red, green; new strokes and shapes only). The eraser
+ *   semantics are unchanged (pen strokes only, never shapes). Partial erasing of shapes and line
+ *   straightening are deferred.
  * 
  * 1.4.4 (2026-10-13):
  * - Teacher briefing stays accessible (pilot request #6, B20): before the first message the

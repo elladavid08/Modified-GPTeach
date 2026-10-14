@@ -66,6 +66,30 @@ describe("conversation document contract validator", () => {
 		expect(validateConversationDoc(doc).length).toBeGreaterThan(0);
 	});
 
+	it("accepts an additive misconceptionCarrier (1.5.0), null, and documents without it (before 1.5.0)", () => {
+		const doc = currentFormatConversation();
+		expect(validateConversationDoc(doc)).toEqual([]);
+		const personaId = doc.studentRefs[0].split("_").pop();
+		doc.misconceptionCarrier = { name: "תמר", personaId, rule: "first-non-low-v1" };
+		expect(validateConversationDoc(doc)).toEqual([]);
+		doc.misconceptionCarrier = null;
+		expect(validateConversationDoc(doc)).toEqual([]);
+		expect(validateConversationDoc(legacyFormatConversation(), { legacy: true })).toEqual([]);
+	});
+
+	it.each([
+		["a misconceptionCarrier that is a string", "תמר"],
+		["a misconceptionCarrier without a rule", { name: "תמר", personaId: "P" }],
+		["a misconceptionCarrier with a non-string name", { name: 3, personaId: "P", rule: "first-non-low-v1" }],
+		["a misconceptionCarrier with extra (content) fields", { name: "תמר", personaId: "P", rule: "first-non-low-v1", prompt: "x" }],
+		["a misconceptionCarrier whose persona is not in the cast", { name: "תמר", personaId: "not-in-cast", rule: "first-non-low-v1" }],
+	])("rejects %s", (_label, value) => {
+		const doc = currentFormatConversation();
+		const personaId = doc.studentRefs[0].split("_").pop();
+		doc.misconceptionCarrier = typeof value === "object" && value.personaId === "P" ? { ...value, personaId } : value;
+		expect(validateConversationDoc(doc).length).toBeGreaterThan(0);
+	});
+
 	it("accepts an additive failedAttempts list (A16) and documents without it (legacy)", () => {
 		const doc = currentFormatConversation();
 		doc.failedAttempts = [

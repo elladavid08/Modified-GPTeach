@@ -42,7 +42,7 @@ async function compressImageBase64(base64, maxWidth = 600) {
 const MAX_FAILED_ATTEMPTS = 50;
 
 export class ConversationLog {
-	constructor(scenario, students, userId, userProfile, systemVersion = "1.0") {
+	constructor(scenario, students, userId, userProfile, systemVersion = "1.0", { misconceptionCarrier = null } = {}) {
 		this.sessionId = this.generateSessionId();
 		this.startTime = new Date().toISOString();
 		this.endTime = null;
@@ -67,6 +67,12 @@ export class ConversationLog {
 			target_pck_skills: scenario.target_pck_skills,
 			initiated_by: scenario.initiated_by
 		};
+		
+		// 1.5.0: the session's misconception carrier (services/misconceptionCarrier.js) for provenance and replay;
+		// null when none was designated. Additive: documents before 1.5.0 have no such field.
+		this.misconceptionCarrier = misconceptionCarrier
+			? { name: misconceptionCarrier.name, personaId: misconceptionCarrier.personaId, rule: misconceptionCarrier.rule }
+			: null;
 		
 		// Store student data temporarily for initialization
 		this.studentsData = students;
@@ -126,6 +132,7 @@ export class ConversationLog {
 				systemVersion: this.systemVersion,
 				scenario: this.scenario,
 				studentRefs: this.studentRefs,  // Store references instead of full data
+				misconceptionCarrier: this.misconceptionCarrier,
 				startTime: this.startTime,
 				endTime: this.endTime,
 				turns: [],
@@ -263,6 +270,7 @@ export class ConversationLog {
 			endTime: this.endTime,
 			scenario: this.scenario,
 			studentRefs: this.studentRefs,  // Use references instead of full data
+			misconceptionCarrier: this.misconceptionCarrier,
 			turns: this.turns,
 			failedAttempts: this.failedAttempts,
 			stats: this.stats,
