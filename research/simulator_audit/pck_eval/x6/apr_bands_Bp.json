@@ -1,0 +1,23 @@
+{
+ "_comment": "X6-APR diagnostic arm B-prime: arm B's three APR descriptions PLUS one APR-only sentence at STEP 3 (the scoring step). Nothing else.",
+ "replacements": [
+  [
+   "Teacher gives the correct answer immediately without engaging student thinking",
+   "Teacher gives the answer or the correction directly without engaging the student's thinking, or gives mathematically incorrect content"
+  ],
+  [
+   "Teacher asks a generic question or returns to definition without depth",
+   "Useful and in the right direction, but teacher-led or generic: the teacher explains, restates the definition or asks a general question without building on the student's own idea. A clear, correct explanation by the teacher alone is score 1"
+  ],
+  [
+   "Teacher uses targeted diagnostic questions, counterexamples, or active tasks",
+   "Adapted to this student's thinking: the move takes up the student's own idea, or has the student actively check, justify, compare or reason toward the conclusion (e.g. a targeted question about their claim, a counterexample they test themselves)"
+  ]
+ ],
+ "inserts": [
+  [
+   "- Score 0: Should have been used but wasn't, or was done poorly",
+   "- For adapted-pedagogical-response, apply its rubric strictly: score 2 only if the teacher's move takes up the student's own idea or has the student check, justify, compare or reason; a teacher explanation or a general question, even when correct and clear, is score 1."
+  ]
+ ]
+}

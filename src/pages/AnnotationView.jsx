@@ -181,7 +181,7 @@ function ClaimBox({ scenario }) {
       )}
       {image && (
         <div style={{ marginTop: "10px", textAlign: "center" }}>
-          <img src={image} alt={imageAlt || ""} style={{ maxWidth: "140px", borderRadius: "6px", border: "1px solid #ccc" }} />
+          <img src={image} alt={imageAlt || ""} style={{ maxWidth: "120px", height: "auto" }} />
         </div>
       )}
     </div>

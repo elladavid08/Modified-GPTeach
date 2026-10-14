@@ -2,6 +2,7 @@ import ChatMessage from "../objects/ChatMessage";
 import { Constants } from "../config/constants";
 import { toTitleCase } from "./primitiveManipulation";
 import { generateWithGenAI, generateWithGenAICompletion } from "../services/genai";
+import { countUnknownSpeakers } from "../services/callTelemetry";
 // ==================== OpenAI Configuration (COMMENTED OUT - Currently using Google Vertex AI) ====================
 // Kept for potential future use if switching back to OpenAI
 // const { Configuration, OpenAIApi } = require("openai");
@@ -28,10 +29,11 @@ export default async function callAI(
 	onResponse
 ) {
 	const verNum = Constants.MODEL_VERSION;
+	// Return the generation promise so callers know when the turn has settled (incl. failures).
 	if (verNum === 3) {
-		callCompletionModel(history, students, scenario, addendum, impact_analysis, onResponse);
+		return callCompletionModel(history, students, scenario, addendum, impact_analysis, onResponse);
 	} else if (verNum === 3.5) {
-		callChatModel(
+		return callChatModel(
 			"gpt-3.5-turbo",
 			history,
 			students,
@@ -42,7 +44,7 @@ export default async function callAI(
 		);
 	} else {
 		// Default to 4 (or Gemini equivalent when using Google provider)
-		callChatModel("gpt-4", history, students, scenario, addendum, impact_analysis, onResponse);
+		return callChatModel("gpt-4", history, students, scenario, addendum, impact_analysis, onResponse);
 	}
 }
 
@@ -161,10 +163,17 @@ async function callChatModel(
 		);
 	}
 
+	// Call telemetry from the backend (latency, model, finish reason, attempts); no content
+	let callMeta = null;
 	try {
 		if (Constants.PROVIDER === "google") {
 			// Use Google's Vertex AI GenAI
-			const msg = await generateWithGenAI(myPrompt, { stop: ["Teacher:"] });
+			const msg = await generateWithGenAI(myPrompt, {
+				stop: ["Teacher:"],
+				onMeta: (meta) => {
+					callMeta = meta;
+				},
+			});
 			
 			if (!Constants.IS_PRODUCTION) {
 				console.log(`GenAI Response: \n${msg}`);
@@ -196,12 +205,14 @@ async function callChatModel(
 				const msgCount = messages ? messages.length : 0;
 				const codeCount = codePieces ? codePieces.length : 0;
 				console.log(`✅ Parsed ${msgCount} message(s) and ${codeCount} code piece(s)`);
-				onResponse(messages, codePieces);
+				onResponse(messages, codePieces, students, callMeta);
 			} else {
 				const parsedMessages = convertResponseToMessages(msg, null, students);
 				const msgCount = parsedMessages ? parsedMessages.length : 0;
 				console.log(`✅ Parsed ${msgCount} message(s) from response`);
-				onResponse(parsedMessages, null, students);
+				// 1.4.2: content-free count of replies under a name outside the cast (detection only; replies unchanged)
+				const meta = callMeta ? { ...callMeta, unknownSpeaker: countUnknownSpeakers(parsedMessages, students) } : callMeta;
+				onResponse(parsedMessages, null, students, meta);
 			}
 		} else {
 			// ==================== OpenAI Chat API (COMMENTED OUT - Currently using Google Vertex AI) ====================
@@ -231,9 +242,12 @@ async function callChatModel(
 		}
 	} catch (err) {
 		console.error(`❌ Error from ${Constants.PROVIDER === "google" ? "GenAI" : "AI"}:`, err);
-		// Call onResponse with empty array to unblock the UI
-		onResponse([], null);
-		return;
+		// A parse failure happens after a successful backend call: keep that call's telemetry
+		if (err && !err.meta && callMeta) {
+			err.meta = callMeta;
+		}
+		// Reject so the caller can show the failure and record it (C7); failures are not empty replies
+		throw err;
 	}
 }
 
@@ -242,7 +256,7 @@ async function callChatModel(
 function convertResponseToMessages(aiResponse, fromCode, students) {
 	let newMessages = [];
 
-	console.log("convertResponseToMessages called (JSON mode with Chain-of-Thought)");
+	console.log("convertResponseToMessages called (JSON mode)");
 	console.log("  aiResponse:", aiResponse ? aiResponse.length + " chars" : "null/undefined");
 	console.log("  fromCode:", fromCode);
 	console.log("  students:", students ? students.length : "null/undefined");
@@ -264,27 +278,6 @@ function convertResponseToMessages(aiResponse, fromCode, students) {
 		
 		// Log the entire JSON structure for debugging
 		console.log("🔍 FULL AI RESPONSE STRUCTURE:", JSON.stringify(jsonData, null, 2));
-		
-		if (jsonData.thinking) {
-			console.log("Agent Chain-of-Thought Reasoning:");
-			console.log("  Teacher message:", jsonData.thinking.teacher_message_summary || "N/A");
-			console.log("  Context analysis:", jsonData.thinking.context_analysis || "N/A");
-			
-			if (jsonData.thinking.who_should_respond && Array.isArray(jsonData.thinking.who_should_respond)) {
-				console.log("  Decision breakdown:");
-				jsonData.thinking.who_should_respond.forEach(decision => {
-					const emoji = decision.should_respond ? "YES" : "NO";
-					const confEmoji = decision.confidence === "high" ? "HIGH" : decision.confidence === "medium" ? "MED" : "LOW";
-					console.log("    " + emoji + " " + confEmoji + " " + decision.student + ": " + decision.reason + " [" + decision.confidence + "]");
-				});
-			}
-			
-			if (jsonData.thinking.pck_analysis) {
-				console.log("  PCK analysis:", jsonData.thinking.pck_analysis);
-			}
-		} else {
-			console.warn("No 'thinking' field in response - Chain-of-Thought may not be working");
-		}
 		
 		// NOTE: PCK feedback is now generated BEFORE student responses in a separate API call
 		// Students react based on the impact_analysis provided in the prompt
@@ -326,14 +319,44 @@ function convertResponseToMessages(aiResponse, fromCode, students) {
 		console.error("Error parsing JSON response:", error);
 		console.error("Raw response:", aiResponse);
 		
-		const randomStudent = students[Math.floor(Math.random() * students.length)];
-		newMessages.push(new ChatMessage(
-			randomStudent.name, 
-			"אני צריך רגע לחשוב על זה...", 
-			"assistant"
-		));
-		return newMessages;
+		// Report a parse failure instead of inventing a student reply (C7)
+		const parseError = new Error(`Invalid student agent output: ${error.message}`);
+		parseError.stage = "parse";
+		parseError.endpoint = "/api/generate";
+		parseError.rawOutput = aiResponse;
+		throw parseError;
 	}
+}
+
+/*
+ * Misconception carrier (1.5.0, services/misconceptionCarrier.js). Active only when the scenario passed to the student
+ * agent carries `misconception_carrier` (the designated student's name, fixed for the session by Chat.jsx); without
+ * it every branch below emits the 1.4.4 prompt. The texts are frozen to the validated research prototype v1
+ * (__tests__/fixtures/studentPromptCarrierV1.json): change them only with a new validation.
+ */
+function carrierPeers(students, scenario) {
+	return students.map((s) => s.name).filter((n) => n !== scenario.misconception_carrier).join(", ");
+}
+
+/** Replaces the "ONE or TWO students" misconception lifecycle: one named student owns the misconception. */
+function carrierBlock(students, scenario) {
+	const c = scenario.misconception_carrier;
+	let s = "\n\n🎯 MISCONCEPTION CARRIER FOR THIS LESSON (fixed for the whole lesson):\n";
+	s += `${c} sincerely holds this misconception: ${scenario.misconception_focus}\n`;
+	s += `- ${c} is the ONLY student who holds it. The other students (${carrierPeers(students, scenario)}) do not hold it and do not introduce any other misconception about this topic.\n`;
+	s += `- When the relevant concept comes up (the teacher asks about it or it becomes relevant), ${c} expresses this idea naturally, in their own words, as genuine thinking - confident or hesitant according to their persona. Never repeat the same sentence; vary the wording and the reasoning.\n`;
+	s += `- ${c} KEEPS the misconception while the teacher only asks or reacts: questions such as "why?", "explain how you thought", "are you sure?", "does everyone agree?", "is it always true?", acknowledgements, praise, or moving on. These are not teaching. In response ${c} explains or defends their reasoning and may sound a little less sure, but does not reach the correct conclusion by themself.\n`;
+	s += `- ${c} revises the misconception only after the teacher actually addresses the mathematical issue: explains it, shows or draws a counterexample, leads a check against the definition, or explicitly confirms a correct argument. Then ${c} engages with it and, if it was clear, shows the new understanding in their own words.\n`;
+	s += `- The other students may agree, hesitate, ask a question or add a partial idea, but must NOT give the full correct explanation or the decisive counterexample before the teacher has addressed the misconception.\n`;
+	s += "- Once the misconception has been addressed and understood, continue the lesson normally.\n";
+	return s;
+}
+
+/** PCK steering sets tone, confidence and progress; it cannot by itself resolve the carrier's misconception
+ *  (PCK rates a good diagnostic question positive / improved / addressed_misconception). */
+function carrierSteeringException(scenario) {
+	const c = scenario.misconception_carrier;
+	return `**Exception - the misconception carrier (${c}):** the rules below set tone, confidence and conversational progress. They cannot by themselves resolve ${c}'s misconception. Until the teacher has actually addressed it (an explanation, a counterexample, a definition check led by the teacher, or explicitly confirming a correct argument - judged from the teacher's messages, not from this analysis), "progress" or "improved" for ${c} means explaining their reasoning more clearly, considering a doubt, or sounding less certain - not reaching the correct conclusion - and "Misconception WAS Addressed" does not apply to ${c}.\n\n`;
 }
 
 /** Turn the information into a paragraph */
@@ -354,7 +377,8 @@ function makeProsePrompt(students, scenario, addendum, impact_analysis = null) {
 	retStr += `\n2. NEVER write text outside the JSON structure`;
 	retStr += `\n3. NEVER combine students under one response object`;
 	retStr += `\n4. Use exact student names as shown in the descriptions`;
-	retStr += `\n5. INCLUDE the "thinking" field with your analysis`;
+	retStr += `\n5. Return ONLY the "responses" array: no reasoning, analysis or explanation fields, and no text outside it`;
+	retStr += `\n6. Inside a message, write Hebrew abbreviations with the Hebrew gershayim ״ (for example ס״מ, מ״ר, קמ״ש), never with the ASCII double quote character (").`;
 	
 	// NOTE: PCK feedback is generated by a separate PCK expert agent BEFORE student responses
 	// The student agent receives the PCK analysis and uses it to inform responses
@@ -373,7 +397,7 @@ function makeProsePrompt(students, scenario, addendum, impact_analysis = null) {
 	if (scenario.ai_prior_knowledge) {
 		retStr += `\nPrior knowledge: ${scenario.ai_prior_knowledge}`;
 	}
-	if (scenario.misconception_focus) {
+	if (scenario.misconception_focus && !scenario.misconception_carrier) {
 		retStr += `\nPossible misconception to watch for: ${scenario.misconception_focus}`;
 	}
 	if (scenario.ai_pedagogical_focus && scenario.ai_pedagogical_focus.length > 0) {
@@ -382,7 +406,9 @@ function makeProsePrompt(students, scenario, addendum, impact_analysis = null) {
 			retStr += `\n- ${focus}`;
 		});
 	}
-	retStr += `\nScenario context is BACKGROUND ONLY. Do not force the misconception into every turn, do not copy fixed wording, and do not treat the pedagogical focus as a script. Base student responses on the actual conversation, the student personas, and the teacher's latest move.`;
+	retStr += scenario.misconception_carrier
+		? `\nScenario context is BACKGROUND ONLY: do not copy fixed wording and do not treat the pedagogical focus as a script. Base student responses on the actual conversation, the student personas, and the teacher's latest move. The lesson's misconception belongs to one designated student (see MISCONCEPTION CARRIER below).`
+		: `\nScenario context is BACKGROUND ONLY. Do not force the misconception into every turn, do not copy fixed wording, and do not treat the pedagogical focus as a script. Base student responses on the actual conversation, the student personas, and the teacher's latest move.`;
 	
 	// Natural conversation flow instructions
 	retStr += `\n\n🎭 NATURAL CONVERSATION FLOW (CRITICAL):`;
@@ -405,6 +431,7 @@ function makeProsePrompt(students, scenario, addendum, impact_analysis = null) {
 	retStr += `\n- Before finalising responses, compare each student's draft response to what that same student said in the immediately preceding student turn.`;
 	retStr += `\n- If a draft response is identical or near-identical (same meaning, same phrasing) to the student's previous message, DO NOT output it. Instead, either have the student react briefly to the teacher's new message in a different way, or keep them silent this turn.`;
 	retStr += `\n- IMPORTANT: At least ONE student must respond every turn. If the no-duplicate rule would silence all students, pick the student whose persona makes a short reaction most natural and have them give a brief, genuinely different acknowledgement of the teacher's latest message.`;
+	retStr += `\n- When the teacher's latest message is primarily an acknowledgement, praise, thanks, or closing rather than a new content question, respond naturally to that conversational move. Do not restate an earlier answer verbatim. If the student is still confused, preserve that underlying state without forcing the same misconception or wording to be repeated.`;
 	
 	// Lesson phase detection
 	retStr += `\n\n📍 LESSON PHASE DETECTION (CRITICAL — CHECK BEFORE EVERY RESPONSE):`;
@@ -432,7 +459,7 @@ function makeProsePrompt(students, scenario, addendum, impact_analysis = null) {
 	retStr += `\n- When in doubt whether the teacher is closing: if the message sounds final or conclusive, treat it as closure`;
 
 	// Chain-of-Thought instructions
-	retStr += `\n\n🧠 DECISION PROCESS (MUST INCLUDE IN OUTPUT):`;
+	retStr += `\n\n🧠 DECISION PROCESS (think through these steps silently before answering; do NOT include them in the output):`;
 	retStr += `\nSTEP 0: Check lesson phase — Is this a pure social greeting? Is this a lesson closing? If yes, apply the LESSON PHASE DETECTION rules above before doing anything else.`;
 	retStr += `\nBefore generating responses, analyze:`;
 	retStr += `\nSTEP 1: Summarize teacher's LATEST message briefly - if message seems incomplete (ends with "יש לי שאלה", "בואו נדבר על", "עכשיו אני רוצה", etc.), note that it's INCOMPLETE`;
@@ -478,32 +505,17 @@ function makeProsePrompt(students, scenario, addendum, impact_analysis = null) {
 	retStr += `\n`;
 	retStr += `\nEXAMPLE 1 - Student understood the explanation:`;
 	retStr += `\n{`;
-	retStr += `\n  "thinking": {`;
-	retStr += `\n    "teacher_message_summary": "המורה הסביר שריבוע הוא מקרה מיוחד של מלבן",`;
-	retStr += `\n    "context_analysis": "${students[0].name} שאלה האם ריבוע זה מלבן, המורה נתן הסבר טוב",`;
-	retStr += `\n    "who_should_respond": [{"student": "${students[0].name}", "should_respond": true, "reason": "קיבלה הסבר טוב, צריכה להראות הבנה", "confidence": "high"}]`;
-	retStr += `\n  },`;
-	retStr += `\n  "responses": [{"student": "${students[0].name}", "message": "אה עכשיו הבנתי! אז כל ריבוע הוא גם מלבן כי יש לו 4 זוויות ישרות?"}]`;
+	retStr += `\n  "responses": [{"student": "<שם של אחד מהתלמידים ברשימה>", "message": "אה, עכשיו הבנתי! אז [המסקנה מההסבר] כי [הסיבה שהמורה נתן/ה]?"}]`;
 	retStr += `\n}`;
 	retStr += `\n`;
 	retStr += `\nEXAMPLE 2 - Student still confused after explanation:`;
 	retStr += `\n{`;
-	retStr += `\n  "thinking": {`;
-	retStr += `\n    "teacher_message_summary": "המורה הסביר על אלכסונים מאונכים במעויין",`;
-	retStr += `\n    "context_analysis": "${students[1].name} שאל למה אלכסונים מאונכים, ההסבר היה מורכב ולא ברור לו",`;
-	retStr += `\n    "who_should_respond": [{"student": "${students[1].name}", "should_respond": true, "reason": "עדיין מבולבל אחרי ההסבר", "confidence": "high"}]`;
-	retStr += `\n  },`;
-	retStr += `\n  "responses": [{"student": "${students[1].name}", "message": "רגע, אני עדיין לא מבין למה דווקא במעויין האלכסונים מאונכים. מה המיוחד במעויין?"}]`;
+	retStr += `\n  "responses": [{"student": "<שם של אחד מהתלמידים ברשימה>", "message": "רגע, עדיין לא ברור לי למה דווקא [החלק המסוים שלא הובן]. מה מיוחד ב[מה שהמורה הזכיר]?"}]`;
 	retStr += `\n}`;
 	retStr += `\n`;
 	retStr += `\nEXAMPLE 3 - Student THINKS understood but has misconception:`;
 	retStr += `\n{`;
-	retStr += `\n  "thinking": {`;
-	retStr += `\n    "teacher_message_summary": "המורה הסביר שבמעויין האלכסונים מאונכים",`;
-	retStr += `\n    "context_analysis": "${students[2].name} הקשיב, אבל הוא יכול לטעות ולחשוב שזה עובד גם בכיוון ההפוך",`;
-	retStr += `\n    "who_should_respond": [{"student": "${students[2].name}", "should_respond": true, "reason": "יכול להראות תפיסה שגויה", "confidence": "medium"}]`;
-	retStr += `\n  },`;
-	retStr += `\n  "responses": [{"student": "${students[2].name}", "message": "אוקיי, אז אם אני רואה מרובע שהאלכסונים שלו מאונכים, אני יודע שזה מעויין, נכון?"}]`;
+	retStr += `\n  "responses": [{"student": "<שם של אחד מהתלמידים ברשימה>", "message": "אוקיי, אז בכל פעם ש[תכונה אחת מתקיימת], זה בטוח [מסקנה רחבה מדי], נכון?"}]`;
 	retStr += `\n}`;
 	retStr += `\n`;
 	retStr += `\n❌ WRONG - Repeating question without acknowledging answer:`;
@@ -544,7 +556,9 @@ function makeProsePrompt(students, scenario, addendum, impact_analysis = null) {
 	}
 	
 	// Add misconception focus if specified
-	if (scenario.misconception_focus) {
+	if (scenario.misconception_focus && scenario.misconception_carrier) {
+		retStr += carrierBlock(students, scenario);
+	} else if (scenario.misconception_focus) {
 		retStr += "\n\n🎯 TARGETED MISCONCEPTION FOR THIS LESSON:\n";
 		retStr += scenario.misconception_focus + "\n";
 		retStr += "\n⚠️ MISCONCEPTION LIFECYCLE (IMPORTANT):\n";
@@ -566,7 +580,9 @@ function makeProsePrompt(students, scenario, addendum, impact_analysis = null) {
 		retStr += "🎯🎯🎯 CRITICAL: PCK EXPERT ANALYSIS - THIS OVERRIDES ALL OTHER INSTRUCTIONS 🎯🎯🎯\n";
 		retStr += "=".repeat(80) + "\n";
 		retStr += "A PCK expert has analyzed the teacher's last instructional move.\n";
-		retStr += "⚠️ THE FOLLOWING ANALYSIS TAKES PRIORITY OVER SCENARIO MISCONCEPTION INSTRUCTIONS!\n";
+		retStr += scenario.misconception_carrier
+			? `⚠️ THE FOLLOWING ANALYSIS TAKES PRIORITY OVER THE OTHER SCENARIO INSTRUCTIONS, EXCEPT THE MISCONCEPTION CARRIER RULE: it cannot by itself resolve ${scenario.misconception_carrier}'s misconception.\n`
+			: "⚠️ THE FOLLOWING ANALYSIS TAKES PRIORITY OVER SCENARIO MISCONCEPTION INSTRUCTIONS!\n";
 		retStr += "⚠️ Student reactions MUST reflect the pedagogical quality determined by the expert!\n\n";
 		
 		retStr += `**Overall Pedagogical Quality**: ${impact_analysis.pedagogical_quality}\n`;
@@ -629,6 +645,9 @@ function makeProsePrompt(students, scenario, addendum, impact_analysis = null) {
 		}
 		
 		retStr += "⚠️ **MANDATORY ALIGNMENT RULES** (NON-NEGOTIABLE):\n\n";
+		if (scenario.misconception_carrier) {
+			retStr += carrierSteeringException(scenario);
+		}
 		retStr += "**If pedagogical_quality = 'positive':**\n";
 		retStr += "  → Students MUST show understanding progress\n";
 		retStr += "  → Use expressions like: 'אה עכשיו הבנתי!', 'אז זה אומר ש...', 'נכון, אז...'\n";

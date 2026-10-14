@@ -4,6 +4,7 @@
  */
 
 import { saveConversation, addMessageToConversation, saveOrGetStudentPersona } from './firestoreService';
+import { sanitizeTurnTelemetry } from './callTelemetry';
 
 /**
  * Compress a base64 PNG image by resizing it to a max width.
@@ -37,8 +38,11 @@ async function compressImageBase64(base64, maxWidth = 600) {
 	});
 }
 
+// Upper bound on stored failed-attempt diagnostics per conversation (Firestore 1 MB document limit)
+const MAX_FAILED_ATTEMPTS = 50;
+
 export class ConversationLog {
-	constructor(scenario, students, userId, userProfile, systemVersion = "1.0") {
+	constructor(scenario, students, userId, userProfile, systemVersion = "1.0", { misconceptionCarrier = null } = {}) {
 		this.sessionId = this.generateSessionId();
 		this.startTime = new Date().toISOString();
 		this.endTime = null;
@@ -64,6 +68,12 @@ export class ConversationLog {
 			initiated_by: scenario.initiated_by
 		};
 		
+		// 1.5.0: the session's misconception carrier (services/misconceptionCarrier.js) for provenance and replay;
+		// null when none was designated. Additive: documents before 1.5.0 have no such field.
+		this.misconceptionCarrier = misconceptionCarrier
+			? { name: misconceptionCarrier.name, personaId: misconceptionCarrier.personaId, rule: misconceptionCarrier.rule }
+			: null;
+		
 		// Store student data temporarily for initialization
 		this.studentsData = students;
 		
@@ -72,6 +82,10 @@ export class ConversationLog {
 		
 		// Conversation turns (teacher message + student responses + PCK feedback)
 		this.turns = [];
+		
+		// Failed PCK / student-agent attempts (diagnostics only; never part of turns[], A16)
+		this.failedAttempts = [];
+		this.failedAttemptCount = 0;
 		
 		// Summary statistics
 		this.stats = {
@@ -118,6 +132,7 @@ export class ConversationLog {
 				systemVersion: this.systemVersion,
 				scenario: this.scenario,
 				studentRefs: this.studentRefs,  // Store references instead of full data
+				misconceptionCarrier: this.misconceptionCarrier,
 				startTime: this.startTime,
 				endTime: this.endTime,
 				turns: [],
@@ -139,7 +154,7 @@ export class ConversationLog {
 	/**
 	 * Add a conversation turn (teacher message, student responses, PCK feedback)
 	 */
-	async addTurn(teacherMessage, studentResponses, pckFeedback, teacherImage = null) {
+	async addTurn(teacherMessage, studentResponses, pckFeedback, teacherImage = null, telemetry = null) {
 		// Initialize Firestore on first turn (lazy initialization)
 		if (!this.firestoreInitialized) {
 			console.log('📊 First message - initializing conversation in Firestore...');
@@ -170,7 +185,9 @@ export class ConversationLog {
 				detected_skills: pckFeedback.detected_skills || [],          // fallback
 				missed_opportunities: pckFeedback.missed_opportunities || [], // fallback
 				timestamp: new Date().toISOString()
-			} : null
+			} : null,
+			// LLM-call telemetry for this turn ({pck, student}, whitelist only; A17)
+			telemetry: sanitizeTurnTelemetry(telemetry)
 		};
 		
 		this.turns.push(turn);
@@ -184,6 +201,28 @@ export class ConversationLog {
 		
 		// Save to Firestore
 		await this.saveToFirestore();
+	}
+  
+	/**
+	 * Record a failed PCK / student-agent attempt (see services/turnDiagnostics.js).
+	 * Stored separately from turns[] so turn numbering is unaffected. Before the first logged
+	 * turn the conversation is not saved yet (lazy init); pending failures are saved with it.
+	 */
+	async addFailedAttempt(attempt) {
+		this.failedAttemptCount++;
+		this.failedAttempts.push({
+			...attempt,
+			sessionId: this.sessionId,
+			attemptNumber: this.failedAttemptCount,
+			precedingTurnNumber: this.turns.length,
+		});
+		// Keep the most recent entries only, to bound the document size
+		if (this.failedAttempts.length > MAX_FAILED_ATTEMPTS) {
+			this.failedAttempts = this.failedAttempts.slice(-MAX_FAILED_ATTEMPTS);
+		}
+		if (this.firestoreInitialized) {
+			await this.saveToFirestore();
+		}
 	}
   
 	/**
@@ -231,7 +270,9 @@ export class ConversationLog {
 			endTime: this.endTime,
 			scenario: this.scenario,
 			studentRefs: this.studentRefs,  // Use references instead of full data
+			misconceptionCarrier: this.misconceptionCarrier,
 			turns: this.turns,
+			failedAttempts: this.failedAttempts,
 			stats: this.stats,
 			summaryFeedback: this.summaryFeedback || null
 		};

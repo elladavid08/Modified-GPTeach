@@ -52,12 +52,13 @@ function ClaimBox({ scenario }) {
         </div>
       )}
 
+      {/* Transparent, tightly cropped PNGs: no frame; the shape keeps about its earlier on-screen size */}
       {image && (
         <div style={{ marginTop: "14px", textAlign: "center" }}>
           <img
             src={image}
             alt={imageAlt || "תמונה לתרחיש"}
-            style={{ maxWidth: "160px", border: "1px solid #ccc", borderRadius: "6px" }}
+            style={{ maxWidth: "136px", height: "auto" }}
           />
         </div>
       )}

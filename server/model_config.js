@@ -1,6 +1,6 @@
 /**
- * Gemini model configuration (1.3.0-gemini3 on main): split models, as validated on the
- * post-pilot branch (research/simulator_audit/student_model_bakeoff.md §9 there).
+ * Gemini model configuration (1.4.0): split models, validated in
+ * research/simulator_audit/student_model_bakeoff.md §9.
  *
  * - The student agent (/api/generate) runs on gemini-3.5-flash-lite.
  * - PCK feedback (/api/pck-feedback), the summary (/api/pck-summary) and the completion / test

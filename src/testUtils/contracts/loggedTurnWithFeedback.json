@@ -1,0 +1,20 @@
+{
+  "_comment": "A turn exactly as ConversationLog.addTurn stores it when feedback was displayed (A2/A4: pckFeedback !== null means displayed; no should_provide_feedback inside pckFeedback). Shared by the frontend logger test (shape check) and the backend summary test (C1). Synthetic data.",
+  "turnNumber": 2,
+  "timestamp": "2026-01-01T10:02:00.000Z",
+  "teacher": { "message": "TEACHER-MOMENT-TEXT בואו נבדוק - מה ההגדרה של מלבן?", "image": null, "timestamp": "2026-01-01T10:02:00.000Z" },
+  "students": [{ "name": "תמר", "message": "כן! אז ריבוע הוא מלבן", "timestamp": "2026-01-01T10:02:05.000Z" }],
+  "pckFeedback": {
+    "feedback_message": "STORED-FEEDBACK-MESSAGE",
+    "feedback_type": "positive",
+    "skills_assessment": [
+      { "skill_id": "error-identification", "is_relevant": true, "score": 2, "evidence": "EVIDENCE-SCORE-2" },
+      { "skill_id": "adapted-pedagogical-response", "is_relevant": true, "score": 1, "evidence": "EVIDENCE-SCORE-1", "what_could_be_better": "SUGGESTION-SCORE-1" },
+      { "skill_id": "error-characterization", "is_relevant": true, "score": 0, "what_could_be_better": "SUGGESTION-SCORE-0" },
+      { "skill_id": "error-leveraging", "is_relevant": false, "reason_not_relevant": "IRRELEVANT-REASON" }
+    ],
+    "detected_skills": [{ "skill_id": "error-identification", "evidence": "EVIDENCE-SCORE-2" }],
+    "missed_opportunities": [{ "skill_id": "error-characterization", "what_could_have_been_done": "SUGGESTION-SCORE-0" }],
+    "timestamp": "2026-01-01T10:02:01.000Z"
+  }
+}

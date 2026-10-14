@@ -1,4 +1,4 @@
-import React, { useState, useContext, useEffect, useRef } from "react";
+import React, { useState, useContext, useEffect, useRef, useCallback } from "react";
 import { Constants } from "../config/constants";
 import { SYSTEM_VERSION } from "../config/version";
 import callAI from "../utils/ai.js";
@@ -7,21 +7,42 @@ import { Messages } from "../components/Messages";
 import { LessonTargetsSidebar } from "../components/LessonTargetsSidebar";
 import { PCKFeedbackSidebar } from "../components/PCKFeedbackSidebar";
 import { PCKSummaryModal } from "../components/PCKSummaryModal";
+import { LeaveConversationDialog } from "../components/LeaveConversationDialog";
 import { HistoryContext } from "../objects/ChatHistory";
 import { AppContext } from "../objects/AppContext";
 import { ScenarioSelector } from "../components/ScenarioSelector";
+import { TeacherBriefingPanel } from "../components/TeacherBriefingPanel";
+import { getConversationsByUser } from "../services/firestoreService";
+import { getAttemptedScenarioTexts } from "../services/attemptedScenarios";
 import { ConversationLog } from "../services/conversationLogger";
+import { selectMisconceptionCarrier, withMisconceptionCarrier } from "../services/misconceptionCarrier";
+import { buildFailedAttempt, FAILURE_MESSAGES_HE } from "../services/turnDiagnostics";
+import { buildCallTelemetry } from "../services/callTelemetry";
+import { buildPckDisplayRows, countRowsWithoutText } from "../services/pckDisplayRows";
 import { useAuth } from "../contexts/AuthContext";
 import ChatMessage from "../objects/ChatMessage";
 import "../style/ChatOnly.css";
 
+/**
+ * The chat page. Each visit to the scenario-selection screen is a fresh ChatSession: returning
+ * ("חזרה לבחירת תרחיש": after finishing since 1.4.4, also before finishing since 1.5.0) remounts it,
+ * so every per-conversation state and ref starts from scratch (no page reload).
+ */
 export const Chat = () => {
+	const [sessionKey, setSessionKey] = useState(0);
+	return <ChatSession key={sessionKey} onReturnToSelection={() => setSessionKey((key) => key + 1)} />;
+};
+
+const ChatSession = ({ onReturnToSelection }) => {
 	const history = useContext(HistoryContext);
 	const appData = useContext(AppContext);
 	const { currentUser, userProfile } = useAuth();
 	const [isQuerying, setIsQuerying] = useState(false);
 	const [hasInitiated, setHasInitiated] = useState(false);
 	const [scenario, setScenario] = useState(null);
+	// 1.5.0: the student who holds the scenario's misconception, chosen once from the fixed cast when the
+	// scenario is selected; passed to the student agent only (never to PCK, never shown) and logged additively.
+	const [misconceptionCarrier, setMisconceptionCarrier] = useState(null);
 	const [pckFeedback, setPckFeedback] = useState(null);
 	const [feedbackHistory, setFeedbackHistory] = useState([]);
 	const [isSessionEnded, setIsSessionEnded] = useState(false);
@@ -35,8 +56,76 @@ export const Chat = () => {
 	// Drawing board
 	const drawingBoardRef = useRef(null);
 	const [showBoard, setShowBoard] = useState(false);
+
+	// Turn lock: only one simulation turn (PCK analysis + student responses) runs at a time.
+	// The ref guards synchronously against double submits; the state drives the UI.
+	const turnInProgressRef = useRef(false);
+	const [isTurnInProgress, setIsTurnInProgress] = useState(false);
+	// Turn logging is chained so entries are written in send order, one at a time.
+	const turnLogQueueRef = useRef(Promise.resolve());
+
+	function beginTurn() {
+		if (turnInProgressRef.current) {
+			return false;
+		}
+		turnInProgressRef.current = true;
+		setIsTurnInProgress(true);
+		return true;
+	}
+
+	function endTurn() {
+		turnInProgressRef.current = false;
+		setIsTurnInProgress(false);
+	}
+	
+	// Teacher-facing failure notices for the current turn (cleared when the next turn starts)
+	const [pckError, setPckError] = useState(null);
+	const [turnError, setTurnError] = useState(null);
+	
+	/** Record a failed PCK / student-agent attempt as diagnostics (not as a turn), in log order */
+	function recordFailedAttempt(agent, error, teacherMessage, pckFeedbackDisplayed = false) {
+		const logger = conversationLoggerRef.current;
+		if (!logger) {
+			return;
+		}
+		const attempt = buildFailedAttempt({ agent, error, teacherMessage, pckFeedbackDisplayed });
+		turnLogQueueRef.current = turnLogQueueRef.current
+			.then(() => logger.addFailedAttempt(attempt))
+			.catch((logError) => console.error("❌ Error recording failed attempt:", logError));
+	}
 	
 	// Scenario is set by the ScenarioSelector — no random pre-selection
+
+	// #8: scenarios this teacher already attempted look different on the selection screen.
+	// Display only; if the load fails or is slow, the screen works as before without the styling.
+	const [attemptedScenarioTexts, setAttemptedScenarioTexts] = useState(() => new Set());
+	const currentUserId = currentUser ? currentUser.uid : null;
+	const scenarioList = appData.scenarios;
+	useEffect(() => {
+		if (!currentUserId || !scenarioList) {
+			return undefined;
+		}
+		let cancelled = false;
+		getConversationsByUser(currentUserId)
+			.then(({ conversations, error }) => {
+				if (cancelled) {
+					return;
+				}
+				if (error) {
+					console.warn("Previous conversations not loaded; scenarios shown without attempted marks:", error);
+					return;
+				}
+				setAttemptedScenarioTexts(getAttemptedScenarioTexts(conversations, currentUserId, scenarioList));
+			})
+			.catch((error) => {
+				console.warn("Previous conversations not loaded; scenarios shown without attempted marks:", error);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [currentUserId, scenarioList]);
+	
+	const students = appData.students ? appData.students.slice(0, Constants.NUM_STUDENTS) : [];
 	
 	// Initialize conversation logger when scenario and students are ready
 	useEffect(() => {
@@ -47,16 +136,30 @@ export const Chat = () => {
 				students, 
 				currentUser.uid, 
 				userProfile, 
-				SYSTEM_VERSION
+				SYSTEM_VERSION,
+				{ misconceptionCarrier }
 			);
 			console.log("✅ Conversation logger initialized:", conversationLoggerRef.current.sessionId);
 		}
-	}, [scenario, students, currentUser, userProfile]);
-	
-	const students = appData.students ? appData.students.slice(0, Constants.NUM_STUDENTS) : [];
+	}, [scenario, students, currentUser, userProfile, misconceptionCarrier]);
 
 	/** Add the teacher's message and wait for a response */
 	async function addUserResponse(TAmessage) {
+		// Ignore empty sends: no text and no drawing to include
+		const hasText = TAmessage.text.trim().length > 0;
+		const board = drawingBoardRef.current;
+		const willIncludeDrawing = Boolean(board && board.shouldInclude() && board.hasDrawing());
+		if (!hasText && !willIncludeDrawing) {
+			return;
+		}
+
+		// Ignore sends while a turn is still in progress
+		if (!beginTurn()) {
+			return;
+		}
+		setPckError(null);
+		setTurnError(null);
+
 		// Clear any previous feedback immediately so it doesn't persist into the next turn
 		setPckFeedback(null);
 
@@ -112,6 +215,7 @@ export const Chat = () => {
 			if (scenario.initiated_by === "students") {
 				console.log("✅ Students will initiate");
 				// Students start - trigger AI to generate first message
+				beginTurn();
 				setIsQuerying(true);
 			} else {
 				console.log("✅ Waiting for teacher to initiate");
@@ -180,13 +284,17 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 		(async () => {
 			let impact_analysis = null;
 			let feedbackForLog = null;
+			// Per-turn LLM-call telemetry (logged with the turn; no content)
+			let pckTelemetry = null;
+			let pckMeta = null;
 			
 			// Step 1: Get PCK feedback analysis FIRST (except for first message)
 			try {
 				const teacherMessages = history.getMessages().filter(msg => msg.role === "user");
 				const lastTeacherMessage = teacherMessages[teacherMessages.length - 1];
 				
-				if (lastTeacherMessage) {
+				// Image-only turns (drawing, no text) skip PCK until the PCK agent can see drawings
+				if (lastTeacherMessage && lastTeacherMessage.text.trim()) {
 					console.log("🎯 STEP 1: Analyzing teacher's pedagogical move...");
 					console.log("💡 Requesting PCK feedback for teacher message...");
 					console.log(`📊 Feedback history: ${feedbackHistory.length} previous turns`);
@@ -195,8 +303,10 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 						lastTeacherMessage.text,
 						history.getMessages(),
 						scenario,
-						feedbackHistory.slice(-3) // Pass last 3 feedback items for context
+						feedbackHistory.slice(-3), // Pass last 3 feedback items for context
+						{ onMeta: (meta) => { pckMeta = meta; } }
 					);
+					pckTelemetry = buildCallTelemetry("ok", pckMeta);
 					
 				console.log("✅ PCK analysis received:");
 				console.log("   - Quality:", impact_analysis.pedagogical_quality);
@@ -221,6 +331,8 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 			if (impact_analysis.should_provide_feedback) {
 				setPckFeedback(formattedFeedback);
 				feedbackForLog = formattedFeedback;  // Only log feedback that was actually shown
+				// 1.4.3: content-free count of displayed skill rows with no usable text (display only; nothing changes)
+				pckTelemetry = buildCallTelemetry("ok", { ...pckMeta, pckRowsWithoutText: countRowsWithoutText(buildPckDisplayRows(formattedFeedback)) });
 			} else {
 				// Clear feedback if not needed
 				setPckFeedback(null);
@@ -240,23 +352,32 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 				});
 				
 				console.log("📊 PCK feedback displayed to teacher");
+			} else {
+				// PCK intentionally not called: image-only turn, or no teacher message yet
+				pckTelemetry = buildCallTelemetry("skipped", null, lastTeacherMessage ? "image_only" : "no_teacher_message");
 			}
 			} catch (error) {
 				console.error("❌ Error getting PCK feedback:", error);
-				// Continue even if PCK feedback fails, but log it
+				// Continue even if PCK feedback fails, but show and record it
 				impact_analysis = null;
+				pckTelemetry = buildCallTelemetry("failed", { ...(error && error.meta), clientLatencyMs: error && error.clientLatencyMs });
+				setPckError(FAILURE_MESSAGES_HE.pck);
+				const teacherMessages = history.getMessages().filter(msg => msg.role === "user");
+				recordFailedAttempt("pck", error, teacherMessages[teacherMessages.length - 1] || null);
 			}
 			
 			// Step 2: Generate student responses WITH the impact analysis
 			console.log("🎯 STEP 2: Generating student responses based on PCK analysis...");
 			
-			callAI(
+			try {
+			await callAI(
 				history, 
 				students, 
-				scenario, 
+				withMisconceptionCarrier(scenario, misconceptionCarrier), // the carrier reaches the students only
 				addendum,
 				impact_analysis,  // NEW: Pass impact_analysis to student agent
-				async (aiMessages) => {
+				async (aiMessages, _codePieces, _students, studentMeta) => {
+					try {
 					// Handle case where no students respond (silence is valid with selective responses)
 					if (!aiMessages || aiMessages.length === 0) {
 						console.log("📭 No student responses this turn - continuing conversation");
@@ -275,30 +396,62 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 						
 					if (lastTeacherMessage) {
 						console.log("📊 Logging conversation turn...");
-						conversationLoggerRef.current.addTurn(
-							lastTeacherMessage.text,
-							aiMessages.map(msg => ({ name: msg.name, text: msg.text })),
-							feedbackForLog,
-							lastTeacherMessage.image || null  // include drawing image if teacher sent one
-						);
+						const logger = conversationLoggerRef.current;
+						turnLogQueueRef.current = turnLogQueueRef.current
+							.then(() => logger.addTurn(
+								lastTeacherMessage.text,
+								aiMessages.map(msg => ({ name: msg.name, text: msg.text })),
+								feedbackForLog,
+								lastTeacherMessage.image || null,  // include drawing image if teacher sent one
+								{ pck: pckTelemetry, student: buildCallTelemetry("ok", studentMeta) }
+							))
+							.catch((error) => console.error("❌ Error logging conversation turn:", error));
 							console.log("✅ Turn logged. Total turns:", conversationLoggerRef.current.turns.length);
 						}
 					}
 					
 					console.log("🎉 Turn complete: PCK analysis → Student responses → Display");
+					} finally {
+						endTurn();
+					}
 				}
 			);
+			} catch (error) {
+				console.error("❌ Error generating student responses:", error);
+				setTurnError(FAILURE_MESSAGES_HE.student);
+				const teacherMessages = history.getMessages().filter(msg => msg.role === "user");
+				recordFailedAttempt("student", error, teacherMessages[teacherMessages.length - 1] || null, Boolean(feedbackForLog));
+				endTurn();
+			}
 		})();
 		}
 	}, [isQuerying, scenario]);
 
 	// Handle finishing the conversation
+	const finishRequestedRef = useRef(false);
+	// Finish requested, waiting for queued turn log entries (1.5.0: blocks returning to selection meanwhile)
+	const [isFinishing, setIsFinishing] = useState(false);
+
 	const handleFinishConversation = () => {
+		// Not available while a turn is in progress; ignore repeated requests
+		if (turnInProgressRef.current || finishRequestedRef.current) {
+			return;
+		}
 		if (!conversationLoggerRef.current) {
 			console.warn("No conversation logger found");
 			return;
 		}
-		
+		finishRequestedRef.current = true;
+		setIsFinishing(true);
+
+		// Finish only after queued turn log entries are written, so no turn is skipped or reordered
+		turnLogQueueRef.current = turnLogQueueRef.current
+			.then(finishConversation)
+			.catch((error) => console.error("❌ Error finishing conversation:", error))
+			.then(() => setIsFinishing(false));
+	};
+
+	const finishConversation = () => {
 		// End the session
 		conversationLoggerRef.current.endSession();
 		console.log("🏁 Conversation session ended");
@@ -314,6 +467,45 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 		alert(`שיחה הסתיימה!\n\nהשיחה נשמרה בהצלחה.\n\nמזהה שיחה: ${conversationLoggerRef.current.sessionId}\nמספר תגובות: ${conversationLoggerRef.current.turns.length}\nמשך זמן: ${conversationLoggerRef.current.stats.durationMinutes} דקות\n\nכעת תוכל לקבל ניתוח מקיף PCK של השיחה!`);
 	};
 	
+	// Back to the scenario-selection screen: after finishing (1.4.4), and since 1.5.0 also before.
+	// Never while a turn, a pending finish, the summary request or a previous return is in progress.
+	// An unfinished conversation asks first (LeaveConversationDialog). Leaving without finishing does
+	// not finish, change or mark anything: logged turns stay as they are, no state is stored, and the
+	// next scenario selection starts a new conversation (there is no resume).
+	const [showLeaveDialog, setShowLeaveDialog] = useState(false);
+	const [isLeaving, setIsLeaving] = useState(false);
+	const leavingRef = useRef(false);
+	const canReturnToSelection = !isTurnInProgress && !isLoadingSummary && !isFinishing && !isLeaving;
+
+	const leaveToSelection = () => {
+		if (turnInProgressRef.current || leavingRef.current) {
+			return;
+		}
+		leavingRef.current = true;
+		setIsLeaving(true);
+		setShowLeaveDialog(false);
+		// Leave only after queued turn log entries are written, so nothing in flight is lost
+		turnLogQueueRef.current.then(() => onReturnToSelection());
+	};
+
+	const handleReturnToSelection = () => {
+		if (!canReturnToSelection || turnInProgressRef.current || leavingRef.current) {
+			return;
+		}
+		// Finished, or nothing said yet (nothing to finish or lose): return directly
+		if (isSessionEnded || history.getLength() === 0) {
+			leaveToSelection();
+			return;
+		}
+		setShowLeaveDialog(true);
+	};
+
+	const closeLeaveDialog = useCallback(() => setShowLeaveDialog(false), []);
+	const finishFromLeaveDialog = () => {
+		setShowLeaveDialog(false);
+		handleFinishConversation(); // the existing finish flow; the teacher stays to get the summary
+	};
+
 	const handleGetSummary = async () => {
 		// If analysis was already generated, just re-show it without a new API call
 		if (summaryFeedback) {
@@ -364,8 +556,13 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 		return (
 			<ScenarioSelector
 				scenarios={appData.scenarios}
+				attemptedScenarioTexts={attemptedScenarioTexts}
 				onSelect={(chosen) => {
 					console.log("📝 Scenario selected:", chosen.text);
+					// A new conversation always starts with an empty chat history. The history provider
+					// sits above the router, so it can still hold an earlier conversation's messages.
+					history.resetHistory(0);
+					setMisconceptionCarrier(selectMisconceptionCarrier(students, chosen));
 					setScenario(chosen);
 				}}
 			/>
@@ -416,18 +613,16 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 						direction: "rtl",
 						marginTop: "5px"
 					}}>
+						{/* The only way out of the session (replaces the former "שיחה חדשה" page reload, 1.5.0) */}
 						<button
-							className="btn btn-outline-success btn-sm"
-							disabled={
-								Constants.IS_PRODUCTION &&
-								(isQuerying || history.getLength() === 0)
-							}
-							onClick={() => {
-								window.location.reload();
-							}}
-							style={{ direction: "rtl", fontSize: "12px", padding: "4px 12px" }}
+							type="button"
+							data-testid="return-to-selection"
+							className={isSessionEnded ? "btn btn-primary btn-sm" : "btn btn-outline-secondary btn-sm"}
+							disabled={!canReturnToSelection}
+							onClick={handleReturnToSelection}
+							style={{ direction: "rtl", fontSize: "12px", padding: "4px 12px", fontWeight: isSessionEnded ? "bold" : "normal" }}
 						>
-							שיחה חדשה
+							חזרה לבחירת תרחיש
 						</button>
 
 						<h2
@@ -460,7 +655,7 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 							)}
 							<button
 								className="btn btn-primary btn-sm"
-								disabled={isSessionEnded || history.getLength() === 0}
+								disabled={isSessionEnded || history.getLength() === 0 || isTurnInProgress || isFinishing}
 								onClick={handleFinishConversation}
 								style={{ direction: "rtl", fontSize: "12px", padding: "4px 12px" }}
 							>
@@ -470,51 +665,28 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 					</div>
 				</div>
 
-			{/* Show rich briefing when teacher should initiate */}
-			{history.getLength() === 0 && scenario.initiated_by === "teacher" && !isQuerying && (
-			<div
-				style={{
-					padding: "15px 20px",
-					margin: "10px 15px",
-					backgroundColor: "#f8f9fa",
-					border: "2px solid #0d6efd",
-					borderRadius: "10px",
-					direction: "rtl",
-					flex: "0 0 auto"
-				}}
-			>
-			{/* Header */}
-			<div style={{ textAlign: "center", marginBottom: "15px" }}>
-				<div style={{ fontSize: "24px", marginBottom: "8px" }}>📚</div>
-				<div style={{ fontSize: "17px", fontWeight: "bold", color: "#0d6efd", marginBottom: "4px" }}>
-					אתה מתחיל את השיעור
-				</div>
-			</div>
-
-			{/* Teacher Briefing - Instructions only */}
-			{scenario.teacher_briefing && (
-				<div style={{ padding: "12px", backgroundColor: "#fff3cd", borderRadius: "6px" }}>
-					<div style={{ fontSize: "14px", fontWeight: "bold", color: "#856404", marginBottom: "8px" }}>
-						📋 הנחיות:
-					</div>
-					<div style={{ fontSize: "13px", color: "#333", whiteSpace: "pre-line", lineHeight: "1.6" }}>
-						{scenario.teacher_briefing}
-					</div>
-				</div>
+			{/* Teacher briefing (B20): open card before the first message, then a collapsible panel */}
+			{scenario.initiated_by === "teacher" && (
+				<TeacherBriefingPanel
+					briefing={scenario.teacher_briefing}
+					fallbackText={scenario.initial_prompt || "התחל את השיחה עם התלמידים"}
+					lessonStarted={history.getLength() > 0 || isQuerying}
+				/>
 			)}
 
-			{/* Simple fallback if no teacher briefing */}
-			{!scenario.teacher_briefing && (
-				<div style={{ fontSize: "13px", color: "#555", fontStyle: "italic", textAlign: "center" }}>
-					{scenario.initial_prompt || "התחל את השיחה עם התלמידים"}
-				</div>
-			)}
-			</div>
-			)}
+				{turnError && (
+					<div
+						role="alert"
+						data-testid="turn-error"
+						style={{ margin: "8px 15px 0 15px", padding: "8px 12px", backgroundColor: "#fff3cd", color: "#856404", border: "1px solid #ffeeba", borderRadius: "6px", direction: "rtl", fontSize: "14px", flex: "0 0 auto" }}
+					>
+						{turnError}
+					</div>
+				)}
 
 				<div style={{ flex: "1 1 auto", overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
 				<Messages
-					isWaitingOnStudent={isQuerying}
+					isWaitingOnStudent={isQuerying || isTurnInProgress}
 					onMessageSend={addUserResponse}
 					showBoard={showBoard}
 					onToggleBoard={setShowBoard}
@@ -527,8 +699,19 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 			<PCKFeedbackSidebar 
 				feedback={pckFeedback} 
 				isVisible={true}
+				errorMessage={pckError}
 			/>
 			
+			{/* 1.5.0: returning to scenario selection before finishing */}
+			{showLeaveDialog && (
+				<LeaveConversationDialog
+					onFinish={finishFromLeaveDialog}
+					onLeave={leaveToSelection}
+					onCancel={closeLeaveDialog}
+					disabled={isTurnInProgress || isFinishing || isLeaving}
+				/>
+			)}
+
 			{/* PCK Summary Modal */}
 			{showSummary && (
 				<PCKSummaryModal

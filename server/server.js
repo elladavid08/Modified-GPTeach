@@ -11,8 +11,15 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { VertexAI } from '@google-cloud/vertexai';
 import { GoogleAuth } from 'google-auth-library';
-import { STUDENT_MODEL_ID, GENERAL_MODEL_ID, MODEL_IDS, VERTEX_LOCATION, VERTEX_API_ENDPOINT, baseGenerationConfig } from './model_config.js';
 import { formatSkillsForPrompt, formatConversationHistory, getPCKSkillById } from './universal_pck_skills.js';
+import { PCK_RESPONSE_SCHEMA, PCK_PARSE_ERROR, PCK_INVALID_ERROR, parsePckModelText, validatePckAnalysis } from './pck_feedback_contract.js';
+import { LLM_CALL_POLICY, callModelWithPolicy, interpretCandidate } from './llm_call_policy.js';
+import { validateStudentOutputText, STUDENT_PARSE_ERROR, STUDENT_INVALID_ERROR, MAX_RAW_OUTPUT_EXCERPT_CHARS } from './student_output_contract.js';
+import { findSelfDuplicates, buildRegenerationNote, appendRegenerationNote, dropDuplicateReplies } from './student_duplicate_guard.js';
+import { countSuspectedQuoteCuts, isSpacePaddedTokenLimit } from './student_quote_cut.js';
+import { countGarbledReplies } from './student_garble.js';
+import { STUDENT_MODEL_ID, GENERAL_MODEL_ID, MODEL_IDS, VERTEX_LOCATION, VERTEX_API_ENDPOINT, baseGenerationConfig } from './model_config.js';
+import { applyBareAcknowledgementGuard } from './pck_bare_ack_guard.js';
 import { saveConversation, saveMessage, createUserProfile, getUserProfile, saveTestSubmission, checkTestSubmission, verifyAnnotator, verifyAdmin, getTestSubmissions, getTestSubmission, saveTestAnnotation, getTestAnnotation, getAllAnnotationsForSubmission, getAllUsersAdmin, getResearchParticipantsAdmin, updateUserResearchStatusAdmin, getConversationsByUserAdmin, getConversationsMeta, getFullConversationForAnnotation, createAnnotationAssignments, getAnnotationAssignments, getAnnotatorAssignments, getConvAnnotation, saveConvAnnotation, submitConvAnnotation, exportConvAnnotations, cancelAnnotationAssignment, getEligibleAgreementConversations, getAgreementReports, getAgreementReport, computeAndSaveAgreementReport, getConversationsWithCompletedPairs, createComparisonSet, updateComparisonSet, deleteComparisonSet, getComparisonSets, getComparisonSetDetail, getComparisonData, getConsensusAnnotation, saveConsensusAnnotation, submitConsensusAnnotation } from './services/firebaseAdmin.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -36,7 +43,7 @@ if (NODE_ENV === 'production') {
 console.log('🔧 Initializing Vertex AI with Service Account...');
 
 const PROJECT_ID = process.env.GOOGLE_CLOUD_PROJECT || 'cloud-run-455609';
-// Gemini 3 migration (1.3.0-gemini3): the 3.x models are served only from the global endpoint (model_config.js)
+// 1.4.0: the 3.x models are served only from the global endpoint (model_config.js)
 const LOCATION = VERTEX_LOCATION;
 if (process.env.GOOGLE_CLOUD_LOCATION && process.env.GOOGLE_CLOUD_LOCATION !== LOCATION) {
   console.warn(`⚠️ GOOGLE_CLOUD_LOCATION=${process.env.GOOGLE_CLOUD_LOCATION} is ignored: the Gemini 3.x models use the ${LOCATION} endpoint`);
@@ -59,13 +66,22 @@ const vertexAI = new VertexAI({
   }
 });
 
-// Split models (model_config.js): the student agent on STUDENT_MODEL_ID; PCK feedback, summary,
-// completion and test on GENERAL_MODEL_ID.
+// Split models (1.4.0, model_config.js): the student agent on STUDENT_MODEL_ID; PCK feedback,
+// summary, completion and test on GENERAL_MODEL_ID.
 const model = vertexAI.getGenerativeModel({
   model: GENERAL_MODEL_ID
 });
-const studentModel = vertexAI.getGenerativeModel({
-  model: STUDENT_MODEL_ID
+
+// Per-turn calls (PCK feedback, student generation) use their own model instances, so the SDK
+// aborts the underlying HTTP request at the per-attempt timeout (LLM_CALL_POLICY). The summary,
+// completion and test endpoints keep `model` and the legacy `withRetry`, unchanged.
+const studentTurnModel = vertexAI.getGenerativeModel({
+  model: STUDENT_MODEL_ID,
+  requestOptions: { timeout: LLM_CALL_POLICY.perAttemptTimeoutMs }
+});
+const pckTurnModel = vertexAI.getGenerativeModel({
+  model: GENERAL_MODEL_ID,
+  requestOptions: { timeout: LLM_CALL_POLICY.perAttemptTimeoutMs }
 });
 
 console.log('✅ Vertex AI initialized successfully with service account');
@@ -100,6 +116,28 @@ async function withRetry(fn, maxRetries = 3, baseDelayMs = 2000) {
       }
     }
   }
+}
+
+/** Body of a final per-turn failure response (B23 shape; errorKind from LLM_CALL_POLICY failures). */
+function failureBody(failure, telemetry, defaults) {
+  const body = {
+    success: false,
+    error: failure.error || failure.message || defaults.error,
+    errorKind: failure.kind,
+    finishReason: telemetry.finishReason,
+    meta: telemetry
+  };
+  if (failure.problems) body.problems = failure.problems.slice(0, 10);
+  if (failure.rawOutputExcerpt !== undefined) {
+    body.rawOutputExcerpt = failure.rawOutputExcerpt;
+    body.rawOutputChars = failure.rawOutputChars;
+  }
+  return body;
+}
+
+/** Telemetry for an error response: what the failed call measured, or what is known statically. */
+function errorTelemetry(agent, telemetry, error) {
+  return telemetry || (error && error.telemetry) || { agent, model: MODEL_IDS[agent], latencyMs: null, finishReason: null, attempts: 0 };
 }
 
 const auth = new GoogleAuth({
@@ -239,9 +277,12 @@ function convertMessagesToGenAI(openAIMessages) {
         console.log('👤 Added user message');
       }
     } else if (message.role === "assistant") {
+      // Keep the speaker of each past student reply (C8). Gemini contents have no speaker field,
+      // so the simulated student's name is prefixed to the text ("name: text", as in the PCK history).
+      const speaker = typeof message.name === "string" ? message.name.trim() : "";
       contents.push({
-        role: "model", 
-        parts: [{ text: message.content }]
+        role: "model",
+        parts: [{ text: speaker ? `${speaker}: ${message.content}` : message.content }]
       });
       console.log('🤖 Added assistant/model message');
     }
@@ -261,8 +302,19 @@ function convertMessagesToGenAI(openAIMessages) {
   return contents;
 }
 
+// The returned student output was validated (or re-serialized) above; parse it again only to count.
+function parseResponsesForTelemetry(text) {
+  try {
+    const value = JSON.parse(text);
+    return value && Array.isArray(value.responses) ? value.responses : [];
+  } catch (error) {
+    return [];
+  }
+}
+
 // API endpoint for chat completions (GPT 3.5/4 style)
 app.post('/api/generate', async (req, res) => {
+  let telemetry = null;
   try {
     console.log('🚀 Received chat completion request');
     console.log('📝 Request body keys:', Object.keys(req.body));
@@ -321,39 +373,98 @@ app.post('/api/generate', async (req, res) => {
 
     console.log('📤 Calling Vertex AI with config:', generationConfig);
     
-    const result = await withRetry(() => studentModel.generateContent({
-      contents,
-      generationConfig
-    }));
-
-    console.log('📦 Raw result structure:', JSON.stringify(result, null, 2));
-
-    // Check if response exists
-    if (!result || !result.response) {
-      throw new Error('No response received from Vertex AI');
+    // Retry / timeout policy (1.3.6): at most 2 attempts; malformed structured output is retried.
+    // Same-student duplicate guard (1.3.11): if attempt 1 repeats a student's earlier reply, attempt 2
+    // of the same loop is the one re-ask (same request + the regeneration note). Still at most 2 attempts.
+    const duplicateGuard = { firstAttemptDuplicates: 0, outcome: 'none', dropped: 0, kept: 0 };
+    // Quote-cut detection (1.3.13): counters only; never retries, rewrites or drops anything
+    let quoteCutPaddedAttempts = 0;
+    const call = await callModelWithPolicy({
+      agent: 'student',
+      model: studentTurnModel,
+      modelId: STUDENT_MODEL_ID,
+      request: { contents, generationConfig },
+      interpret: (result, { attempt, isFinalAttempt }) => {
+        const candidate = interpretCandidate(result);
+        if (!candidate.ok) return candidate;
+        const checked = validateStudentOutputText(candidate.text);
+        if (!checked.ok) {
+          if (isSpacePaddedTokenLimit(candidate.text, candidate.finishReason)) quoteCutPaddedAttempts += 1;
+          console.error('❌ Invalid student output:', checked.kind, checked.problems.slice(0, 5));
+          return {
+            ok: false,
+            kind: checked.kind,
+            retryable: true,
+            error: checked.kind === 'parse' ? STUDENT_PARSE_ERROR : `${STUDENT_INVALID_ERROR} (${checked.problems.length} problem${checked.problems.length === 1 ? '' : 's'})`,
+            message: checked.problems[0],
+            problems: checked.problems,
+            rawOutputExcerpt: candidate.text.slice(0, MAX_RAW_OUTPUT_EXCERPT_CHARS),
+            rawOutputChars: candidate.text.length
+          };
+        }
+        const duplicates = findSelfDuplicates(checked.value.responses, messages);
+        if (duplicates.length === 0) {
+          duplicateGuard.outcome = attempt > 1 && duplicateGuard.firstAttemptDuplicates > 0 ? 'resolved' : 'none';
+          return { ok: true, value: candidate.text };
+        }
+        if (!isFinalAttempt) {
+          // Re-ask with the validated note; attempt 1 stays usable if the re-ask fails technically
+          duplicateGuard.firstAttemptDuplicates = duplicates.length;
+          return {
+            ok: false,
+            kind: 'duplicate',
+            retryable: true,
+            message: `same-student duplicate (${duplicates.length} ${duplicates.length === 1 ? 'reply' : 'replies'})`,
+            nextRequest: { contents: appendRegenerationNote(contents, buildRegenerationNote(duplicates)), generationConfig },
+            fallback: { value: candidate.text }
+          };
+        }
+        // Final attempt still duplicates: drop only those replies, unless that would leave none
+        const final = dropDuplicateReplies(checked.value, duplicates);
+        duplicateGuard.outcome = final.dropped > 0 ? 'dropped' : 'kept';
+        duplicateGuard.dropped = final.dropped;
+        duplicateGuard.kept = final.kept;
+        return { ok: true, value: final.dropped > 0 ? JSON.stringify(final.value) : candidate.text };
+      }
+    });
+    telemetry = call.telemetry;
+    if (call.ok) {
+      if (call.usedFallback) {
+        // The re-ask did not produce usable output (technical failure or no budget): attempt 1 as is
+        duplicateGuard.outcome = 'reask_failed';
+        duplicateGuard.dropped = 0;
+        duplicateGuard.kept = duplicateGuard.firstAttemptDuplicates;
+      }
+      // Content-free duplicate-guard telemetry (A17, additive)
+      telemetry = {
+        ...telemetry,
+        duplicateRetries: duplicateGuard.firstAttemptDuplicates > 0 && telemetry.attempts >= 2 ? 1 : 0,
+        duplicateRepliesDropped: duplicateGuard.dropped,
+        duplicateRepliesKept: duplicateGuard.kept,
+        duplicateOutcome: duplicateGuard.outcome,
+        // Content-free quote-cut counters (A17, additive): replies in the returned output that look cut,
+        // and attempts rejected as a whitespace-padded token-limit output
+        quoteCutSuspected: countSuspectedQuoteCuts(parseResponsesForTelemetry(call.value)),
+        quoteCutPaddedAttempts,
+        // Content-free garbled-text counters (1.4.2, A17 additive): replies in the returned output with a
+        // high-confidence script-level corruption, per category and in total. Detection only.
+        ...countGarbledReplies(parseResponsesForTelemetry(call.value))
+      };
     }
 
-    // Check if candidates exist
-    if (!result.response.candidates || result.response.candidates.length === 0) {
-      console.error('❌ No candidates in response. Full response:', JSON.stringify(result.response, null, 2));
-      throw new Error('No candidates in response. The model may have blocked the content or encountered an error.');
+    if (!call.ok) {
+      console.error('❌ Student generation failed after', telemetry.attempts, 'attempt(s):', call.failure.kind, call.failure.message);
+      return res.status(500).json(failureBody(call.failure, telemetry, { error: 'Student generation failed' }));
     }
 
-    // Extract text from response following the structure: result.response.candidates[0].content.parts[0].text
-    const candidate = result.response.candidates[0];
-    
-    if (!candidate.content || !candidate.content.parts || candidate.content.parts.length === 0) {
-      console.error('❌ Invalid candidate structure:', JSON.stringify(candidate, null, 2));
-      throw new Error('Invalid response structure from model');
-    }
-
-    const responseText = candidate.content.parts[0].text;
+    const responseText = call.value;
     console.log('✅ Response received, length:', responseText.length);
     console.log('✅ Response preview:', responseText.substring(0, 200) + '...');
     
     const responsePayload = { 
       success: true,
-      text: responseText
+      text: responseText,
+      meta: telemetry
     };
     console.log('📤 Sending response to frontend...');
     res.json(responsePayload);
@@ -367,7 +478,8 @@ app.post('/api/generate', async (req, res) => {
     res.status(500).json({ 
       success: false,
       error: error.message,
-      details: error.name
+      details: error.name,
+      meta: errorTelemetry('student', telemetry, error)
     });
   }
 });
@@ -375,6 +487,7 @@ app.post('/api/generate', async (req, res) => {
 // API endpoint for completions (GPT-3 style)
 // NEW: Comprehensive PCK Feedback Analysis Endpoint
 app.post('/api/pck-feedback', async (req, res) => {
+  let telemetry = null;
   try {
     console.log('💡 Received comprehensive PCK feedback analysis request');
     
@@ -475,6 +588,9 @@ Use student_reaction_hints to specify which students are most likely to respond 
 
 **⚠️ IMPORTANT — Questions as pedagogical moves:**
 A teacher message that contains a question is NOT automatically excluded. If the teacher is using a question as their pedagogical response to a student's incorrect claim (e.g. redirecting the student to examine a definition, posing a counter-example question, asking "is this always true?"), that question IS a PCK move and must be evaluated in Gate 1. Gate 0 only excludes questions that are topic-openers with no preceding student error.
+
+**⚠️ IMPORTANT — A bare acknowledgement of a student's incorrect claim is not a procedural message:**
+A student's mathematically incorrect claim counts as a student error even when it is phrased tentatively or hedged (e.g. "נראה לי ש...", "אני חושב ש...", "אז אולי...") or as a tag question that asserts the wrong idea (e.g. "...אז זה ריבוע, לא?"). This is different from a genuine information-seeking question, which contains no claim. If the most recent student turn contains such an incorrect claim and the teacher's current message is only a bare acknowledgement or confirmation such as "אוקיי", "יפה" or "נכון", without identifying or addressing the error, do not stop at Gate 0: this is a missed error-identification opportunity. error-identification is relevant (it must be evaluated) and receives score 0, pedagogical_quality is "problematic", and should_provide_feedback is true (feedback_trigger: "student_misconception_not_addressed"). A bare acknowledgement after a correct answer or a genuine question remains a procedural message with no feedback.
 
 If the current message is any of the above ❌ categories → should_provide_feedback: false. Stop here.
 
@@ -792,127 +908,77 @@ Return JSON only, no additional text:`;
 
     const generationConfig = {
       ...baseGenerationConfig(),
-      maxOutputTokens: 2000
+      maxOutputTokens: 2000,
+      // Structured output (C10): JSON mode constrained by the PCK response contract
+      responseMimeType: "application/json",
+      responseSchema: PCK_RESPONSE_SCHEMA
     };
 
     console.log('📤 Calling Vertex AI for comprehensive PCK analysis...');
     
-    const result = await withRetry(() => model.generateContent({
-      contents,
-      generationConfig
-    }));
-
-    if (!result || !result.response) {
-      throw new Error('No response received from Vertex AI');
-    }
-
-    if (!result.response.candidates || result.response.candidates.length === 0) {
-      throw new Error('No candidates in response');
-    }
-
-    const candidate = result.response.candidates[0];
-    
-    if (!candidate.content || !candidate.content.parts || candidate.content.parts.length === 0) {
-      throw new Error('Invalid response structure from model');
-    }
-
-    let responseText = candidate.content.parts[0].text.trim();
-    console.log('✅ Raw PCK analysis received:', responseText.substring(0, 200) + '...');
-    
-    // Extract JSON from markdown code blocks if present
-    if (responseText.includes('```json')) {
-      const match = responseText.match(/```json\s*([\s\S]*?)\s*```/);
-      if (match && match[1]) {
-        responseText = match[1].trim();
+    // Retry / timeout policy (1.3.6): at most 2 attempts; parse/schema failures (C10) are retried
+    const call = await callModelWithPolicy({
+      agent: 'pck',
+      model: pckTurnModel,
+      modelId: GENERAL_MODEL_ID,
+      request: { contents, generationConfig },
+      interpret: (result) => {
+        const candidate = interpretCandidate(result);
+        if (!candidate.ok) return candidate;
+        console.log('✅ Raw PCK analysis received:', candidate.text.substring(0, 200) + '...');
+        // Parse and validate the model output (C10): invalid output is rejected, never default-filled
+        const parsed = parsePckModelText(candidate.text);
+        if (!parsed.ok) {
+          console.error('❌ Failed to parse PCK analysis JSON:', parsed.error, '| finishReason:', candidate.finishReason);
+          console.error('Response text:', candidate.text);
+          return { ok: false, kind: 'parse', retryable: true, error: PCK_PARSE_ERROR, message: parsed.error };
+        }
+        const problems = validatePckAnalysis(parsed.value);
+        if (problems.length > 0) {
+          console.error('❌ Invalid PCK analysis:', problems, '| finishReason:', candidate.finishReason);
+          console.error('Response text:', candidate.text);
+          return {
+            ok: false,
+            kind: 'schema',
+            retryable: true,
+            error: `${PCK_INVALID_ERROR} (${problems.length} problem${problems.length === 1 ? '' : 's'})`,
+            message: problems[0],
+            problems
+          };
+        }
+        return { ok: true, value: parsed.value };
       }
-    } else if (responseText.includes('```')) {
-      const match = responseText.match(/```\s*([\s\S]*?)\s*```/);
-      if (match && match[1]) {
-        responseText = match[1].trim();
-      }
-    }
-    
-    // Parse the JSON response
-    let analysis;
-    try {
-      analysis = JSON.parse(responseText);
-      console.log('✅ PCK analysis parsed successfully');
-    } catch (parseError) {
-      console.error('❌ Failed to parse JSON response:', parseError);
-      console.error('Response text:', responseText);
-      throw new Error('Failed to parse AI response as JSON');
-    }
-    
-    // Validate and fill defaults for new structure
-    if (!analysis.pedagogical_quality || !analysis.predicted_student_state) {
-      console.warn('⚠️ Incomplete analysis structure, filling in defaults');
-      analysis.pedagogical_quality = analysis.pedagogical_quality || 'neutral';
-      analysis.predicted_student_state = analysis.predicted_student_state || {
-        understanding_level: 'same',
-        response_tone: 'thoughtful',
-        student_reaction_hints: []
-      };
+    });
+    telemetry = call.telemetry;
+
+    if (!call.ok) {
+      console.error('❌ PCK analysis failed after', telemetry.attempts, 'attempt(s):', call.failure.kind, call.failure.message);
+      return res.status(500).json(failureBody(call.failure, telemetry, { error: 'PCK analysis failed' }));
     }
 
-    if (!analysis.predicted_student_state.response_tone) {
-      analysis.predicted_student_state.response_tone = 'thoughtful';
-    }
-
-    if (!Array.isArray(analysis.predicted_student_state.student_reaction_hints)) {
-      analysis.predicted_student_state.student_reaction_hints = [];
-    }
+    // Bare-acknowledgement guard (1.4.1): for an exact "אוקיי" / "יפה" / "נכון", feedback is displayed only
+    // for a missed error-identification; any other display decision on it is suppressed. Nothing else changes.
+    const guarded = applyBareAcknowledgementGuard(teacherMessage, call.value);
+    const analysis = guarded.analysis;
+    console.log('✅ PCK analysis parsed and validated');
+    if (guarded.suppressed) console.log('🔇 PCK feedback display suppressed for a bare acknowledgement (not a missed error-identification)');
     
-    // Ensure new fields have defaults
-    if (analysis.should_provide_feedback === undefined) {
-      analysis.should_provide_feedback = false;
-    }
-    
-    if (!analysis.skills_assessment) {
-      analysis.skills_assessment = [];
-    }
-
-    // Defaults for new fields
-    if (analysis.addressed_misconception === undefined) {
-      analysis.addressed_misconception = false;
-    }
-    if (!analysis.how_addressed) {
-      analysis.how_addressed = '';
-    }
-    if (!analysis.misconception_risk) {
-      analysis.misconception_risk = 'medium';
-    }
-    if (!Array.isArray(analysis.demonstrated_skills)) {
-      // Derive from skills_assessment as fallback
-      analysis.demonstrated_skills = analysis.skills_assessment
-        .filter(s => s.is_relevant && s.score >= 1)
-        .map(s => ({ skill_id: s.skill_id, evidence: s.evidence || '' }));
-    }
-    if (!Array.isArray(analysis.missed_opportunities)) {
-      // Derive from skills_assessment as fallback
-      analysis.missed_opportunities = analysis.skills_assessment
-        .filter(s => s.is_relevant && s.score === 0)
-        .map(s => ({ skill_id: s.skill_id, what_could_have_been_done: s.what_could_be_better || '' }));
-    }
-    
-    // Set feedback message based on should_provide_feedback
-    if (analysis.should_provide_feedback) {
-      if (!analysis.feedback_message_hebrew) {
-        analysis.feedback_message_hebrew = 'המורה התקדם בשיעור';
-      }
-    } else {
-      // If no feedback should be provided, ensure message is empty
+    // No feedback decided: the message is not shown and must not be recorded as "given" (prompt contract)
+    if (!analysis.should_provide_feedback) {
       analysis.feedback_message_hebrew = '';
     }
     
     res.json({ 
       success: true,
-      analysis: analysis
+      analysis: analysis,
+      meta: telemetry
     });
   } catch (error) {
     console.error('❌ Error in PCK feedback:', error);
     res.status(500).json({ 
       success: false,
-      error: error.message 
+      error: error.message,
+      meta: errorTelemetry('pck', telemetry, error)
     });
   }
 });
@@ -939,13 +1005,17 @@ app.post('/api/pck-summary', async (req, res) => {
       return turnText;
     }).join('\n');
 
-    // Extract PCK feedback moments with skill assessments
+    // Extract PCK feedback moments with skill assessments.
+    // A logged turn's pckFeedback is non-null only when feedback was displayed to the teacher (A4).
     const pckMoments = conversationLog.turns
-      .filter(turn => turn.pckFeedback && turn.pckFeedback.should_provide_feedback)
+      .filter(turn => turn.pckFeedback)
       .map(turn => ({
         turnNumber: turn.turnNumber,
-        teacherMessage: turn.teacher.message,
-        skills_assessment: turn.pckFeedback.skills_assessment || [],
+        teacherMessage: (turn.teacher && turn.teacher.message) || '',
+        skills_assessment: turn.pckFeedback.skills_assessment,
+        // Legacy records (no skills_assessment) only have these unscored lists
+        detected_skills: turn.pckFeedback.detected_skills || [],
+        missed_opportunities: turn.pckFeedback.missed_opportunities || [],
         feedback_message: turn.pckFeedback.feedback_message_hebrew || turn.pckFeedback.feedback_message
       }));
     
@@ -959,18 +1029,41 @@ app.post('/api/pck-summary', async (req, res) => {
         pckMomentsText += `**Turn ${moment.turnNumber}:**\n`;
         pckMomentsText += `Teacher said: "${moment.teacherMessage.substring(0, 100)}..."\n`;
         
-        const relevantSkills = moment.skills_assessment.filter(s => s.is_relevant);
-        if (relevantSkills.length > 0) {
+        if (Array.isArray(moment.skills_assessment)) {
+          const relevantSkills = moment.skills_assessment.filter(s => s.is_relevant);
           relevantSkills.forEach(skill => {
             const scoreLabel = skill.score === 2 ? '✅ Excellent' : skill.score === 1 ? '⚠️ Partial' : '❌ Missed';
             const skillDef = getPCKSkillById(skill.skill_id);
             const hebrewName = skillDef ? skillDef.skill_name.he : skill.skill_id;
-            pckMomentsText += `  - ${hebrewName} (${skill.skill_id}): ${scoreLabel}\n`;
-            pckMomentsText += `    Evidence: ${skill.evidence}\n`;
+            pckMomentsText += `  - ${hebrewName} (${skill.skill_id}): ${scoreLabel} (score ${skill.score})\n`;
+            if (skill.evidence) {
+              pckMomentsText += `    Evidence: ${skill.evidence}\n`;
+            }
             if (skill.what_could_be_better) {
               pckMomentsText += `    Could improve: ${skill.what_could_be_better}\n`;
             }
           });
+        } else {
+          // Legacy feedback without skills_assessment: pass the recorded text, no scores
+          const skillName = (id) => {
+            const skillDef = getPCKSkillById(id);
+            return skillDef ? `${skillDef.skill_name.he} (${id})` : id;
+          };
+          moment.detected_skills.forEach(s => {
+            pckMomentsText += `  - ${skillName(s.skill_id)}: noted as demonstrated (no score recorded)\n`;
+            if (s.evidence) {
+              pckMomentsText += `    Evidence: ${s.evidence}\n`;
+            }
+          });
+          moment.missed_opportunities.forEach(s => {
+            pckMomentsText += `  - ${skillName(s.skill_id)}: noted as a missed opportunity (no score recorded)\n`;
+            if (s.what_could_have_been_done) {
+              pckMomentsText += `    Could improve: ${s.what_could_have_been_done}\n`;
+            }
+          });
+        }
+        if (moment.feedback_message) {
+          pckMomentsText += `  Feedback message recorded for this turn: ${moment.feedback_message}\n`;
         }
         pckMomentsText += `\n`;
       });
@@ -1168,7 +1261,7 @@ app.post('/api/completion', async (req, res) => {
       parts: [{ text: prompt }]
     }];
 
-    // Gemini 3 migration: client temperature / top_p are not sent to the 3.x model (model_config.js)
+    // 1.4.0: client temperature / top_p are not sent to the 3.x model (model_config.js)
     const generationConfig = {
       ...baseGenerationConfig(),
       maxOutputTokens: options.max_tokens || 256,

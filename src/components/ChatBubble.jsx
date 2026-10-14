@@ -32,7 +32,7 @@ export default function ChatBubble({ message, children }) {
 				</div>
 			)}
 
-		<div className={className}>
+		<div className={className} style={isOther ? undefined : { whiteSpace: "pre-wrap" }}>
 			{message.text}
 			{message.image && (
 				<div style={{ marginTop: "10px" }}>

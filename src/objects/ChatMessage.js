@@ -5,8 +5,9 @@ export default class ChatMessage {
 		this.name = agent;
 		// Required by chat-style AI models (GPT 3.5/4, Gemini)
 		this.role = role;
-		// Get rid of any newlines
-		this.text = text.replace(/[\n]/gm, "");
+		// Teacher ("user") text is kept exactly as typed, including line breaks (C5).
+		// Other messages keep the previous behaviour: newlines removed.
+		this.text = role === "user" ? text : text.replace(/[\n]/gm, "");
 		// Optional image (base64 PNG string)
 		this.image = image;
 		// Creation date

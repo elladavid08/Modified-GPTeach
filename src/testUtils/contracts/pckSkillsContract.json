@@ -1,0 +1,12 @@
+{
+  "_comment": "Canonical PCK skill contract (invariants A5, B11). Shared by frontend (Jest) and backend (node:test) suites. Change only with an explicit decision + systemVersion bump; research maps these ids to p1-p5.",
+  "skills": [
+    { "skill_id": "error-identification", "research_id": "p1", "he": "זיהוי השגיאה" },
+    { "skill_id": "error-characterization", "research_id": "p2", "he": "אפיון סוג השגיאה" },
+    { "skill_id": "diagnostic-interpretation", "research_id": "p3", "he": "פרשנות אבחונית של חשיבת התלמיד" },
+    { "skill_id": "adapted-pedagogical-response", "research_id": "p4", "he": "תגובה פדגוגית מותאמת" },
+    { "skill_id": "error-leveraging", "research_id": "p5", "he": "מינוף השגיאה ללמידה" }
+  ],
+  "scores": [0, 1, 2],
+  "score_labels_he": { "2": "קיים היטב", "1": "קיים באופן חלקי", "0": "חסר" }
+}

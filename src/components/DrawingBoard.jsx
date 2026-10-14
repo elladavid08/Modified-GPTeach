@@ -1,6 +1,23 @@
 import React, { useState, useRef, useEffect } from "react";
-import { FaMousePointer, FaEraser } from "react-icons/fa";
+import { FaMousePointer, FaEraser, FaUndo } from "react-icons/fa";
+import { DRAWING_COLORS, DEFAULT_DRAWING_COLOR } from "../config/drawingPalette";
+import { createDrawingHistory } from "../utils/drawingHistory";
 const { fabric } = require("fabric");
+
+// Objects stay non-interactive while erasing or drawing a shape, interactive in select mode
+// (the same flags the mode effect sets; re-applied after Undo restores a state).
+function applyModeInteractivity(canvas, mode) {
+	if (mode === "select") {
+		canvas.forEachObject(obj => {
+			obj.selectable = true;
+			obj.evented = true;
+			obj.hoverCursor = "move";
+			obj.setCoords();
+		});
+	} else if (mode !== "pen") {
+		canvas.forEachObject(obj => { obj.selectable = false; obj.evented = false; obj.hoverCursor = "crosshair"; });
+	}
+}
 
 export const DrawingBoard = ({ onDrawingCapture }) => {
 	const canvasRef = useRef(null);
@@ -18,6 +35,23 @@ export const DrawingBoard = ({ onDrawingCapture }) => {
 	const lastEraserPointRef = useRef(null);
 	const eraserCanvasRef = useRef(null);
 	const hasFlattenedRef = useRef(false);
+	// 1.5.0 colour palette: the selected colour applies to new strokes and shapes only
+	const [drawingColor, setDrawingColor] = useState(DEFAULT_DRAWING_COLOR);
+	const colorRef = useRef(DEFAULT_DRAWING_COLOR);
+	// 1.5.0 Undo: one canvas snapshot per completed user action (drawingHistory.js)
+	const historyRef = useRef(createDrawingHistory());
+	const [canUndo, setCanUndo] = useState(false);
+	const isRestoringRef = useRef(false);
+	const drawingModeRef = useRef("pen");
+	const erasedInStrokeRef = useRef(false);
+
+	// Record the canvas after a completed user action (one Undo step)
+	const commitDrawingState = () => {
+		const canvas = fabricCanvasRef.current;
+		if (!canvas || isRestoringRef.current) return;
+		historyRef.current.commit(canvas.toJSON());
+		setCanUndo(historyRef.current.canUndo());
+	};
 
 	// Resize the Fabric canvas to fill its container
 	const resizeCanvas = () => {
@@ -54,11 +88,17 @@ export const DrawingBoard = ({ onDrawingCapture }) => {
 			
 				// Configure the drawing brush
 				if (canvas.freeDrawingBrush) {
-					canvas.freeDrawingBrush.color = "#000000";
+					canvas.freeDrawingBrush.color = colorRef.current;
 					canvas.freeDrawingBrush.width = 2;
 				}
 
 				fabricCanvasRef.current = canvas;
+
+				// Undo: the empty board is the bottom of the history; a finished pen stroke and a
+				// move / resize / rotate of a shape are one step each
+				historyRef.current.reset(canvas.toJSON());
+				canvas.on('path:created', commitDrawingState);
+				canvas.on('object:modified', commitDrawingState);
 
 				// Track selected shape to show floating delete button
 				const updateDeletePos = () => {
@@ -119,6 +159,7 @@ export const DrawingBoard = ({ onDrawingCapture }) => {
 					activeObjects.forEach(obj => canvas.remove(obj));
 					canvas.discardActiveObject();
 					canvas.renderAll();
+					commitDrawingState();
 				}
 			}
 		};
@@ -131,6 +172,7 @@ export const DrawingBoard = ({ onDrawingCapture }) => {
 		if (!fabricCanvasRef.current) return;
 
 		const canvas = fabricCanvasRef.current;
+		drawingModeRef.current = drawingMode;
 		
 		// Always clean up existing event listeners first
 		canvas.off("mouse:down");
@@ -161,7 +203,7 @@ export const DrawingBoard = ({ onDrawingCapture }) => {
 		canvas.isDrawingMode = true;
 		// Create new brush for pen mode
 		canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
-		canvas.freeDrawingBrush.color = "#000000";
+		canvas.freeDrawingBrush.color = colorRef.current;
 		canvas.freeDrawingBrush.width = 2;
 	} else if (drawingMode === "eraser") {
 		// True pixel eraser - converts canvas to flat image first
@@ -174,6 +216,7 @@ export const DrawingBoard = ({ onDrawingCapture }) => {
 			
 			canvas.on("mouse:down", (options) => {
 				isErasingRef.current = true;
+				erasedInStrokeRef.current = false;
 				const pointer = canvas.getPointer(options.e);
 				lastEraserPointRef.current = pointer;
 				
@@ -248,6 +291,7 @@ export const DrawingBoard = ({ onDrawingCapture }) => {
 					tempCtx.moveTo(lastPoint.x, lastPoint.y);
 					tempCtx.lineTo(pointer.x, pointer.y);
 					tempCtx.stroke();
+					erasedInStrokeRef.current = true;
 					
 					// Update Fabric background image
 					const dataURL = tempCanvas.toDataURL();
@@ -262,6 +306,17 @@ export const DrawingBoard = ({ onDrawingCapture }) => {
 			canvas.on("mouse:up", () => {
 				isErasingRef.current = false;
 				lastEraserPointRef.current = null;
+				// One eraser stroke that erased something is one Undo step. Record it once the pen layer
+				// shows the final pixels (the per-move background updates are asynchronous).
+				if (erasedInStrokeRef.current && eraserCanvasRef.current) {
+					erasedInStrokeRef.current = false;
+					fabric.Image.fromURL(eraserCanvasRef.current.toDataURL(), (img) => {
+						canvas.setBackgroundImage(img, () => {
+							canvas.renderAll();
+							commitDrawingState();
+						});
+					});
+				}
 			});
 	} else {
 		// Disable freehand mode for shape drawing
@@ -289,7 +344,7 @@ export const DrawingBoard = ({ onDrawingCapture }) => {
 						width: 0,
 						height: 0,
 						fill: "transparent",
-						stroke: "#000000",
+						stroke: colorRef.current,
 						strokeWidth: 2,
 					});
 				} else if (drawingMode === "square") {
@@ -299,12 +354,12 @@ export const DrawingBoard = ({ onDrawingCapture }) => {
 						width: 0,
 						height: 0,
 						fill: "transparent",
-						stroke: "#000000",
+						stroke: colorRef.current,
 						strokeWidth: 2,
 					});
 				} else if (drawingMode === "line") {
 					shape = new fabric.Line([pointer.x, pointer.y, pointer.x, pointer.y], {
-						stroke: "#000000",
+						stroke: colorRef.current,
 						strokeWidth: 2,
 					});
 				}
@@ -364,7 +419,7 @@ export const DrawingBoard = ({ onDrawingCapture }) => {
 					left: Math.min(pointer.x, startPointRef.current.x),
 					top: Math.min(pointer.y, startPointRef.current.y),
 					fill: "transparent",
-					stroke: "#000000",
+					stroke: colorRef.current,
 					strokeWidth: 2,
 					objectCaching: false,
 				});
@@ -388,7 +443,7 @@ export const DrawingBoard = ({ onDrawingCapture }) => {
 					left: Math.min(pointer.x, startPointRef.current.x),
 					top: Math.min(pointer.y, startPointRef.current.y),
 					fill: "transparent",
-					stroke: "#000000",
+					stroke: colorRef.current,
 					strokeWidth: 2,
 					objectCaching: false,
 				});
@@ -411,7 +466,7 @@ export const DrawingBoard = ({ onDrawingCapture }) => {
 					left: Math.min(pointer.x, startPointRef.current.x),
 					top: Math.min(pointer.y, startPointRef.current.y),
 					fill: "transparent",
-					stroke: "#000000",
+					stroke: colorRef.current,
 					strokeWidth: 2,
 					objectCaching: false,
 				});
@@ -434,7 +489,7 @@ export const DrawingBoard = ({ onDrawingCapture }) => {
 					left: Math.min(pointer.x, startPointRef.current.x),
 					top: Math.min(pointer.y, startPointRef.current.y),
 					fill: "transparent",
-					stroke: "#000000",
+					stroke: colorRef.current,
 					strokeWidth: 2,
 					objectCaching: false,
 				});
@@ -452,6 +507,7 @@ export const DrawingBoard = ({ onDrawingCapture }) => {
 			isDrawingRef.current = false;
 			tempShapeRef.current = null;
 			if (drewShape) {
+				commitDrawingState(); // one drawn shape is one Undo step
 				setDrawingMode("select");
 			}
 		});
@@ -513,9 +569,46 @@ export const DrawingBoard = ({ onDrawingCapture }) => {
 				// Also reset eraser state
 				hasFlattenedRef.current = false;
 				eraserCanvasRef.current = null;
+				commitDrawingState(); // "נקה הכל" can be undone
 			} catch (error) {
 				console.error("Error clearing canvas:", error);
 			}
+		}
+	};
+
+	// Undo the most recent user action: restore the canvas as it was before it
+	const handleUndo = () => {
+		const canvas = fabricCanvasRef.current;
+		if (!canvas || isRestoringRef.current) return;
+		const previous = historyRef.current.undo();
+		setCanUndo(historyRef.current.canUndo());
+		if (!previous) return;
+		isRestoringRef.current = true;
+		// Drop any gesture in progress
+		isDrawingRef.current = false;
+		tempShapeRef.current = null;
+		isErasingRef.current = false;
+		lastEraserPointRef.current = null;
+		erasedInStrokeRef.current = false;
+		// The eraser rebuilds its pen layer from the restored canvas on its next press, exactly as
+		// after switching tools; shapes stay objects and are never part of that layer
+		hasFlattenedRef.current = false;
+		eraserCanvasRef.current = null;
+		canvas.discardActiveObject();
+		setDeleteButtonPos(null);
+		canvas.loadFromJSON(previous, () => {
+			applyModeInteractivity(canvas, drawingModeRef.current);
+			canvas.renderAll();
+			isRestoringRef.current = false;
+		});
+	};
+
+	const handleSelectColor = (value) => {
+		colorRef.current = value;
+		setDrawingColor(value);
+		// The pen brush picks it up at once; existing strokes and shapes keep their colour
+		if (fabricCanvasRef.current && fabricCanvasRef.current.freeDrawingBrush) {
+			fabricCanvasRef.current.freeDrawingBrush.color = value;
 		}
 	};
 
@@ -558,6 +651,18 @@ export const DrawingBoard = ({ onDrawingCapture }) => {
 				flexShrink: 0,
 			}}>
 				<div style={{ display: "flex", gap: "3px", flexWrap: "wrap", alignItems: "center" }}>
+					{/* Undo the last drawing action (1.5.0) */}
+					<button
+						type="button"
+						data-testid="drawing-undo"
+						onClick={handleUndo}
+						disabled={!canUndo}
+						title="בטל פעולה אחרונה"
+						aria-label="בטל פעולה אחרונה"
+						style={{ ...buttonStyle("undo"), cursor: canUndo ? "pointer" : "default", opacity: canUndo ? 1 : 0.4 }}
+					>
+						<FaUndo />
+					</button>
 					{/* Select mode — icon only */}
 					<button onClick={() => setDrawingMode("select")} style={buttonStyle("select")} title="בחר / הזז צורה">
 						<FaMousePointer />
@@ -601,6 +706,33 @@ export const DrawingBoard = ({ onDrawingCapture }) => {
 						<polygon points="7,1 13,7 7,15 1,7" fill="none" stroke="currentColor" strokeWidth="1.5"/>
 					</svg> דלתון
 				</button>
+					{/* Colour palette (1.5.0): new strokes and shapes only */}
+					<div role="group" aria-label="צבע ציור" style={{ display: "flex", alignItems: "center", gap: "4px", margin: "0 6px" }}>
+						{DRAWING_COLORS.map((c) => {
+							const selected = drawingColor === c.value;
+							return (
+								<button
+									key={c.id}
+									type="button"
+									data-testid={`drawing-color-${c.id}`}
+									title={c.label}
+									aria-label={`צבע: ${c.label}`}
+									aria-pressed={selected}
+									onClick={() => handleSelectColor(c.value)}
+									style={{
+										width: "20px",
+										height: "20px",
+										padding: 0,
+										borderRadius: "50%",
+										backgroundColor: c.value,
+										border: selected ? "2px solid #fff" : "1px solid #bbb",
+										boxShadow: selected ? "0 0 0 2px #007bff" : "none",
+										cursor: "pointer",
+									}}
+								/>
+							);
+						})}
+					</div>
 					<button 
 						onClick={handleClearDrawing}
 						style={{
@@ -666,6 +798,7 @@ export const DrawingBoard = ({ onDrawingCapture }) => {
 							activeObjects.forEach(obj => canvas.remove(obj));
 							canvas.discardActiveObject();
 							canvas.renderAll();
+							commitDrawingState();
 						}
 						setDeleteButtonPos(null);
 					}}

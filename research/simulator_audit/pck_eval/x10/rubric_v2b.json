@@ -1,0 +1,15 @@
+{
+ "_comment": "X10 v2b: v2 plus one APR clarification (developed on A1-only turns): leading / yes-no questions the teacher has essentially answered, and recaps, are 1; 2 needs a substantive reasoning step by the students.",
+ "error-identification": [
+  "Error Identification: does the teacher recognise and address the student's specific error or confusion?",
+  "0 = the teacher does not notice or address the student's error (ignores it, accepts or praises it, or moves on), or responds only in a generic way that could have been said without noticing the specific misconception.",
+  "1 = the teacher partly notices or responds: an indirect hint that something should be checked, or a response that touches the topic without clearly addressing the student's specific confusion.",
+  "2 = the teacher clearly notices and directly addresses the student's specific error or confusion, explicitly or by correcting or clarifying exactly that point, even without labelling it as an error."
+ ],
+ "adapted-pedagogical-response": [
+  "Adapted Pedagogical Response: is the teacher's move adapted to this student's thinking?",
+  "0 = the move bypasses the student's thinking by simply giving the answer or the correction, or it contains mathematically incorrect guidance.",
+  "1 = relevant and pedagogically useful, but primarily teacher-led or generic. A direct clarification that genuinely responds to the student's confusion is 1, not 0. A leading or yes/no question whose answer the teacher has essentially given, or a recap of the correct idea, is 1. A correct explanation is not automatically 2.",
+  "2 = clearly adapted to the student's thinking and actively advances their reasoning, with the students doing a substantive reasoning step: it builds on their idea, asks them to justify, check, compare or reason, or explains with a targeted counterexample or otherwise hands meaningful reasoning work back to the students."
+ ]
+}

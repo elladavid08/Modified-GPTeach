@@ -1,3 +1,5 @@
+import { CLIENT_TIMEOUT_MS } from '../config/llmCallPolicy';
+
 // Backend API base URL
 // In production: REACT_APP_API_URL should be empty string (requests go to same domain)
 // In development: Falls back to localhost:3001
@@ -34,34 +36,76 @@ async function fetchWithRetry(fetchFn, maxRetries = 2, baseDelayMs = 3000) {
 }
 
 /**
+ * One request with a hard client timeout (1.3.6), for the per-turn calls. No client-side retry:
+ * the server is the only retry layer for /api/pck-feedback and /api/generate.
+ * Rejects with a ClientTimeoutError (stage 'network') when the timeout elapses.
+ */
+async function fetchOnceWithTimeout(url, options, timeoutMs, endpoint, started) {
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new Error(`Client timeout after ${timeoutMs} ms`);
+      error.name = 'ClientTimeoutError';
+      // Settle the race with the tagged timeout first, then abort the underlying request
+      reject(tagError(error, { stage: 'network', endpoint, meta: null, clientLatencyMs: Date.now() - started }));
+      if (controller) controller.abort();
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([fetch(url, controller ? { ...options, signal: controller.signal } : options), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Attach diagnostic fields to a backend-call error (C7): stage ('network' | 'http'),
+ * endpoint, HTTP status and the backend's error text. Message text is unchanged.
+ */
+function tagError(error, fields) {
+  return Object.assign(error, fields);
+}
+
+/**
  * Generate content using backend with Google's Vertex AI
  * @param {Array} messages - OpenAI format messages
  * @param {Object} options - Additional options like stop sequences
  * @returns {Promise<string>} - Generated text response
  */
 export async function generateWithGenAI(messages, options = {}) {
+  // onMeta (optional) receives call telemetry; it is not sent to the server
+  const { onMeta, timeoutMs = CLIENT_TIMEOUT_MS, ...serverOptions } = options;
+  const started = Date.now();
   try {
     console.log('🚀 Calling backend API for chat completion...');
     console.log('📝 Messages count:', messages.length);
-    console.log('📝 Options:', options);
+    console.log('📝 Options:', serverOptions);
     
-    const response = await fetchWithRetry(() => fetch(`${API_BASE_URL}/api/generate`, {
+    const response = await fetchOnceWithTimeout(`${API_BASE_URL}/api/generate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
         messages,
-        options
+        options: serverOptions
       })
-    }));
+    }, timeoutMs, '/api/generate', started);
 
     console.log('📥 Backend response status:', response.status);
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
       console.error('❌ Backend error:', errorData);
-      throw new Error(`Backend error (${response.status}): ${errorData.error || 'Unknown error'}`);
+      throw tagError(new Error(`Backend error (${response.status}): ${errorData.error || 'Unknown error'}`), {
+        stage: 'http', status: response.status, endpoint: '/api/generate', serverError: errorData.error || null,
+        meta: errorData.meta || null, clientLatencyMs: Date.now() - started,
+        // Final student parse/schema failure on the server: bounded excerpt for diagnostics (A16)
+        ...(typeof errorData.rawOutputExcerpt === 'string'
+          ? { rawOutput: errorData.rawOutputExcerpt, rawOutputChars: errorData.rawOutputChars }
+          : {})
+      });
     }
 
     const result = await response.json();
@@ -70,16 +114,24 @@ export async function generateWithGenAI(messages, options = {}) {
     if (result.success) {
       console.log('✅ Backend response successful, text length:', result.text.length);
       console.log('✅ Response preview:', result.text.substring(0, 200) + '...');
+      if (onMeta) {
+        onMeta({ ...(result.meta || {}), clientLatencyMs: Date.now() - started });
+      }
       return result.text;
     } else {
       console.error('❌ Backend returned error:', result.error);
-      throw new Error(result.error || 'Backend returned unsuccessful response');
+      throw tagError(new Error(result.error || 'Backend returned unsuccessful response'), {
+        stage: 'http', status: response.status, endpoint: '/api/generate', serverError: result.error || null,
+        meta: result.meta || null, clientLatencyMs: Date.now() - started
+      });
     }
   } catch (error) {
     if (error.name === 'TypeError' && error.message.includes('fetch')) {
       console.error('❌ Network error - is the backend running on', API_BASE_URL + '?');
       console.error('❌ Make sure to start the backend server with: cd server && npm start');
-      throw new Error('Backend server not available. Please start the backend server.');
+      throw tagError(new Error('Backend server not available. Please start the backend server.'), {
+        stage: 'network', endpoint: '/api/generate', meta: null, clientLatencyMs: Date.now() - started
+      });
     }
     
     console.error('❌ Error calling backend API:', error);
@@ -148,13 +200,15 @@ export async function generateWithGenAICompletion(prompt, options = {}) {
  * @param {Object} scenario - Current scenario context
  * @returns {Promise<Object>} - Structured PCK analysis object
  */
-export async function getPCKFeedback(teacherMessage, conversationHistory = [], scenario = {}, feedbackHistory = []) {
+export async function getPCKFeedback(teacherMessage, conversationHistory = [], scenario = {}, feedbackHistory = [], { onMeta, timeoutMs = CLIENT_TIMEOUT_MS } = {}) {
+  // onMeta (optional) receives call telemetry; it is not sent to the server
+  const started = Date.now();
   try {
     console.log('💡 Requesting structured PCK feedback analysis...');
     console.log('📝 Teacher message:', teacherMessage.substring(0, 100) + '...');
     console.log('📊 Feedback history items:', feedbackHistory.length);
     
-    const response = await fetchWithRetry(() => fetch(`${API_BASE_URL}/api/pck-feedback`, {
+    const response = await fetchOnceWithTimeout(`${API_BASE_URL}/api/pck-feedback`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -165,14 +219,17 @@ export async function getPCKFeedback(teacherMessage, conversationHistory = [], s
         scenario,
         feedbackHistory
       })
-    }));
+    }, timeoutMs, '/api/pck-feedback', started);
 
     console.log('📥 PCK feedback response status:', response.status);
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
       console.error('❌ PCK feedback error:', errorData);
-      throw new Error(`Backend error (${response.status}): ${errorData.error || 'Unknown error'}`);
+      throw tagError(new Error(`Backend error (${response.status}): ${errorData.error || 'Unknown error'}`), {
+        stage: 'http', status: response.status, endpoint: '/api/pck-feedback', serverError: errorData.error || null,
+        meta: errorData.meta || null, clientLatencyMs: Date.now() - started
+      });
     }
 
     const result = await response.json();
@@ -183,15 +240,23 @@ export async function getPCKFeedback(teacherMessage, conversationHistory = [], s
       console.log('   Quality:', result.analysis.pedagogical_quality);
       console.log('   Misconception addressed:', result.analysis.addressed_misconception);
       console.log('   Predicted understanding:', result.analysis.predicted_student_state && result.analysis.predicted_student_state.understanding_level);
+      if (onMeta) {
+        onMeta({ ...(result.meta || {}), clientLatencyMs: Date.now() - started });
+      }
       return result.analysis;
     } else {
       console.error('❌ PCK feedback returned error:', result.error);
-      throw new Error(result.error || 'PCK feedback returned unsuccessful response');
+      throw tagError(new Error(result.error || 'PCK feedback returned unsuccessful response'), {
+        stage: 'http', status: response.status, endpoint: '/api/pck-feedback', serverError: result.error || null,
+        meta: result.meta || null, clientLatencyMs: Date.now() - started
+      });
     }
   } catch (error) {
     if (error.name === 'TypeError' && error.message.includes('fetch')) {
       console.error('❌ Network error - is the backend running on', API_BASE_URL + '?');
-      throw new Error('Backend server not available. Please start the backend server.');
+      throw tagError(new Error('Backend server not available. Please start the backend server.'), {
+        stage: 'network', endpoint: '/api/pck-feedback', meta: null, clientLatencyMs: Date.now() - started
+      });
     }
     
     console.error('❌ Error calling PCK feedback API:', error);
