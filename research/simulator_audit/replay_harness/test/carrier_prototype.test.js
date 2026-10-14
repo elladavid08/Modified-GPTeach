@@ -1,20 +1,20 @@
-// The misconception-carrier prototype patch applies cleanly to the CURRENT production src/utils/ai.js (each anchor
-// exactly once), produces a parseable module with no relative imports, and is inert without a carrier.
+// The misconception-carrier prototype patch applies cleanly to the 1.4.4 base src/utils/ai.js (commit cf61c03; 1.5.0
+// promoted v1 into production) - each anchor exactly once -, produces a parseable module with no relative imports, and
+// is inert without a carrier.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
-import { CARRIER_PATCH, buildCarrierModule, selectCarrier } from '../prototype/carrier.js';
+import { CARRIER_PATCH, buildCarrierModule, selectCarrier, baseAiSource } from '../prototype/carrier.js';
 import { parseAddressedJudge, nextMisconceptionState, addressedJudgePrompt } from '../prototype/addressedJudge.js';
 
 const HARNESS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO = path.resolve(HARNESS, '../../..');
-const AI = readFileSync(path.join(REPO, 'src/utils/ai.js'), 'utf8');
+const AI = baseAiSource(REPO);
 const require = createRequire(path.join(REPO, 'package.json'));
 
-test('every patch anchor occurs exactly once in the production ai.js', () => {
+test('every patch anchor occurs exactly once in the 1.4.4 base ai.js', () => {
   for (const p of CARRIER_PATCH) assert.equal(AI.split(p.from).length - 1, 1, p.id);
 });
 

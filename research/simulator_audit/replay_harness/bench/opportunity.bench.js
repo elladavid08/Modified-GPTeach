@@ -50,7 +50,7 @@ import { SCENARIOS, MOVES, DESIGNED_CASTS, PERSONA_ORDER, HARNESS_VERSION } from
 import { DRAWINGS } from '../lib/assets.js';
 import { misconceptionClaims } from '../lib/teacher.js';
 import { firstTurnAddendum } from '../lib/turnFlow.js';
-import { buildCarrierModule, selectCarrier } from '../prototype/carrier.js';
+import { buildCarrierModule, selectCarrier, baseAiSource } from '../prototype/carrier.js';
 import { nextMisconceptionState } from '../prototype/addressedJudge.js';
 
 jest.setTimeout(6 * 60 * 60 * 1000);
@@ -147,7 +147,7 @@ it('opportunity', async () => {
   let callAI = productionCallAI;
   if (studentArm !== 'current') {
     const patched = path.join(outDir, 'ai.carrier.js');
-    fs.writeFileSync(patched, buildCarrierModule(fs.readFileSync(path.join(REPO, 'src/utils/ai.js'), 'utf8'), path.join(REPO, 'src/utils'), { variant: { carrier: 'v1', carrier2: 'v2', carrier3: 'v3', carrierpc: 'pc1' }[studentArm] }));
+    fs.writeFileSync(patched, buildCarrierModule(baseAiSource(REPO), path.join(REPO, 'src/utils'), { variant: { carrier: 'v1', carrier2: 'v2', carrier3: 'v3', carrierpc: 'pc1' }[studentArm] }));
     callAI = require(patched).default; // eslint-disable-line global-require
   }
   // Provenance: keep the first student system prompt of the run

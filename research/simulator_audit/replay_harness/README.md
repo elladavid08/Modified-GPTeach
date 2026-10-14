@@ -104,6 +104,8 @@ node research/simulator_audit/replay_harness/scripts/resimulate_teacher.js resea
 | `HARNESS_CAST_INDEXES` | `0`, `1` or `0,1` | `0,1` |
 | `HARNESS_REPEATS` | runs per scenario × cast | 1 |
 | `HARNESS_API_URL` | local server only (127.0.0.1 / localhost) | `http://127.0.0.1:3101` |
+| `HARNESS_STUDENT_PROTOTYPE` | `carrier` \| `carrier2` \| `carrier3`: research carrier variants v1–v3 (`prototype/carrier.js`), patched onto the 1.4.4 base `src/utils/ai.js` (commit `cf61c03`, read from git) | unset |
+| `HARNESS_STUDENT_CARRIER` | `production`: the production 1.5.0 student path with the session carrier from `src/services/misconceptionCarrier.js`, given to the student call only (as `Chat.jsx` does) | unset (no carrier; equals the 1.4.4 student prompt) |
 
 **Reproducibility:**
 - The teacher, casts, drawings and labels are deterministic.

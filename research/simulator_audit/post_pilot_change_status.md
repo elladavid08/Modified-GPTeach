@@ -4,6 +4,10 @@
 
 **Update (same day):** #6 and #8 are implemented as **1.4.4**. #6 is committed (`9f1c018`); #8 and the return-to-selection fix (§2) are uncommitted in the working tree on top of it. Everything else below is unchanged.
 
+**Update (2026-10-14):** 1.4.4 is committed (`cf61c03`); the carrier research is committed (`5ae51be`, `c657c09`). The release blocker (#12) is addressed by the misconception carrier, implemented as **1.5.0** in the working tree (uncommitted).
+- Mode B release validation passed (`student_misconception_carrier_experiment.md` §9).
+- Tests at 1.5.0: client 439 / 439 and server 328 / 328, twice; harness 78 / 78; build OK. This includes the teacher-facing additions to 1.5.0 below: return to scenario selection before finishing (§2), and drawing Undo and colours (#7).
+
 **Tests on that HEAD:**
 - client: 265 / 265 pass (`npx jest --config jest.config.js`);
 - server: 328 / 328 pass (`cd server && npm test`).
@@ -26,7 +30,10 @@ This document contains no participant data. Counts from the pilot are aggregates
   - The conflicts exist because the same model split was made twice: as the 1.4.0 commit here and as the hotfix on `main`.
   - They are expected to resolve to this branch's side, but that has not been done.
 
-**Release blocker (2026-10-13, `student_misconception_opportunity_investigation.md`):** on the 1.4.4 student setup, the scenario misconception usually appears (29 of 36 synthetic conversations with production-like casts), but it is still held when the teacher explains in only 5 of 36. In 24 of the 29 conversations where it appears, the carrier talks themself out of it after the teacher's diagnostic questions, with no teaching. See item 12. A small fix is proposed but not implemented.
+**Release blocker (2026-10-13, `student_misconception_opportunity_investigation.md`), addressed in 1.5.0 (2026-10-14):** on the 1.4.4 student setup, the scenario misconception usually appears (29 of 36 synthetic conversations with production-like casts), but it is still held when the teacher explains in only 5 of 36. In 24 of the 29 conversations where it appears, the carrier talks themself out of it after the teacher's diagnostic questions, with no teaching.
+- 1.5.0 designates one misconception carrier per conversation.
+- On Mode B the carrier holds the misconception until the teacher teaches in 21 of 24 conversations (1.4.4: 15 of 24, often by a student who stays silent), and self-corrects before teaching in 2 of 24 (1.4.4: 8).
+- See item 12.
 
 **Status legend:**
 - **DONE**: implemented, tested and versioned; the user-visible problem is addressed.
@@ -49,12 +56,12 @@ This document contains no participant data. Counts from the pilot are aggregates
 | 4 | Feedback too long | **PARTIAL** | 1.4.0, 1.4.1, 1.4.3 |
 | 5 | Yellow / score-1 feedback unclear | **DONE** (display) | 1.4.3 (+ researcher views, no bump) |
 | 6 | Initial teacher briefing disappears | **DONE** (`9f1c018`) | 1.4.4 |
-| 7 | Drawing-tool improvements | **OPEN** | — (related: 1.3.3 image-only turns) |
+| 7 | Drawing-tool improvements | **PARTIAL**: Undo and a colour palette done; partial erasing of shapes and line straightening deferred (to discuss with the educational team) | **1.5.0** (related: 1.3.3 image-only turns) |
 | 8 | Visually mark scenarios already attempted | **DONE** (uncommitted on this branch) | 1.4.4 |
 | 9 | Students drawing | **DEFERRED** | — |
 | 10 | Preserve teacher-message line breaks | **DONE** in the chat, agents and storage; researcher viewers still collapse them | 1.3.7 |
 | 11 | Student returns to a resolved difficulty | **NOT REPRODUCED** | (indirect: 1.3.8, 1.3.9, 1.4.0) |
-| 12 | Student reaches the correct answer too early | **OPEN: release blocker** (one contributing cause fixed in 1.4.1; investigated 2026-10-13) | 1.4.1 (partial) |
+| 12 | Student reaches the correct answer too early | **DONE** (misconception carrier; Mode B validated, pending educational-team testing; scenario 4 weaker) | 1.4.1 (partial), **1.5.0** |
 | 13 | Summary contradicts in-conversation feedback | **DONE** | 1.3.1 |
 
 ### Per-item detail
@@ -177,16 +184,45 @@ This document contains no participant data. Counts from the pilot are aggregates
   - The briefing's last sentence ("…כתבו הודעה בחלון השיחה והתחילו את השיעור") is reused as is and reads as stale mid-lesson. Changing the text is a scenario-content decision.
   - Committed in `9f1c018`; not yet deployed.
 
-#### 7. Drawing-tool improvements: OPEN
+#### 7. Drawing-tool improvements: PARTIAL (Undo and colours in 1.5.0)
 
 - **User-visible problem:** the board is basic.
   - It has select, eraser, pen, line and fixed shapes (rectangle, square, parallelogram, rhombus, trapezoid, kite).
-  - It has no undo/redo, no colours or line width, and no text or vertex labels.
-- **Current state:**
-  - `DrawingBoard.jsx` is unchanged on this branch.
-  - Related engineering: image-only turns are handled since 1.3.3 (§2).
-- **Remaining:** per-feature UI work (each is low risk; `change_map.md` §7). Separately, design decisions on PCK visibility of drawings (B17: PCK does not see drawings) and vector-state storage.
-- **Next step:** prioritise features with the educational team.
+  - It had no undo/redo, no colours or line width, and no text or vertex labels.
+- **How the board works (Fabric.js 5):**
+  - It starts empty: no scenario geometry is ever loaded onto it.
+  - A pen stroke is a Fabric `path`.
+  - Shapes are Fabric objects (`Rect`, `Line`, `Polygon`), created while dragging and finished on mouse-up.
+  - The eraser, on its first press, flattens only the pen strokes into a background pixel layer and erases pixels of that layer. Shapes stay objects, so the eraser never erases them (the current, intentional semantics).
+- **Changes (1.5.0):**
+  - **Undo** (`FaUndo` button at the start of the toolbar, "בטל פעולה אחרונה"):
+    - It restores the board as it was before the most recent user action; repeated Undo steps further back, up to 50 steps.
+    - It is disabled when there is nothing to undo.
+    - **One step** is:
+      - one finished pen stroke;
+      - one drawn shape (not every mouse move);
+      - one move, resize or rotate of a shape;
+      - deleting the selected shape(s), by the Delete key or the floating 🗑️;
+      - one eraser stroke that actually erased something;
+      - "נקה הכל".
+    - It is implemented as canvas snapshots (`src/utils/drawingHistory.js`).
+    - After Undo, the objects take the interactivity of the current tool. The eraser rebuilds its pixel layer from the restored board on its next press, exactly as after switching tools.
+    - No Redo and no keyboard shortcut.
+  - **Colour palette** (`src/config/drawingPalette.js`):
+    - Four swatches from the colour-blind-safe Okabe-Ito set: black `#000000` (default), blue `#0072B2`, red `#D55E00` and green `#009E73`.
+    - The selected swatch has a blue ring and `aria-pressed`.
+    - It applies to new pen strokes and to every new shape (line, rectangle, square, parallelogram, rhombus, trapezoid, kite).
+    - Existing drawings keep their colour. The eraser is unaffected.
+  - Unchanged: eraser semantics, the tools, export of the drawing with a message, and the stored data (a drawing is still only a PNG on the teacher message).
+- **Tests:** `drawingBoard.test.js` (15, against a Fabric stand-in because jsdom has no canvas); `regression_test_plan.md` §0.34.
+- **Deferred, deliberately not implemented:**
+  - **partial erasing of shapes:** the educational team asked for it; the intended behaviour is to be discussed with them first, and the eraser still does not touch shapes;
+  - **automatic line straightening / shape recognition.**
+- **Also still open:**
+  - line width, text and vertex labels;
+  - PCK visibility of drawings (B17: PCK does not see drawings);
+  - vector-state storage.
+- **Next step:** discuss partial erasing with the educational team.
 
 #### 8. Visually mark scenarios already attempted: DONE (1.4.4)
 
@@ -257,7 +293,7 @@ This document contains no participant data. Counts from the pilot are aggregates
   - a rare regression rate is not excluded.
 - **Next step:** check in real sessions. If it recurs, design explicit per-student state (`change_map.md` §4).
 
-#### 12. Student reaches the correct answer too early: OPEN (one cause fixed)
+#### 12. Student reaches the correct answer too early: DONE in 1.5.0 (misconception carrier)
 
 - **User-visible problem:** the student holding the misconception reaches the correct answer before the teacher has taught anything.
 - **Changes:** 1.4.1 (missed-misconception PCK fix + B27) removed one cause.
@@ -292,13 +328,59 @@ This document contains no participant data. Counts from the pilot are aggregates
     - scenarios 2 and 4 stay weak (held in 2–4 of 6);
     - three peer wordings changed nothing.
   - **Peer control (2026-10-14, experiment §8), failed:** an explicit open/addressed state from a teacher-move classifier gated the peer role, the "addressed" flag and peer progress hints. It did not reduce peer resolution before teaching: 16 of 36, the same as v1. Peers still give one-step definition arguments and the kite counterexample. Stopped before Mode B, per plan.
-  - **Decision pending:** promote the smallest version (v1, as 1.5.0, with an additive `misconceptionCarrier` field) with the limitation documented, or first try a structural peer control.
-- **Remaining:** a production fix is needed before teachers practise the scenarios.
-- **Next step (proposed, not implemented):**
-  - one designated misconception carrier per session, chosen in code and stored as an additive field;
-  - a single carrier rule in the student prompt: the carrier keeps the misconception through questions and probes and changes their mind only after the teacher addresses it; peers may doubt but do not resolve it first;
-  - scope the PCK "override" to tone and progress;
-  - validate on the same bench and on Mode B, with explicit success thresholds (investigation §5).
+  - **Decision (2026-10-14):** peer control is not pursued. A peer may give a correct contribution while the carrier still holds the misconception, as in a real classroom, but must not introduce a different misconception.
+- **Release validation (2026-10-14, experiment §9):** Mode B, carrier v1 against committed 1.4.4, 24 conversations each, synthetic, all 48 reviewed manually.
+
+  | measure | 1.4.4 | carrier v1 | criterion |
+  |---|---:|---:|---|
+  | misconception appears | 22 / 24 | **24 / 24** | ≥ 90% |
+  | held until the teacher teaches | 15 / 24 | **21 / 24** | ≥ 80–85% |
+  | self-correction before teaching | 8 / 24 | **2 / 24** | ≤ 10% |
+  | conflicting misconception from a peer | 0 | **0** | ≤ 5% |
+  | carrier resolves or progresses after teaching | — | **24 / 24** | ≥ 90% |
+
+  - **Stability:** no regression. Exact duplicates 0 / 0, failures 0 / 0, garble 8 → 3, latency unchanged. Replies per turn rose from 1.71 to 1.86; peers still reply in 86% of turns.
+  - **Peers:** correct contributions before teaching in 13 of 24 (accepted).
+- **Implementation (1.5.0, working tree, uncommitted):**
+  - **When the carrier is chosen:**
+    - Once per conversation, when the teacher selects the scenario.
+    - Taken from the session's fixed cast (B5) with rule `first-non-low-v1`: the first cast member whose participation baseline is not `low`, else the first (`src/services/misconceptionCarrier.js`).
+    - `null` if the scenario has no misconception focus; all six current scenarios have one.
+  - **Where it goes:**
+    - **Student agent only.** `callAI` receives a copy of the scenario with `misconception_carrier`.
+    - **PCK:** gets the unmodified scenario, and its model, prompt and output are unchanged.
+    - **Teacher:** never sees the carrier.
+  - **When it is saved:**
+    - The logger receives it at construction.
+    - It is stored as the additive top-level `misconceptionCarrier: {name, personaId, rule}`, in the first saved document (the lazy init at the first logged turn) and in every later save (`toJSON`).
+    - `null` when there is no carrier. Older conversations have no field (backward compatible; invariant A18).
+  - **Student prompt (`src/utils/ai.js`), only with a carrier:**
+    1. **The "Possible misconception to watch for" line is dropped.** The "background only" sentence no longer says "do not force the misconception into every turn"; it points to the carrier block.
+    2. **The carrier block replaces the "TARGETED MISCONCEPTION / LIFECYCLE (ONE or TWO students)" block.** The block says:
+       - one named student sincerely holds the misconception, and the peers do not hold it or add another misconception about the topic;
+       - the carrier voices it in their own words;
+       - the carrier keeps it through "why?", "explain how you thought", "are you sure?", "does everyone agree?", "is it always true?", acknowledgements, praise or moving on ("these are not teaching");
+       - the carrier revises it only after an explanation, a counterexample, a definition check led by the teacher, or an explicit confirmation;
+       - peers should not give the full explanation or the decisive counterexample first.
+    3. **The PCK header** no longer reads "takes priority over scenario misconception instructions". It now says the analysis takes priority except over the carrier rule, which it cannot by itself resolve.
+    4. **The mandatory alignment rules open with an exception for the carrier:**
+       - "positive / improved" sets tone, confidence and progress;
+       - until the teacher has actually addressed the misconception (judged from the teacher's messages, not from the analysis), progress for the carrier means clearer reasoning, a doubt or less certainty, not the correct conclusion;
+       - "Misconception WAS Addressed" does not apply to the carrier.
+
+    **How PCK steering is kept from erasing the misconception:** PCK keeps steering every student's tone and confidence, and its analysis is passed through unchanged. Points 3 and 4 only stop that steering from being read as teaching for the carrier.
+
+    The texts are the validated prototype v1, frozen by `src/__tests__/fixtures/studentPromptCarrierV1.json` (72 hashes). Without a carrier the prompt is byte-identical to 1.4.4.
+  - **Tests (written first):** `studentPromptCarrier.test.js`, plus additions to `chatTurnOrchestration`, `conversationLogger` and `conversationContract`; `regression_test_plan.md` §0.33.
+  - **Live smoke on 1.5.0 (6 Mode B conversations, production path):**
+    - 0 failures and 0 duplicates; the carrier is recorded in the log;
+    - the misconception appears in 6 of 6, is held until teaching in 5 of 6 (the miss is scenario 4) and resolves in 6 of 6.
+- **Remaining limitations:**
+  - **Scenario 4** ("a diagonal always bisects the angle"): the rectangle question lets the carrier reason its way out before teaching (held in 1 of 4).
+  - **Peers** often give the correct argument or the counterexample before the teacher (accepted).
+  - **Invented attributions:** the carrier occasionally invents a teacher attribution ("אמרת ש…"), including once the misconception itself. Same rate as 1.4.4.
+  - **Evidence scope:** a scripted synthetic teacher only. Real-teacher sessions are the next check.
+- **Next step:** educational-team testing on 1.5.0, watching scenario 4 and invented attributions.
 
 #### 13. Summary contradicts in-conversation feedback: DONE
 
@@ -338,7 +420,8 @@ This document contains no participant data. Counts from the pilot are aggregates
 | **Missed-misconception PCK fix** (B27) | 1.4.1 | **Prompt:** one Gate-0 clarification: a hedged or tag-question incorrect claim followed by a bare acknowledgement is a missed error-identification.<br>**Guard:** a display guard on bare "אוקיי" / "יפה" / "נכון". | `pck_missed_misconception_experiment.md`; `pck_bare_ack_guard.test.mjs`; Mode B §13: critical-moment feedback 10 of 18 → 15 of 16; 21 invalid praises suppressed | One self-contradictory claim was still missed. Praise for peer redirects is a rubric question. |
 | **Garbled-text telemetry** | 1.4.2 | Six content-free counters for garbled student text (foreign script, mixed-script tokens, cantillation marks, doubled function words, markup). Nothing the teacher sees changes. | `student_garble.test.mjs`; `student_garbled_text_investigation.md` | About 2% of replies are garbled (9–10 per roughly 515 replies in Mode B). Detection only; no fix yet. |
 | **PCK row-text / display consistency** (B28) | 1.4.3, + `93ff57b` (no bump) | See §1, item 5. Researcher, admin and annotation views use the same view-model. | `pckDisplayRows.test.js`, `pckDisplayConsistency.test.js`; §0.28–§0.29 | Some score > 0 rows (about 2–12%) have no text anywhere. They are now counted. |
-| **Back to scenario selection** and a clean history per conversation | 1.4.4 (uncommitted) | **Button:** after "סיים שיחה", a "חזרה לבחירת תרחיש" button in the chat header returns to the selection screen without a reload. It is disabled while a turn or the summary request is running.<br>**Fix:** the chat history (whose provider sits above the router) is cleared when a scenario is chosen. Before, leaving the chat via the navbar and coming back carried the old messages into the next conversation's display and model context. | 7 tests in `chatTurnOrchestration.test.js`; `regression_test_plan.md` §0.32 | The navbar "סימולטור" link still does nothing while on the chat page (unchanged; no navigation redesign). "שיחה חדשה" still reloads the page at any time, including during a turn. |
+| **Back to scenario selection** and a clean history per conversation | 1.4.4; **before finishing too: 1.5.0** | **Button:** after "סיים שיחה", a "חזרה לבחירת תרחיש" button in the chat header returns to the selection screen without a reload. It is disabled while a turn or the summary request is running.<br>**Fix:** the chat history (whose provider sits above the router) is cleared when a scenario is chosen. Before, leaving the chat via the navbar and coming back carried the old messages into the next conversation's display and model context. | 7 tests in `chatTurnOrchestration.test.js`; `regression_test_plan.md` §0.32 | The navbar "סימולטור" link still does nothing while on the chat page (unchanged; no navigation redesign). *(The "שיחה חדשה" page-reload button was removed in 1.5.0; see the next row.)* |
+| **Back to scenario selection before finishing** | 1.5.0 (uncommitted) | **Availability:** the "חזרה לבחירת תרחיש" button is in the chat header for the whole session (outlined until the conversation is finished, filled after).<br>**Placement:** on the right of the header, where "שיחה חדשה" was. "שיחה חדשה" (a page reload at any time, also during a turn) is removed, so this is the only way out of the session. To repeat a scenario, return and choose it again.<br>**Finished, or no message sent yet:** returns directly, as before.<br>**Unfinished:** an RTL confirmation dialog (`LeaveConversationDialog.jsx`) says the conversation is not finished, recommends finishing to get the summary feedback, and says that what was said is kept in the records and that choosing the scenario again starts a new conversation. Three choices:<br>• "סיים שיחה וקבל משוב" runs the existing finish (`handleFinishConversation`) once and stays in the conversation, where "קבל ניתוח PCK" appears.<br>• "חזרה לבחירת תרחיש" leaves without finishing.<br>• "המשך בשיחה" (or Escape, or a click outside) closes the dialog.<br>**Safety:** the button is disabled during a turn, a pending finish, the summary request, and while already leaving. Leaving waits for queued turn-log writes.<br>**Storage:** leaving without finishing calls nothing on the logger. No new stored field, no unfinished / completed state, no resume. The next selection starts a new conversation (history reset kept). Attempted marks are unchanged. | 12 tests in `chatTurnOrchestration.test.js` ("…before finishing (1.5.0)"); `regression_test_plan.md` §0.34 | The "finished" signal is the existing in-session `isSessionEnded`; an unfinished conversation is still stored without `endTime`, as before. |
 
 Other prompt changes in the same period:
 - 1.3.10: conversational-move rule.

@@ -4,12 +4,11 @@
 
 **Goal:** guarantee a realistic opportunity. One student carries the scenario's misconception, keeps it through questions that do not teach, and revises it after real teaching.
 
-**Status:** experimental only.
-- No production code, prompt or `SYSTEM_VERSION` changed. The prototype lives in the replay harness (a patched copy of `src/utils/ai.js` built at run time).
-- The 1.4.4 UI and reliability work (briefing panel, attempted-scenario marks, return to selection, history reset) is untouched and separable.
+**Status:** carrier v1 **promoted to production as 1.5.0** (2026-10-14) after the Mode B release validation (§9). Sections 1–8 describe the experiment as it was run, on the unchanged 1.4.4 production code.
+- The prototype lives in the replay harness (`prototype/carrier.js`). Since 1.5.0 it patches the 1.4.4 base `src/utils/ai.js` (commit `cf61c03`, read from git), because v1 is now production code.
 - All conversations are synthetic.
 
-> **Update (2026-10-14):** one structural peer control (pc1: an explicit open/addressed state gating the peers) did not reduce peer resolution (16 of 36, the same as v1). The experiment stopped before Mode B; see §8.
+> **Update (2026-10-14):** one structural peer control (pc1: an explicit open/addressed state gating the peers) did not reduce peer resolution (16 of 36, the same as v1); see §8. The peer targets were then re-scoped: a peer may give a correct contribution while the carrier still holds the misconception (a realistic classroom dynamic), but must not introduce a different misconception. Carrier v1 alone went to Mode B release validation and passed (§9).
 
 ## 1. Answer
 
@@ -303,3 +302,123 @@ In A and B, yesterday's single peer-resolution label was split: every scenario-2
   - **An output-side "peer-resolution guard,"** modelled on the duplicate guard. While the state is open, a classifier checks each generated peer reply for a full correction or counterexample of the carrier's misconception; a flagged reply is re-asked once, else dropped. It would reuse the explicit state and judge (with the scenario-4 false positive fixed), at the cost of one more classification call per turn while open.
   - **Accept peer contributions as a realistic dynamic.** The carrier still holds the misconception until teaching in 30 of 36, so the teacher still has to address it; a peer's correct argument becomes material the teacher can leverage. This means re-scoping the peer targets to "the carrier still needs the teacher".
 - **The carrier v1 result itself stands:** 6 → 29–30 of 36 held until teaching, no regressions.
+
+## 9. Release validation on Mode B (2026-10-14): carrier v1 passes, promoted as 1.5.0
+
+### 9.1 Requirement and criteria (re-scoped after §8)
+
+- Exactly one designated carrier per conversation. The carrier reliably expresses the intended misconception and does not drop it for diagnostic questions, praise, probes or "explain your thinking". The carrier changes their mind only after meaningful teaching, then resolves.
+- Peers may participate naturally, including correct ideas and disagreement. They must not introduce a different or conflicting misconception.
+- **Criteria:**
+  - the misconception appears in at least 90% of conversations;
+  - the carrier holds it until meaningful teaching in at least 80–85%;
+  - spontaneous self-correction before teaching in at most 10%;
+  - a conflicting misconception from another student in at most 5%;
+  - at least 90% of carriers resolve or clearly progress after teaching;
+  - no meaningful regression on the normal Mode B stability metrics.
+- A peer's correct contribution is reported, not counted as a failure.
+
+### 9.2 Method
+
+- **Arms:**
+  - **A:** committed 1.4.4 (`cf61c03`).
+  - **B:** carrier v1 (`HARNESS_STUDENT_PROTOTYPE=carrier`; peer control pc1 not used).
+- **Runs:** standard Mode B, 6 scenarios × 2 designed casts × 2 runs = 24 conversations per arm, 12 scripted teacher turns each.
+  - Turn script: T1 opening; T2 a question to cast slot A; T3 a bare probe ("אוקיי" / "יפה"); T4 a peer question; **T5 the explanation**; T6 validation; T7 a check question to slot A; T8–T11 content and summary; T12 closing.
+  - The Mode B teacher can answer a student's question from the answer bank. That counts as teaching when the answer addresses the misconception (scenario 5 T4 in four conversations).
+- **Same conditions for both arms:** local server and models; PCK unchanged; synthetic only.
+- **Carrier:** chosen by the session rule (first cast member with a non-low participation baseline). It is often not slot A, so the T2 and T7 questions sometimes go to a peer.
+- **Labelling:**
+  - automatic metrics from `analyze.js`;
+  - manual review of all 48 transcripts, covering every pre-teaching self-correction, every carrier still wrong after teaching, every peer misconception and every pre-teaching teacher-attribution candidate.
+  - In A there is no designated carrier, so "holder" is the first student to voice the misconception.
+- **Results:** `results/MB-A-1.4.4-run{1,2}-{a,b,c}` and `results/MB-B-carrier-run{1,2}-{a,b,c}` (git-ignored).
+
+### 9.3 Carrier measures (manual, 24 conversations per arm)
+
+| measure | A (1.4.4) | B (carrier v1) | criterion | B result |
+|---|---:|---:|---|---|
+| intended misconception appears | 22 (92%) | **24 (100%)**; voiced by the carrier itself in 23 | ≥ 90% | pass |
+| carrier identity stable (the designated student carries it) | — (no carrier) | **23**; in 1, a peer voiced it while the carrier only hinted | — | — |
+| held until meaningful teaching | 15 (63%), often by a silent holder | **21 (88%)**: 19 clearly and 2 wavering but restated; 79% under the strict reading | ≥ 80–85% | pass |
+| spontaneous self-correction before teaching | **8 (33%)** + 2 never voiced it | **2 (8%)**, both as a question ("…אז אולי בעצם לא?") | ≤ 10% | pass |
+| carrier retreats to uncertainty before teaching (not correct) | — | 1 | — | — |
+| conflicting / different misconception from a peer | 0 | **0** | ≤ 5% | pass |
+| peer voices the same misconception as well | frequent (holder not designated) | 6 (echo; in 1 of them the only clear voice) | — | descriptive |
+| peer correct contribution before teaching | — | 13 full, 8 doubt or partial, 3 none | not a failure | descriptive |
+| carrier resolves or clearly progresses after teaching | — | **24 (100%)**: 23 at T5–T7; 1 resisted through T6 and resolved by T8–T11 | ≥ 90% | pass |
+| carrier stuck after adequate teaching | — | 0 | — | — |
+| post-teaching regression | 0 | 1 (s4: on the T8 parallelogram drawing the carrier says the diagonal bisects the angle "like a rhombus"; corrected at T9) | — | minor |
+
+**By scenario (B):**
+- All three hold failures and both self-corrections are in **scenario 4** ("a diagonal always bisects the angle"). The T2 question ("in a rectangle, do the diagonals bisect the angles?") is a pointed counterexample, and the carrier reasons through it (90° → 45° each → "but in a non-square rectangle that does not look right…").
+- Scenario 4 held in 1 of 4. Scenarios 1, 2, 3, 5 and 6 held in 20 of 20. Scenarios 2 and 5 each had one wavering-but-held case.
+- This matches the opportunity bench (§4.2), where scenario 4 was the weakest.
+
+### 9.4 Mode B stability metrics (automatic, `analyze.js`)
+
+| metric | A (1.4.4) | B (carrier v1) |
+|---|---:|---:|
+| conversations / turns / student replies | 24 / 288 / 493 | 24 / 288 / 537 |
+| turns without a reply | 0 | 0 |
+| exact duplicates / guard matches / duplicate retries | 0 / 0 / 0 | 0 / 0 / 0 |
+| placeholder leaks / invalid students / unknown speaker | 0 / 1 / 1 | 0 / 0 / 0 |
+| repeated question unanswered / after answered | 0 / 0 | 1 (justified: a "why?" answered next turn) / 0 |
+| semantic-repetition candidates | 4 | 7 (reviewed: recaps, no loop) |
+| teacher-attribution candidates (all / before T5) | 69 / 23 | 84 / 24 |
+| garbled-text flags | 8 | 3 |
+| quote cuts | 0 | 0 |
+| PCK failures / retries; student failures | 0 / 1; 0 | 0 / 0; 0 |
+| replies per turn; replies with "?"; mean length | 1.71; 30%; 83 chars | 1.86; 32%; 87 chars |
+| turns with a non-carrier reply; carrier share of replies | — | 86%; 37% |
+| student latency p50 / p90 | 1133 / 1431 ms | 1167 / 1452 ms |
+| PCK latency p50 / p90 | 2327 / 2826 ms | 2334 / 2775 ms |
+| PCK levels (same / improved / reinforced / confused) | 54 / 221 / 11 / 2 | 51 / 223 / 11 / 3 |
+
+- **Teacher attribution:**
+  - The increase is entirely after teaching (46 → 60), with more replies, and those are recaps of what the teacher actually said.
+  - Before T5 the counts are equal (23 vs 24).
+  - Misconception-supporting invented attributions ("אמרת ש…" used to back the idea) occur in both arms: about 3 in A and 3 in B. In B they come from the carrier, because the carrier is the one holding the idea.
+  - The clearest B case attributes the misconception itself to the teacher ("you said in earlier lessons that equal and perpendicular diagonals are enough"). A has an equivalent case.
+  - This is a pre-existing behaviour, not a regression.
+- **Natural participation:** peers reply in 86% of turns. The carrier gives 37% of the replies, against one third if speaking were equal, so the lesson is not a one-student dialogue.
+
+### 9.5 Verdict
+
+**Pass.** Every criterion is met:
+- appears 100%;
+- held 88%;
+- self-correction 8%;
+- conflicting misconception 0%;
+- resolves 100%;
+- no stability regression.
+
+The one soft spot is scenario 4, and the strict hold reading (79%) is just under 80%. Both are documented as limitations, not blockers.
+
+### 9.6 Promotion to 1.5.0 (frozen prototype)
+
+- **Frozen:** the 1.5.0 student-prompt texts are v1 unchanged.
+  - `src/__tests__/fixtures/studentPromptCarrierV1.json` holds the SHA-256 and length of the student system prompt for 72 cases: 6 scenarios × 3 casts (including an all-low cast) × 4 impact / addendum variants. Each case is hashed with and without the carrier.
+  - The fixture was generated from the prototype applied to the 1.4.4 base by `bench/carrier_identity.bench.js`, before production was changed.
+  - `studentPromptCarrier.test.js` requires production to match it exactly, and the bench re-checks production against the prototype.
+- **Production change:** `src/services/misconceptionCarrier.js`, `src/utils/ai.js`, `src/pages/Chat.jsx`, `src/services/conversationLogger.js` and the contract validator. Details are in `post_pilot_change_status.md` item 12 and in the 1.5.0 changelog.
+- **Harness:** the prototypes and their checks now patch the base `cf61c03`.
+  - `HARNESS_STUDENT_CARRIER=production` runs Mode B on the production 1.5.0 path, with the carrier from `selectMisconceptionCarrier`.
+- **Live smoke on 1.5.0** (`results/MB-smoke-1.5.0`; production `callAI`, local server, `HARNESS_STUDENT_CARRIER=production`; Mode B, 6 scenarios × designed cast 0):
+  - **Reliability:** 72 turns, 123 replies; 0 PCK or student failures; 0 duplicates, leaks or invalid students; 1 justified repeat; student p50 1185 ms.
+  - **Logging:** `misconceptionCarrier` recorded as `{name, personaId, rule: "first-non-low-v1"}`.
+  - **Carrier:**
+    - expresses the misconception in 6 of 6;
+    - holds it until the T5 explanation in 5 of 6 (scenario 4 again drifts at T3, after "יפה");
+    - resolves in 6 of 6: scenario 1 resists through T6 and resolves at T10–T11;
+    - 0 conflicting peer misconceptions.
+  - **Flags:** the 3 contamination candidates are post-teaching recaps.
+
+### 9.7 Remaining limitations
+
+- **Scenario 4:** the carrier sometimes reasons its way out on the rectangle question before teaching (3 of 4 conversations wavered or self-corrected).
+- **Peers:** peers often give the correct argument or the counterexample before the teacher (13 of 24). This is accepted: the carrier still needs the teacher.
+- **Invented attributions:** occasional invented "אמרת ש…" attributions by the carrier, including one that attributes the misconception to the teacher. Pre-existing, at the same rate as 1.4.4.
+- **The carrier is deterministic given the cast** (the cast itself is random per page load). Slot-A questions in the scripted teacher often address a peer, so real teachers may need to address the carrier to see the full arc.
+- **Evidence scope:** a scripted synthetic teacher; 24 conversations per arm; Gemini generation is not deterministic.
+

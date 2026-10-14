@@ -27,7 +27,7 @@ test('no harness file imports Firestore, the conversation logger or the Firebase
 });
 
 test('production imports are read-only modules of the real student/PCK path', () => {
-  const allowed = new Set(['src/utils/ai.js', 'src/services/genai.js', 'src/objects/ChatMessage.js', 'src/config/students/personas.js', 'src/config/scenarios/geometry_scenarios.js', 'src/config/version.js', 'server/student_duplicate_guard.js']);
+  const allowed = new Set(['src/utils/ai.js', 'src/services/genai.js', 'src/objects/ChatMessage.js', 'src/config/students/personas.js', 'src/config/scenarios/geometry_scenarios.js', 'src/config/version.js', 'src/services/misconceptionCarrier.js', 'server/student_duplicate_guard.js']);
   for (const f of sources(HARNESS)) {
     for (const m of readFileSync(f, 'utf8').matchAll(/from '((\.\.\/)+[^']+)'/g)) {
       const target = path.relative(REPO, path.resolve(path.dirname(f), m[1]));
@@ -45,8 +45,11 @@ test('only the runner and the analyzer write files, and only under results/ (and
   assert.match(readFileSync(path.join(HARNESS, '.gitignore'), 'utf8'), /^results\/$/m);
 });
 
-test('production questionnaire assets and testConfig.js are unchanged (vs HEAD)', () => {
-  const out = execSync('git status --porcelain -- public/images/rotated-square.png public/images/rotated-parallelogram.png src/config/testConfig.js', { cwd: REPO }).toString();
+// The pilot-era questionnaire images stay byte-identical: assets/rotated-rectangle.png is a copy of one of them
+// (assets.test.js). Since 2026-10-14 the questionnaires use transparent versions (testConfig.js points to
+// rotated-*-transparent.png), so testConfig.js itself is no longer pinned here.
+test('pilot-era questionnaire images are unchanged (vs HEAD)', () => {
+  const out = execSync('git status --porcelain -- public/images/rotated-square.png public/images/rotated-parallelogram.png', { cwd: REPO }).toString();
   assert.equal(out, '');
 });
 

@@ -1,6 +1,10 @@
+import { execSync } from 'child_process';
+
 // Misconception-carrier prototype (research only, 2026-10-13; student_misconception_carrier_experiment.md).
-// Production code is NOT changed. A bench reads src/utils/ai.js, applies CARRIER_PATCH with buildCarrierModule()
+// A bench reads the 1.4.4 base ai.js (baseAiSource(), commit cf61c03), applies CARRIER_PATCH with buildCarrierModule()
 // and loads the patched copy (written under results/<run>/, so every run records the exact prompt code it used).
+// 1.5.0 (2026-10-14) promoted variant v1 into production src/utils/ai.js unchanged (frozen: the production student
+// prompt is checked against prompts generated from this prototype, src/__tests__/fixtures/studentPromptCarrierV1.json).
 //
 // The patch is active only when the scenario object carries `misconception_carrier` (a student name chosen once
 // per session by selectCarrier). Without it, the patched prompt is byte-identical to production.
@@ -162,9 +166,20 @@ export const CARRIER_PATCH = [
   },
 ];
 
+/** Rewrite the relative imports of an ai.js source to absolute paths into `srcUtilsDir` (the production src/utils
+ *  directory), so the copy can live anywhere. */
+export function relocateAiModule(aiSource, srcUtilsDir) {
+  const srcDir = srcUtilsDir.replace(/\/utils\/?$/, '');
+  const out = aiSource
+    .replace(/from "\.\.\/([^"]+)"/g, (_, rel) => `from "${srcDir}/${rel}"`)
+    .replace(/from "\.\/([^"]+)"/g, (_, rel) => `from "${srcUtilsDir.replace(/\/$/, '')}/${rel}"`);
+  if (/from "\.\.?\//.test(out)) throw new Error('carrier patch: unresolved relative import');
+  return out;
+}
+
 /**
- * Patched copy of ai.js as a module source string. Relative imports are rewritten to absolute paths into
- * `srcUtilsDir` (the production src/utils directory), so the copy can live anywhere.
+ * Patched copy of ai.js as a module source string (imports made absolute, see relocateAiModule).
+ * Since 1.5.0 the v1 carrier is production code, so the patch applies only to the 1.4.4 base source (baseAiSource()).
  */
 export function buildCarrierModule(aiSource, srcUtilsDir, { variant = 'v1' } = {}) {
   let out = aiSource;
@@ -173,10 +188,16 @@ export function buildCarrierModule(aiSource, srcUtilsDir, { variant = 'v1' } = {
     if (n !== 1) throw new Error(`carrier patch "${p.id}": expected 1 match in ai.js, found ${n}`);
     out = out.replace(p.from, () => p.to);
   }
-  const srcDir = srcUtilsDir.replace(/\/utils\/?$/, '');
-  out = out
-    .replace(/from "\.\.\/([^"]+)"/g, (_, rel) => `from "${srcDir}/${rel}"`)
-    .replace(/from "\.\/([^"]+)"/g, (_, rel) => `from "${srcUtilsDir.replace(/\/$/, '')}/${rel}"`);
-  if (/from "\.\.?\//.test(out)) throw new Error('carrier patch: unresolved relative import');
-  return `${out}\n${helpersFor(variant)}`;
+  return `${relocateAiModule(out, srcUtilsDir)}\n${helpersFor(variant)}`;
+}
+
+/** The prototype was built and validated against the committed 1.4.4 ai.js; 1.5.0 promoted v1 into production
+ *  (src/utils/ai.js), so the research variants patch this frozen base, read from git. */
+export const CARRIER_BASE_COMMIT = 'cf61c03';
+export function baseAiSource(repo) {
+  try {
+    return execSync(`git show ${CARRIER_BASE_COMMIT}:src/utils/ai.js`, { cwd: repo, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+  } catch (e) {
+    throw new Error(`carrier prototype: cannot read src/utils/ai.js at ${CARRIER_BASE_COMMIT} (needs the git history): ${e.message}`);
+  }
 }

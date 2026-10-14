@@ -1190,6 +1190,88 @@ Unchanged:
 - it is disabled and ignored during a pending summary;
 - leaving and re-entering the chat page does not carry the old messages into the next conversation.
 
+### 0.33 Misconception carrier (2026-10-14, version 1.5.0)
+
+**Problem (release blocker, `post_pilot_change_status.md` item 12):** on 1.4.4 the student holding the scenario misconception usually drops it after the teacher's good diagnostic questions, before any teaching. PCK rates such questions positive / improved / addressed, and the student prompt treats that as binding.
+
+**Change:** one designated carrier per conversation (invariants B29, A18).
+- `src/services/misconceptionCarrier.js`: `selectMisconceptionCarrier(students, scenario)` returns `{name, personaId, rule: "first-non-low-v1"}`, or `null` when the scenario has no misconception focus. `withMisconceptionCarrier(scenario, carrier)` returns a copy with `misconception_carrier`.
+- `src/pages/Chat.jsx`: the carrier is chosen in the scenario-selection handler, from the same cast the session uses. It is kept in state and passed through `withMisconceptionCarrier` to `callAI` only, and to `ConversationLog` as `{ misconceptionCarrier }`.
+- `src/utils/ai.js`: five branches behind `scenario.misconception_carrier`, plus three helpers (`carrierPeers`, `carrierBlock`, `carrierSteeringException`). The texts are the research prototype v1, unchanged.
+- `src/services/conversationLogger.js`: an additive top-level `misconceptionCarrier` in the first saved document and in `toJSON()`.
+- Contract validator: optional field, exact shape, persona in the cast.
+
+**Tests (written before the implementation; 8 failed, then all pass):**
+- `studentPromptCarrier.test.js`:
+  - the selection rule (first non-low, all-low fallback, deterministic, none without a focus or a cast);
+  - `withMisconceptionCarrier` copies;
+  - for 72 cases (6 scenarios × 3 casts × impact none / positive / problematic, positive also with an addendum), the student system prompt matches the frozen prototype hash with the carrier and the 1.4.4 hash without;
+  - the content of the carrier block and the PCK steering exception;
+  - the history is untouched.
+- `chatTurnOrchestration.test.js` ("misconception carrier (1.5.0)", 4 tests):
+  - students get the carrier on every turn, the same one;
+  - PCK gets the unmodified scenario object;
+  - the logger gets the carrier;
+  - no focus means no carrier and `null`;
+  - the carrier is not shown.
+- `conversationLogger.test.js` (4 tests):
+  - stored in the lazy init document and `toJSON`;
+  - only `{name, personaId, rule}`;
+  - `null` when absent, also for old callers;
+  - the scenario snapshot is unchanged.
+- `conversationContract.test.js`: accepted present, null and absent; 5 malformed shapes rejected.
+- **Harness:**
+  - `bench/carrier_identity.bench.js` regenerates the frozen hashes from the prototype (base `cf61c03`), checks that they equal the fixture, and checks that production 1.5.0 equals them;
+  - `test/carrier_prototype.test.js` patches the base, not production.
+
+**Validation:** Mode B 24 + 24, carrier v1 against 1.4.4 (`student_misconception_carrier_experiment.md` §9), plus a live 1.5.0 smoke (§9.6 there).
+
+### 0.34 Return to selection before finishing; drawing Undo and colours (2026-10-14, version 1.5.0)
+
+**Return before finishing (`src/pages/Chat.jsx`, `src/components/LeaveConversationDialog.jsx`):**
+- "חזרה לבחירת תרחיש" is in the header for the whole session, on the right where "שיחה חדשה" was. "שיחה חדשה" (a page reload) is removed, so this is the only way out of the session (test: "is the only way out of the session").
+- **Finished** (`isSessionEnded`), or no message sent yet: it returns directly.
+- **Otherwise** it opens an RTL dialog (`role="dialog"`, `aria-modal`, focus on the safe choice) with three choices:
+  - "סיים שיחה וקבל משוב" calls the existing `handleFinishConversation` and stays;
+  - "חזרה לבחירת תרחיש" leaves without finishing;
+  - "המשך בשיחה", Escape or a click outside closes the dialog.
+- **Disabled** during a turn, a pending finish (new `isFinishing`: finish waits for queued log writes), the summary request, and while leaving.
+- **Leaving** waits for the turn-log queue, then remounts the session (the 1.4.4 mechanism). It calls nothing on the logger and stores nothing.
+
+**Tests (written first; 12 failed before the implementation):** 12 in `chatTurnOrchestration.test.js` ("return to scenario selection before finishing (1.5.0)"):
+- offered during a conversation;
+- unfinished → dialog with the text and three choices, no navigation, no finish, no resume wording;
+- continue → stays, the conversation goes on;
+- Escape cancels;
+- finish → `endSession` and `saveToLocalStorage` once, the existing confirmation, stays, then returns directly;
+- leave → selection screen, no `endSession` / `saveToLocalStorage` / summary / failure record, logged turns unchanged, conversations reloaded for the attempted marks;
+- the next scenario starts clean (new logger, empty history, PCK and students see only the new message);
+- no message yet → direct;
+- pending turn → disabled, no dialog;
+- pending finish behind a slow log write → disabled;
+- leaving waits for a queued log write;
+- finishing from the dialog cannot be repeated.
+
+The 1.4.4 tests are kept. One was replaced: "not offered before finishing" no longer holds.
+
+**Drawing board (`src/components/DrawingBoard.jsx`, `src/utils/drawingHistory.js`, `src/config/drawingPalette.js`):**
+- **Undo:** canvas snapshots, one per completed user action: a pen stroke (`path:created`), a drawn shape (mouse-up), a move / resize / rotate (`object:modified`), a deletion, an eraser stroke that erased something, and "נקה הכל". At most 50 steps; disabled when empty.
+- **Palette:** black (default), blue, red, green (Okabe-Ito). It applies to the pen brush and to new shapes only.
+
+**Tests (written first; the suite failed before the implementation):** `drawingBoard.test.js`, 15 tests, against a Fabric stand-in (jsdom has no canvas):
+- the history stack;
+- Undo disabled when empty;
+- strokes undone one by one;
+- a shape is one step, not one per move;
+- restored objects follow the current tool;
+- move undone;
+- Delete key and floating 🗑️ undone;
+- "נקה הכל" undone;
+- **eraser semantics:** only the pen layer is erased and shapes stay objects; one eraser stroke is one step, Undo restores the strokes, and the eraser works again afterwards; an empty eraser press is no step;
+- **palette:** black default and `aria-pressed`; new strokes and all seven shape tools use the selection; existing drawings unchanged; Undo keeps the selected colour.
+
+**Not implemented (deferred):** partial erasing of shapes, line straightening, Redo.
+
 ## Original proposal (kept for reference; see §0.6 for what is still open)
 
 ## 1. Starting state (before the baseline)

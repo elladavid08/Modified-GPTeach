@@ -12,7 +12,10 @@
 //   HARNESS_API_URL       local server                (default: http://127.0.0.1:3101)
 //   HARNESS_STUDENT_PROTOTYPE  carrier|carrier2|carrier3 (optional; v1 / v2 / v3 of the research prototype, prototype/carrier.js: patched
 //                         copy of ai.js written to results/<run>/ai.carrier.js, one carrier per conversation passed to
-//                         the student call only; PCK receives the unmodified scenario)
+//                         the student call only; PCK receives the unmodified scenario). Since 1.5.0 the prototypes patch the
+//                         1.4.4 base ai.js (commit cf61c03, prototype/carrier.js baseAiSource)
+//   HARNESS_STUDENT_CARRIER    production (optional; 1.5.0: the production student path with the session carrier from
+//                         src/services/misconceptionCarrier.js, passed to the student call only, as Chat.jsx does)
 // Output: research/simulator_audit/replay_harness/results/<run id>/ (git-ignored).
 import fs from 'fs';
 import path from 'path';
@@ -27,7 +30,8 @@ import { SCENARIOS, castFor, conversationId, HARNESS_VERSION } from '../config/s
 import { DRAWINGS } from '../lib/assets.js';
 import { teacherTurnA, teacherTurnB, createTeacherState } from '../lib/teacher.js';
 import { firstTurnAddendum } from '../lib/turnFlow.js';
-import { buildCarrierModule, selectCarrier } from '../prototype/carrier.js';
+import { buildCarrierModule, selectCarrier, baseAiSource } from '../prototype/carrier.js';
+import { selectMisconceptionCarrier, withMisconceptionCarrier } from '../../../../src/services/misconceptionCarrier.js';
 
 jest.setTimeout(6 * 60 * 60 * 1000);
 const HARNESS = path.resolve(__dirname, '..');
@@ -43,6 +47,9 @@ it('replay', async () => {
   if (!['historical', 'designed'].includes(castKind)) throw new Error('HARNESS_CASTS must be historical or designed');
   const prototype = env.HARNESS_STUDENT_PROTOTYPE || null;
   if (prototype && !['carrier', 'carrier2', 'carrier3'].includes(prototype)) throw new Error('HARNESS_STUDENT_PROTOTYPE must be carrier, carrier2, carrier3 (or unset)');
+  const productionCarrier = env.HARNESS_STUDENT_CARRIER || null;
+  if (productionCarrier && productionCarrier !== 'production') throw new Error('HARNESS_STUDENT_CARRIER must be production (or unset)');
+  if (productionCarrier && prototype) throw new Error('HARNESS_STUDENT_CARRIER and HARNESS_STUDENT_PROTOTYPE are exclusive');
   const scenarioIds = list(env.HARNESS_SCENARIOS, [1, 2, 3, 4, 5, 6]);
   const castIndexes = list(env.HARNESS_CAST_INDEXES, [0, 1]);
   const repeats = Number(env.HARNESS_REPEATS || 1);
@@ -53,7 +60,7 @@ it('replay', async () => {
 
   const git = (cmd) => { try { return execSync(cmd, { cwd: REPO }).toString().trim(); } catch (e) { return null; } };
   const manifest = {
-    runId, harnessVersion: HARNESS_VERSION, mode: MODE, castKind, scenarioIds, castIndexes, repeats, studentPrototype: prototype,
+    runId, harnessVersion: HARNESS_VERSION, mode: MODE, castKind, scenarioIds, castIndexes, repeats, studentPrototype: prototype, studentCarrier: productionCarrier,
     systemVersion: SYSTEM_VERSION, gitCommit: git('git rev-parse --short HEAD'), gitDirtyProductionFiles: git('git status --porcelain -- src server public') || '', gitDirtyHarnessFiles: git('git status --porcelain -- research/simulator_audit/replay_harness') || '',
     apiUrl: env.REACT_APP_API_URL, node: process.version, startedAt: new Date().toISOString(),
     note: 'Gemini generation is not deterministic; the harness (teacher, casts, drawings) is.',
@@ -63,7 +70,7 @@ it('replay', async () => {
   let callAI = productionCallAI;
   if (prototype) {
     const patched = path.join(outDir, 'ai.carrier.js');
-    fs.writeFileSync(patched, buildCarrierModule(fs.readFileSync(path.join(REPO, 'src/utils/ai.js'), 'utf8'), path.join(REPO, 'src/utils'), { variant: { carrier: 'v1', carrier2: 'v2', carrier3: 'v3' }[prototype] }));
+    fs.writeFileSync(patched, buildCarrierModule(baseAiSource(REPO), path.join(REPO, 'src/utils'), { variant: { carrier: 'v1', carrier2: 'v2', carrier3: 'v3' }[prototype] }));
     callAI = require(patched).default; // eslint-disable-line global-require
   }
 
@@ -75,9 +82,10 @@ it('replay', async () => {
         const cast = castFor(scenarioId, castIndex, castKind);
         const students = cast.map((name) => personas.students[name]);
         const id = conversationId(MODE, scenarioId, castKind, castIndex, repeat);
-        const carrier = prototype ? selectCarrier(students) : null;
-        const studentScenario = carrier ? { ...scenario, misconception_carrier: carrier } : scenario;
-        const conv = { conversationId: id, runId, mode: MODE, scenarioId, slug: plan.slug, castKind, castIndex, repeat, cast, carrier, turns: [] };
+        const sessionCarrier = productionCarrier ? selectMisconceptionCarrier(students, scenario) : null;
+        const carrier = prototype ? selectCarrier(students) : sessionCarrier && sessionCarrier.name;
+        const studentScenario = sessionCarrier ? withMisconceptionCarrier(scenario, sessionCarrier) : carrier ? { ...scenario, misconception_carrier: carrier } : scenario;
+        const conv = { conversationId: id, runId, mode: MODE, scenarioId, slug: plan.slug, castKind, castIndex, repeat, cast, carrier, misconceptionCarrier: sessionCarrier, turns: [] };
         const messages = [];
         const feedbackHistory = [];
         const state = createTeacherState();
