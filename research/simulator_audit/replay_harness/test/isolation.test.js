@@ -27,7 +27,7 @@ test('no harness file imports Firestore, the conversation logger or the Firebase
 });
 
 test('production imports are read-only modules of the real student/PCK path', () => {
-  const allowed = new Set(['src/utils/ai.js', 'src/services/genai.js', 'src/objects/ChatMessage.js', 'src/config/students/personas.js', 'src/config/scenarios/geometry_scenarios.js', 'src/config/version.js', 'src/services/misconceptionCarrier.js', 'server/student_duplicate_guard.js']);
+  const allowed = new Set(['src/utils/ai.js', 'src/services/genai.js', 'src/objects/ChatMessage.js', 'src/config/students/personas.js', 'src/config/scenarios/geometry_scenarios.js', 'src/config/version.js', 'src/services/misconceptionCarrier.js', 'server/student_duplicate_guard.js', 'server/student_garble.js']);
   for (const f of sources(HARNESS)) {
     for (const m of readFileSync(f, 'utf8').matchAll(/from '((\.\.\/)+[^']+)'/g)) {
       const target = path.relative(REPO, path.resolve(path.dirname(f), m[1]));
@@ -40,7 +40,7 @@ test('only the runner and the analyzer write files, and only under results/ (and
   for (const f of sources(HARNESS)) {
     const rel = path.relative(HARNESS, f);
     const writes = /writeFileSync|copyFileSync|mkdirSync/.test(readFileSync(f, 'utf8'));
-    if (writes) assert.ok(['bench/run.bench.js', 'bench/opportunity.bench.js', 'bench/carrier_identity.bench.js', 'analyze.js', 'scripts/render_assets.js', 'scripts/import_historical.js'].includes(rel), rel);
+    if (writes) assert.ok(['bench/run.bench.js', 'bench/opportunity.bench.js', 'bench/carrier_identity.bench.js', 'bench/hebrew_probe.bench.js', 'scripts/arc_judge.mjs', 'analyze.js', 'scripts/render_assets.js', 'scripts/import_historical.js'].includes(rel), rel);
   }
   assert.match(readFileSync(path.join(HARNESS, '.gitignore'), 'utf8'), /^results\/$/m);
 });

@@ -33,7 +33,18 @@
 // ("equal AND perpendicular diagonals => square"); student / PCK call telemetry is recorded; the first student
 // prompt of each run is saved for provenance.
 //
-// Environment: OPP_CASTS (random|designed), OPP_STUDENT (current|carrier), OPP_SCENARIOS ("1,2"), OPP_REPEATS
+// 1.2.0 (2026-10-26, post-1.5.0 feedback investigation; bench-only):
+//   OPP_STUDENT=production  the released 1.5.0 student path: production callAI with the session carrier from
+//                           src/services/misconceptionCarrier.js (as Chat.jsx); PCK receives the unmodified scenario.
+//   OPP_PLAN=progression    T1-T5 as above, then a graded teaching sequence instead of one explanation:
+//     T6 hint     a minimal teaching move: a definition / fact reminder that does NOT state the conclusion
+//     T7 rethink  "now let's think about <the object of the misconception>" (the educational team's 1.5.0 example)
+//     T8 check    the Mode B CHECK question, addressed to the designated carrier
+//     T9 explain  the full Mode B EXPLAIN turn (with its drawing)
+//     T10 apply   the Mode B T8 application question (content / drawing question)
+//   It separates "progressed appropriately" from "jumped to the full conclusion after one minimal teaching move".
+//
+// Environment: OPP_CASTS (random|designed), OPP_STUDENT (current|carrier|production), OPP_PLAN (standard|progression), OPP_SCENARIOS ("1,2"), OPP_REPEATS
 // (default 6 random / 2 per designed cast), OPP_RUN_ID, HARNESS_API_URL (local server, default http://127.0.0.1:3101).
 // Output: results/<run id>/conversations/*.json (git-ignored). Run only this file:
 //   npx jest --config research/simulator_audit/replay_harness/jest.harness.json --runInBand --testPathPattern opportunity
@@ -51,12 +62,13 @@ import { DRAWINGS } from '../lib/assets.js';
 import { misconceptionClaims } from '../lib/teacher.js';
 import { firstTurnAddendum } from '../lib/turnFlow.js';
 import { buildCarrierModule, selectCarrier, baseAiSource } from '../prototype/carrier.js';
+import { selectMisconceptionCarrier, withMisconceptionCarrier } from '../../../../src/services/misconceptionCarrier.js';
 import { nextMisconceptionState } from '../prototype/addressedJudge.js';
 
 jest.setTimeout(6 * 60 * 60 * 1000);
 const HARNESS = path.resolve(__dirname, '..');
 const REPO = path.resolve(HARNESS, '../../..');
-export const OPPORTUNITY_VERSION = '1.1.0';
+export const OPPORTUNITY_VERSION = '1.2.0';
 
 /** T2: a neutral concept question per scenario (does not name or hint the misconception). */
 const OPPORTUNITY_NEUTRAL = {
@@ -77,6 +89,34 @@ const AGREE = 'אוקיי. כולם מסכימים עם זה?';
 
 const stripAddress = (text) => text.replace(/^\{A\},\s*/, '').replace(/\s*לדעתך(?=\?)/, ''); // class-addressed
 const capitalize = (text) => text; // Hebrew: nothing to do
+
+/** 1.2.0 progression plan: minimal teaching move (no conclusion) and the "now think about ..." prompt. */
+const PROGRESSION = {
+  1: { hint: 'בואו נזכיר את ההגדרה: מלבן הוא מרובע שכל זוויותיו ישרות.', rethink: 'עכשיו בואו נחשוב על ריבוע.' },
+  2: { hint: 'בואו נזכיר: מעוין הוא מרובע שכל ארבע צלעותיו שוות.', rethink: 'עכשיו בואו נחשוב שוב על מרובע שהאלכסונים שלו מאונכים.' },
+  3: { hint: 'בואו נזכיר את ההגדרה: מלבן הוא מרובע שכל זוויותיו ישרות.', rethink: 'עכשיו בואו נחשוב שוב על מלבן שעומד על הצד או שהוא כמעט ריבועי.' },
+  4: { hint: 'בואו נזכיר: במלבן כל הזוויות ישרות, והאלכסונים שלו חוצים זה את זה.', rethink: 'עכשיו בואו נחשוב על האלכסון של מלבן.' },
+  5: { hint: 'בואו נזכיר: ריבוע הוא מרובע שכל צלעותיו שוות וכל זוויותיו ישרות.', rethink: 'עכשיו בואו נחשוב שוב על מרובע שהאלכסונים שלו שווים ומאונכים.' },
+  6: { hint: 'בואו נזכיר את ההגדרה: דלתון הוא מרובע שיש לו שני זוגות של צלעות סמוכות שוות.', rethink: 'עכשיו בואו נחשוב על מעוין.' },
+};
+
+/** 1.2.0 progression plan (10 turns); T8 is addressed to the carrier once known. */
+export function progressionPlan(scenarioId) {
+  const base = opportunityPlan(scenarioId);
+  const of = (move) => base.plan.turns.find((t) => t.move === move);
+  const apply = base.plan.turns[7]; // the Mode B T8 application question (content / drawing)
+  return {
+    plan: base.plan,
+    turns: [
+      ...base.turns.slice(0, 5),
+      { label: 'T6 hint', text: PROGRESSION[scenarioId].hint, teaching: true },
+      { label: 'T7 rethink', text: PROGRESSION[scenarioId].rethink, teaching: true },
+      { label: 'T8 check', check: (OPPORTUNITY_OVERRIDES[scenarioId] || {}).check || of(MOVES.CHECK).text, teaching: true },
+      { label: 'T9 explain', text: of(MOVES.EXPLAIN).text, drawing: of(MOVES.EXPLAIN).drawing || null, teaching: true },
+      { label: 'T10 apply', text: apply.text, drawing: apply.drawing || null, teaching: true },
+    ],
+  };
+}
 
 /** The 7-turn plan for a scenario; T7 is filled once the carrier is known. */
 export function opportunityPlan(scenarioId) {
@@ -129,7 +169,9 @@ async function completionJudge(prompt) {
 it('opportunity', async () => {
   const castKind = env.OPP_CASTS;
   const studentArm = env.OPP_STUDENT || 'current';
-  if (!['current', 'carrier', 'carrier2', 'carrier3', 'carrierpc'].includes(studentArm)) throw new Error('OPP_STUDENT must be current or carrier / carrier2 / carrier3 / carrierpc (prototype v1 / v2 / v3 / pc1)');
+  if (!['current', 'production', 'carrier', 'carrier2', 'carrier3', 'carrierpc'].includes(studentArm)) throw new Error('OPP_STUDENT must be current, production (1.5.0 carrier) or carrier / carrier2 / carrier3 / carrierpc (prototype v1 / v2 / v3 / pc1)');
+  const planKind = env.OPP_PLAN || 'standard';
+  if (!['standard', 'progression'].includes(planKind)) throw new Error('OPP_PLAN must be standard or progression');
   if (!['random', 'designed'].includes(castKind)) throw new Error('Set OPP_CASTS=random or OPP_CASTS=designed');
   const scenarioIds = list(env.OPP_SCENARIOS, [1, 2, 3, 4, 5, 6]);
   const runId = env.OPP_RUN_ID || `O-${castKind}-${new Date().toISOString().replace(/[:.]/g, '-')}`;
@@ -138,14 +180,14 @@ it('opportunity', async () => {
   fs.mkdirSync(path.join(outDir, 'conversations'), { recursive: true });
   const git = (cmd) => { try { return execSync(cmd, { cwd: REPO }).toString().trim(); } catch (e) { return null; } };
   const manifest = {
-    runId, opportunityVersion: OPPORTUNITY_VERSION, harnessVersion: HARNESS_VERSION, castKind, studentArm, scenarioIds,
+    runId, opportunityVersion: OPPORTUNITY_VERSION, harnessVersion: HARNESS_VERSION, castKind, studentArm, planKind, scenarioIds,
     systemVersion: SYSTEM_VERSION, gitCommit: git('git rev-parse --short HEAD'), gitDirtyProductionFiles: git('git status --porcelain -- src server public') || '',
     startedAt: new Date().toISOString(),
   };
   fs.writeFileSync(path.join(outDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
 
   let callAI = productionCallAI;
-  if (studentArm !== 'current') {
+  if (studentArm !== 'current' && studentArm !== 'production') {
     const patched = path.join(outDir, 'ai.carrier.js');
     fs.writeFileSync(patched, buildCarrierModule(baseAiSource(REPO), path.join(REPO, 'src/utils'), { variant: { carrier: 'v1', carrier2: 'v2', carrier3: 'v3', carrierpc: 'pc1' }[studentArm] }));
     callAI = require(patched).default; // eslint-disable-line global-require
@@ -164,7 +206,7 @@ it('opportunity', async () => {
   };
 
   for (const scenarioId of scenarioIds) {
-    const { plan, turns } = opportunityPlan(scenarioId);
+    const { plan, turns } = planKind === 'progression' ? progressionPlan(scenarioId) : opportunityPlan(scenarioId);
     const scenario = scenarioConfig.scenarios[plan.scenarioIndex];
     const runs = castKind === 'random'
       ? Array.from({ length: Number(env.OPP_REPEATS || 6) }, (_, i) => ({ cast: randomCast(scenarioId, i + 1), tag: `r${i + 1}` }))
@@ -172,7 +214,8 @@ it('opportunity', async () => {
     for (const { cast, tag } of runs) {
       const students = cast.map((name) => personas.students[name]);
       const id = `O-s${scenarioId}-${tag}`;
-      const carrier = studentArm !== 'current' ? selectCarrier(students) : null;
+      const sessionCarrier = studentArm === 'production' ? selectMisconceptionCarrier(students, scenario) : null;
+      const carrier = studentArm === 'production' ? sessionCarrier && sessionCarrier.name : studentArm !== 'current' ? selectCarrier(students) : null;
       let misconceptionState = studentArm === 'carrierpc' ? 'open' : null;
       const conv = { conversationId: id, runId, scenarioId, slug: plan.slug, castKind, studentArm, cast, carrier, carrierDetected: null, addressedAtTurn: null, turns: [] };
       const messages = [];
@@ -180,7 +223,8 @@ it('opportunity', async () => {
       for (const step of turns) {
         let text = step.text;
         if (step.check) {
-          text = conv.carrierDetected ? step.check.replace(/\{A\}/g, conv.carrierDetected) : stripAddress(step.check);
+          const addressee = studentArm === 'production' ? carrier : conv.carrierDetected;
+          text = addressee ? step.check.replace(/\{A\}/g, addressee) : stripAddress(step.check);
         }
         const drawing = step.drawing ? DRAWINGS[step.drawing] : null;
         const image = drawing ? fs.readFileSync(path.join(HARNESS, drawing.file)).toString('base64') : null;
@@ -213,7 +257,8 @@ it('opportunity', async () => {
           if (judged.state === 'addressed' && misconceptionState !== 'addressed') conv.addressedAtTurn = step.label;
           misconceptionState = judged.state;
         }
-        const studentScenario = carrier ? { ...scenario, misconception_carrier: carrier, ...(misconceptionState ? { misconception_state: misconceptionState } : {}) } : scenario;
+        const studentScenario = sessionCarrier ? withMisconceptionCarrier(scenario, sessionCarrier)
+          : carrier ? { ...scenario, misconception_carrier: carrier, ...(misconceptionState ? { misconception_state: misconceptionState } : {}) } : scenario;
         const addendum = messages.length === 1 ? firstTurnAddendum(scenario) : '';
         let replies = null;
         const student = { ok: true };
@@ -225,7 +270,7 @@ it('opportunity', async () => {
         }
         (replies || []).forEach((r) => messages.push(r));
         const out = (replies || []).map((r) => ({ student: r.agent, message: r.text, claim: misconceptionClaims(scenarioId, r.text).length > 0 }));
-        if (!conv.carrierDetected && !step.check && step.label !== 'T6 explain') {
+        if (!conv.carrierDetected && !step.check && !step.teaching && step.label !== 'T6 explain') {
           const first = out.find((r) => r.claim);
           if (first) conv.carrierDetected = first.student;
         }

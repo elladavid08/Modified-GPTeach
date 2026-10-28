@@ -1,0 +1,79 @@
+{
+  "version": "1.0.0",
+  "note": "Synthetic paraphrases (tracked) of the educational team's 1.5.0 feedback cases (2026-10-22 round). Names, wording and prefixes are invented; only the pedagogical structure of each case is kept. The exact cases stay local (pck_eval/local_b200/edu_feedback_1.5/, git-ignored). Expectation keys: per skill 'relevant' | 'not_relevant' | {\"max\": n} | {\"min\": n} (score bound, implies relevant when shown); 'contract': every shown row must carry its score's required text (2: positive; 1: positive AND improvement; 0: improvement).",
+  "skills": {"p1": "error-identification", "p2": "error-characterization", "p3": "diagnostic-interpretation", "p4": "adapted-pedagogical-response", "p5": "error-leveraging"},
+  "cases": [
+    {
+      "id": "S-LEV-PARTIAL",
+      "team_issue": "Leveraging scored 2 when the teacher only opens a new direction (shared properties) without developing it",
+      "scenario_index": 5,
+      "history": [
+        {"teacher": "היום נדבר על דלתון ומעוין. מה ההגדרה של דלתון?", "students": [{"name": "הילה", "message": "דלתון זה מרובע עם שני זוגות של צלעות סמוכות שוות."}]},
+        {"teacher": "האם מעוין הוא סוג של דלתון?", "students": [{"name": "הילה", "message": "לא נראה לי, הם נראים שונים לגמרי, אז הם בטח משפחות נפרדות."}]},
+        {"teacher": "איך נחליט לאיזו משפחה צורה שייכת?", "students": [{"name": "הילה", "message": "אולי לפי ההגדרה ולא לפי המראה?"}, {"name": "רועי", "message": "כן, בודקים אם התכונות מתאימות להגדרה."}]},
+        {"teacher": "נכון. במעוין כל הצלעות שוות, ולכן יש לו שני זוגות של צלעות סמוכות שוות.", "students": [{"name": "הילה", "message": "אה, אז לפי ההגדרה מעוין הוא כן דלתון."}]}
+      ],
+      "teacher": "מצוין הילה! אז מעוין הוא דלתון. אתם יכולים למצוא עוד תכונה ששתי הצורות חולקות, ולבדוק אם היא נכונה בשתיהן?",
+      "expect": {"p5": {"max": 1}, "contract": true}
+    },
+    {
+      "id": "S-LEV-EARLY",
+      "team_issue": "Leveraging surfaced at the start of the discussion; the move is mainly a pedagogical response to the student's doubt",
+      "scenario_index": 5,
+      "history": [
+        {"teacher": "היום נדבר על דלתון ומעוין. מה ההגדרה של דלתון?", "students": [{"name": "הילה", "message": "דלתון זה מרובע עם שני זוגות של צלעות סמוכות שוות."}]},
+        {"teacher": "האם מעוין הוא סוג של דלתון?", "students": [{"name": "הילה", "message": "אני לא בטוחה. נראה לי שצורות שנראות שונה הן משפחות נפרדות, אבל אולי אני טועה? איך יודעים?"}]}
+      ],
+      "teacher": "שאלה טובה הילה. איך באמת מחליטים לאיזו משפחה צורה שייכת?",
+      "expect": {"p5": "not_relevant", "contract": true}
+    },
+    {
+      "id": "S-INTERP-PARTIAL",
+      "team_issue": "Teacher names the student's visual reasoning without asking how she reached it: interpretation should be surfaced, partially",
+      "scenario_index": 0,
+      "history": [
+        {"teacher": "בשיעור הקודם למדנו על מלבן. מה ההגדרה של מלבן?", "students": [{"name": "תמר", "message": "מלבן זה מרובע עם ארבע זוויות ישרות."}]},
+        {"teacher": "האם ריבוע הוא מלבן?", "students": [{"name": "תמר", "message": "בכלל לא. במלבן הצלעות שוות רק בזוגות ובריבוע כולן שוות, אז אלה צורות אחרות."}, {"name": "יובל", "message": "רגע, גם לריבוע יש ארבע זוויות ישרות... אז אולי כן?"}, {"name": "נועה", "message": "אני לא בטוחה, איך בודקים את זה?"}]}
+      ],
+      "teacher": "תמר, נראה לי שאת מחליטה איזו צורה זו לפי איך שהיא נראית, ולכן יש לך תמונה לא נכונה של מלבן וריבוע.",
+      "expect": {"p1": "relevant", "p3": {"max": 1}, "contract": true}
+    },
+    {
+      "id": "S-APR-MISSED-INTERP",
+      "team_issue": "A focused definition question (a good pedagogical response) where probing why the student thinks so was missed: interpretation should be surfaced as missing",
+      "scenario_index": 0,
+      "history": [
+        {"teacher": "בשיעור הקודם למדנו על מלבן. מה ההגדרה של מלבן?", "students": [{"name": "תמר", "message": "מלבן זה מרובע עם ארבע זוויות ישרות."}]},
+        {"teacher": "האם ריבוע הוא מלבן?", "students": [{"name": "תמר", "message": "בכלל לא. במלבן הצלעות שוות רק בזוגות ובריבוע כולן שוות, אז אלה צורות אחרות."}]},
+        {"teacher": "תמר, נראה לי שאת מחליטה איזו צורה זו לפי איך שהיא נראית.", "students": [{"name": "תמר", "message": "למה? זה ברור שהם שונים, בריבוע הכל שווה ובמלבן לא. אבל אולי צריך לבדוק יותר."}, {"name": "נועה", "message": "כשמסתכלים עליהם הם באמת נראים אחרת... אולי בגלל זה מתבלבלים?"}]}
+      ],
+      "teacher": "תמר, מה צריך לבדוק בצורה כדי להחליט אם היא מלבן?",
+      "expect": {"p4": "relevant", "p3": "relevant", "contract": true}
+    },
+    {
+      "id": "S-INTERP-NOT-APR",
+      "team_issue": "A why-question about the student's reasoning is interpretation, not an adapted pedagogical response, and not leveraging",
+      "scenario_index": 0,
+      "history": [
+        {"teacher": "בשיעור הקודם למדנו על מלבן. מה ההגדרה של מלבן?", "students": [{"name": "תמר", "message": "מלבן זה מרובע עם ארבע זוויות ישרות."}]},
+        {"teacher": "האם ריבוע הוא מלבן?", "students": [{"name": "תמר", "message": "בכלל לא. במלבן הצלעות שוות רק בזוגות ובריבוע כולן שוות, אז אלה צורות אחרות."}]},
+        {"teacher": "תמר, מה צריך לבדוק בצורה כדי להחליט אם היא מלבן?", "students": [{"name": "תמר", "message": "את הזוויות... אבל אם כל הצלעות שוות זה כבר לא מלבן, זה ריבוע."}]}
+      ],
+      "teacher": "תמר, למה את חושבת שאם כל ארבע הצלעות שוות זה לא יכול להיות מלבן?",
+      "expect": {"p3": {"min": 1}, "p4": "not_relevant", "p5": "not_relevant", "contract": true}
+    },
+    {
+      "id": "S-LEV-ON-YES",
+      "team_issue": "A bare 'כן' after the students reach the conclusion themselves is credited with leveraging (and shown as a yellow row with only the improvement)",
+      "scenario_index": 0,
+      "history": [
+        {"teacher": "בשיעור הקודם למדנו על מלבן. מה ההגדרה של מלבן?", "students": [{"name": "יובל", "message": "מרובע עם ארבע זוויות ישרות."}]},
+        {"teacher": "האם ריבוע הוא מלבן?", "students": [{"name": "יובל", "message": "לא, ריבוע זה צורה אחרת, יש לו צלעות שוות."}]},
+        {"teacher": "בואו נזכיר את ההגדרה: מלבן הוא מרובע שכל זוויותיו ישרות.", "students": [{"name": "יובל", "message": "אוקיי, ארבע זוויות ישרות."}]},
+        {"teacher": "עכשיו בואו נחשוב על ריבוע.", "students": [{"name": "יובל", "message": "רגע, אם לריבוע יש ארבע זוויות ישרות, אז גם הוא מלבן?"}, {"name": "דנה", "message": "נכון! אם במלבן צריך ארבע זוויות ישרות, אז ריבוע הוא סוג של מלבן!"}]}
+      ],
+      "teacher": "כן",
+      "expect": {"p5": "not_relevant", "contract": true}
+    }
+  ]
+}
