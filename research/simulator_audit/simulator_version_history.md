@@ -1,10 +1,11 @@
-# Simulator version history (1.0.0 → 1.5.0)
+# Simulator version history (1.0.0 → 1.5.1)
 
 **Purpose:** one consolidated record of how the teaching simulator changed between its first versioned release and the current released baseline, **1.5.0**, written so that the iterations can later be described in a paper.
 - It records what changed in each version, why it changed, and how the behaviour of the system changed.
 - Research experiments that did **not** ship are kept in a separate section (§4), so they cannot be mistaken for released behaviour.
 
 **Compiled:** 2026-10-26, from the repository. No production code, prompt, model, schema or `SYSTEM_VERSION` was changed for this document.
+**Updated:** 2026-10-28, to add **1.5.1**, the first post-1.5.0 iteration (a development version, not yet merged or deployed; §2, §6).
 
 **Sources (the source of truth, in this order):**
 1. `src/config/version.js`: the `SYSTEM_VERSION` constant and its changelog, read on `main` at `1ce6b21`.
@@ -53,13 +54,14 @@
 | 1.4.3 | 2026-10-13 | PCK sidebar shows the text the model returned for each skill | development |
 | 1.4.4 | 2026-10-13 | Persistent teacher briefing; attempted-scenario marks; return after finishing; history reset | development |
 | **1.5.0** | 2026-10-14 | Misconception carrier; return before finishing (single exit); drawing Undo and colours; transparent questionnaire images | **production release** (merged to `main` as `1ce6b21`) |
+| 1.5.1 | 2026-10-28 | **First post-1.5.0 iteration:** PCK feedback text consistency (one row-text rule for every view and the summary input; no empty rows; one identical re-ask) | development (`feature/post-1.5-educational-feedback`; not merged or deployed) |
 
 **About `1.3.0-gemini3`:**
 - It was **not** a step of the post-pilot development line. It was the pilot code (1.3.0) with only the model migration. It was made because `gemini-2.5-flash-lite` retires on Vertex AI on 2026-10-20, and it was merged to `main` (`7f7fb25`, merge `d7fbe55`).
 - It contains none of the changes in 1.3.1–1.4.4. The post-pilot line carried out the same migration independently as 1.4.0.
 - Production ran `1.3.0-gemini3` from the hotfix deployment until 1.5.0 was deployed. Neither deployment date is recorded in the repository (§8).
 
-**About the development versions:** 1.3.1–1.4.4 were never deployed. Each is a validated, versioned step whose behaviour reached production only through 1.5.0.
+**About the development versions:** 1.3.1–1.4.4 were never deployed. Each is a validated, versioned step whose behaviour reached production only through 1.5.0. 1.5.1 starts the next development line, from the released 1.5.0.
 
 ---
 
@@ -297,6 +299,40 @@ These come from the `version.js` changelog. Changes between version bumps are li
 
 **Validation of the release build (merged tree):** client tests 448/448, server tests 328/328, harness tests 78/78, production build OK. Merged to `main` as `1ce6b21`. The merge resolved 4 conflicts with the hotfix in favour of 1.5.0 and kept the `1.3.0-gemini3` changelog entry.
 
+### 1.5.1 (2026-10-28): first post-1.5.0 iteration, PCK feedback text consistency [PCK] [UI] [LOG]
+
+The first change made after the educational team's feedback round on 1.5.0 (`post_1.5_feedback_investigation.md` §A; regression plan §0.35; invariants B28, A17). It is the deterministic part of that investigation; the model, rubric and architecture questions are left to later experiments.
+
+- **Problem (1.5.0 data):**
+  - 96 of 1,077 shown feedbacks had at least one skill row with no text. Most were score-2 rows (about 6%, mostly random), shown as a bare skill name.
+  - Score-0 rows ignored the matching `missed_opportunities` text.
+  - The sidebar, the viewers, the exports and the summary input did not all derive the row text the same way.
+  - Score-1 rows never had a positive part (0 of 152): the model does not list score-1 skills in `demonstrated_skills`.
+- **Change:**
+  - **One row-text rule** for the sidebar, the conversation-log and admin viewers, the Excel / CSV exports and the summary input:
+    - score 2: positive evidence;
+    - score 1: positive evidence + improvement;
+    - score 0: improvement, now falling back to the single matching `missed_opportunities` text.
+  - **Two copies of the rule:** the client (`src/services/pckDisplayRows.js`) and the server (`server/pck_row_text.js`), kept identical by a parity test.
+  - **Display:**
+    - Teacher-facing views never show a row with no text.
+    - Shown feedback with no displayable row at all is neither displayed nor logged (0 of 1,077 in the 1.5.0 data).
+    - Exports keep every scored skill.
+    - **Interim:** a score-1 row without a positive part still shows its improvement. The full "what exists + what to improve" contract is left to the two-stage PCK work.
+  - **Retry:**
+    - When feedback that will be shown has a row with no text, the server re-asks once with the identical request, as the existing second attempt (still at most 2).
+    - The first answer is the fallback; a still-incomplete second answer is accepted.
+    - Expected: one extra PCK call on about 9% of shown turns.
+  - **Summary input:** the summary sees the text the teacher saw.
+- **Unchanged:** models, the PCK prompt and rubric, the response schema, the show/hide decision (`should_provide_feedback` and the bare-acknowledgement guard), the misconception carrier, the student prompt and the stored PCK fields.
+- **Side effect of the re-ask:** on a re-asked turn, the analysis used is the second sample of the identical request. Its scores, display decision and student steering can therefore differ from what the first sample would have given. This is a sampling effect, not a change in the rules.
+- **Data:**
+  - two additive, content-free telemetry counters: `pckRowsMissingPositive` and `pckRowTextRetries`;
+  - conversations carry `systemVersion: "1.5.1"`.
+- **Validation:**
+  - client tests 462/462, server tests 340/340, harness tests 78/78; production build OK;
+  - not yet validated live on the real model.
+
 ---
 
 ## 3. Post-pilot work grouped by research purpose
@@ -306,7 +342,7 @@ These come from the `version.js` changelog. Changes between version bumps are li
 | **Usability and teacher workflow** | Turn lock and empty-turn guard (1.3.1); visible failure notices (1.3.2); image-only turns (1.3.3); multi-line messages (1.3.7); persistent briefing, attempted marks, return after finishing, clean history (1.4.4); single exit with an unfinished-lesson dialog; drawing Undo and colours (1.5.0) | #6, #7 (partial), #8, #10 |
 | **Student behaviour: repetition and coherence** | Speaker identity in history (1.3.8); prompt/schema alignment (1.3.9); short-message rule (1.3.10); duplicate guard (1.3.11); neutral examples (1.3.12); quote-safe abbreviations (1.3.13) | #1 (partial), #2 |
 | **Student behaviour: misconception persistence** | Model choice partly driven by persistence (1.4.0); designated misconception carrier (1.5.0) | #12 |
-| **PCK feedback quality** | Summary grounded in real-time feedback (1.3.1); structured, validated output (1.3.4); feedback on missed misconceptions after bare acknowledgements (1.4.1); every displayed row shows the model's own text, score-1 rows show the suggestion (1.4.3) | #4 (partial), #5, #13 |
+| **PCK feedback quality** | Summary grounded in real-time feedback (1.3.1); structured, validated output (1.3.4); feedback on missed misconceptions after bare acknowledgements (1.4.1); every displayed row shows the model's own text, score-1 rows show the suggestion (1.4.3); one row-text rule for every view and the summary, no empty rows, one identical re-ask (1.5.1, post-1.5.0 feedback round) | #4 (partial), #5, #13 |
 | **B200-informed feedback changes** | Structured output (handoff A1, 1.3.4); retry policy (A3, modified, 1.3.6); score-1 "what exists + recommendation" presentation (matches the B200 template, 1.4.3). The rest stayed research (§5) | — |
 | **Model migration** | Split Gemini 3.x models (1.4.0); same migration on the pilot code as the production hotfix `1.3.0-gemini3` | — |
 | **Reliability and logging** | `failedAttempts` diagnostics (1.3.2); telemetry (1.3.5); retry/timeout policy (1.3.6); quote-cut, garble and unknown-speaker counters (1.3.13, 1.4.2); `misconceptionCarrier` provenance (1.5.0); regression suite and replay harness (research tooling) | — |
@@ -414,7 +450,7 @@ In short, B200 entered the simulator as evaluation ground truth and as rubric an
 - The 1.5.0 merge replaced the production hotfix `1.3.0-gemini3`. Conversations recorded in production before the deployment carry `1.3.0-gemini3` (or `1.3.0`, if recorded before the hotfix).
 - **1.5.0 is the version the educational team tested** in the subsequent feedback round.
   - Their issue list, **"טבלת בעיות סימולטור 22.10.docx"**, therefore describes issues observed on 1.5.0. It is kept outside the repository.
-- **No change based on that feedback has been implemented yet.**
+- **The first change based on that feedback is 1.5.1** (2026-10-28, PCK feedback text consistency, §2). It is a development version on `feature/post-1.5-educational-feedback` and is not merged or deployed. Until it is deployed, production data is 1.5.0.
 - The next investigation starts from 1.5.0. Any change it produces must be released under a new `SYSTEM_VERSION`, so data from the team's evaluation stays distinguishable from later versions.
 
 Branch state when this document was written:

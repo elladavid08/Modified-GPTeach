@@ -13,10 +13,36 @@
  * - Z: Patch version (bug fixes, minor improvements)
  */
 
-export const SYSTEM_VERSION = "1.5.0";
+export const SYSTEM_VERSION = "1.5.1";
 
 /**
  * Version History:
+ * 
+ * 1.5.1 (2026-10-28):
+ * - First post-1.5.0 iteration (post_1.5_feedback_investigation.md, from the educational team's
+ *   feedback on 1.5.0): PCK feedback text consistency. One row-text rule for the teacher sidebar,
+ *   the conversation-log and admin viewers, the Excel / CSV exports and the summary input
+ *   (src/services/pckDisplayRows.js; the server copy server/pck_row_text.js is kept identical by
+ *   a parity test). Score 2: the positive evidence (own evidence, else the single matching
+ *   demonstrated_skills item). Score 1: the same positive text plus what_could_be_better.
+ *   Score 0: what_could_be_better, else (new) the single matching missed_opportunities text.
+ *   Every displayed string is a field the PCK model returned.
+ * - Teacher-facing views never show a skill row with no text (previously a bare skill name).
+ *   Shown feedback with no displayable row at all is neither displayed nor logged (0 of 1,077 in
+ *   the 1.5.0 data). Exports keep every scored skill. A score-1 row without a positive part keeps
+ *   showing its improvement (interim; the full contract is left to the two-stage PCK work).
+ * - Retry: when feedback that will be shown (after the bare-acknowledgement guard) has a row with
+ *   no text, the server re-asks once with the identical request, as the existing second attempt
+ *   (still at most 2 attempts). If the re-ask fails, the first answer is kept; if it is still
+ *   incomplete, it is accepted and the empty row is not displayed. Score-1 rows missing only the
+ *   positive part are not re-asked. Expected: one extra PCK call on about 9% of shown turns.
+ * - Summary input: the real-time moments carry the same row text the teacher saw (non-relevant
+ *   entries, score-0 evidence and score-2 what_could_be_better no longer reach it).
+ * - Telemetry (A17, additive, content-free): pckRowsMissingPositive on PCK entries of shown
+ *   feedback; pckRowTextRetries (0/1) on every PCK entry the server reports.
+ * - Unchanged: models, the PCK prompt and rubric, the response schema, the show/hide decision
+ *   (should_provide_feedback and the bare-acknowledgement guard), the misconception carrier, the
+ *   student prompt and the stored PCK fields.
  * 
  * 1.5.0 (2026-10-14):
  * - Misconception carrier (release blocker #12, "students drop the scenario misconception before

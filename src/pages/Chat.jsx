@@ -18,7 +18,7 @@ import { ConversationLog } from "../services/conversationLogger";
 import { selectMisconceptionCarrier, withMisconceptionCarrier } from "../services/misconceptionCarrier";
 import { buildFailedAttempt, FAILURE_MESSAGES_HE } from "../services/turnDiagnostics";
 import { buildCallTelemetry } from "../services/callTelemetry";
-import { buildPckDisplayRows, countRowsWithoutText } from "../services/pckDisplayRows";
+import { buildPckDisplayRows, countRowsWithoutText, countRowsMissingPositive, isEmptyPckRow } from "../services/pckDisplayRows";
 import { useAuth } from "../contexts/AuthContext";
 import ChatMessage from "../objects/ChatMessage";
 import "../style/ChatOnly.css";
@@ -327,12 +327,17 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 				scenario_alignment: impact_analysis.scenario_alignment
 			};
 				
-			// Display feedback only if backend says to provide it
+			// Display feedback only if backend says to provide it. 1.5.1 row-text fix: rows with no text at
+			// all are never shown (the server already re-asked once); feedback with no displayable row is not shown.
+			const allRows = buildPckDisplayRows(formattedFeedback);
+			const hasDisplayableRow = allRows.some((row) => !isEmptyPckRow(row));
 			if (impact_analysis.should_provide_feedback) {
+				// Content-free counts: rows left out for having no text; score-1 rows shown with the improvement only
+				pckTelemetry = buildCallTelemetry("ok", { ...pckMeta, pckRowsWithoutText: countRowsWithoutText(allRows), pckRowsMissingPositive: countRowsMissingPositive(allRows) });
+			}
+			if (impact_analysis.should_provide_feedback && hasDisplayableRow) {
 				setPckFeedback(formattedFeedback);
 				feedbackForLog = formattedFeedback;  // Only log feedback that was actually shown
-				// 1.4.3: content-free count of displayed skill rows with no usable text (display only; nothing changes)
-				pckTelemetry = buildCallTelemetry("ok", { ...pckMeta, pckRowsWithoutText: countRowsWithoutText(buildPckDisplayRows(formattedFeedback)) });
 			} else {
 				// Clear feedback if not needed
 				setPckFeedback(null);

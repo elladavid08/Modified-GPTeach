@@ -32,7 +32,7 @@ function validateTelemetryEntry(entry, where, errors) {
 	if ("duplicateOutcome" in entry && entry.duplicateOutcome !== null && !DUPLICATE_OUTCOMES.includes(entry.duplicateOutcome)) {
 		errors.push(`${where}.duplicateOutcome invalid`);
 	}
-	for (const key of ["latencyMs", "clientLatencyMs", "attempts", "duplicateRetries", "duplicateRepliesDropped", "duplicateRepliesKept", "quoteCutSuspected", "quoteCutPaddedAttempts", "garbleForeignScript", "garbleMixedScriptToken", "garbleCantillation", "garbleRepeatedFunctionWord", "garbleMarkup", "garbleReplies", "unknownSpeaker", "pckRowsWithoutText"]) {
+	for (const key of ["latencyMs", "clientLatencyMs", "attempts", "duplicateRetries", "duplicateRepliesDropped", "duplicateRepliesKept", "quoteCutSuspected", "quoteCutPaddedAttempts", "garbleForeignScript", "garbleMixedScriptToken", "garbleCantillation", "garbleRepeatedFunctionWord", "garbleMarkup", "garbleReplies", "unknownSpeaker", "pckRowsWithoutText", "pckRowsMissingPositive", "pckRowTextRetries"]) {
 		if (key in entry && !isNullableInt(entry[key])) errors.push(`${where}.${key} must be a non-negative integer or null`);
 	}
 	for (const key of ["reason", "model", "finishReason"]) {

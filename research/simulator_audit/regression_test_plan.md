@@ -1272,6 +1272,52 @@ The 1.4.4 tests are kept. One was replaced: "not offered before finishing" no lo
 
 **Not implemented (deferred):** partial erasing of shapes, line straightening, Redo.
 
+### 0.35 PCK row text: one rule for every view, no empty rows, one identical re-ask (2026-10-28, version 1.5.1)
+
+**Defect** (`post_1.5_feedback_investigation.md`):
+- **Empty rows:** 96 of 1,077 shown feedbacks had at least one skill row with no text, mostly score-2 rows (about 6%, mostly random: 36 of 47 pairs). The sidebar rendered them as a bare skill name.
+- **Score 0:** the row ignored the matching `missed_opportunities` text.
+- **Summary input:** read the raw fields, not what the teacher saw.
+
+**Change (B28 extended; scores, relevance, the decision, the prompt, the model, B27 and the carrier are unchanged):**
+- **One row-text rule:**
+  - **score 2:** positive evidence;
+  - **score 1:** positive + improvement;
+  - **score 0:** improvement = own `what_could_be_better`, else the single exactly-matching `missed_opportunities` text (new).
+- **Two copies of the rule:** `src/services/pckDisplayRows.js` (client) and `server/pck_row_text.js` (server; the server cannot import from `src`), kept identical by a parity test.
+- **Teacher-facing views** (sidebar, conversation-log viewer, admin screen) never render a row with no text (`dropEmpty`). Shown feedback with no displayable row at all is neither displayed nor logged (measured 0 of 1,077). The **exports** (Excel, admin CSV) keep every scored skill.
+- **`/api/pck-feedback`:** if feedback that will be shown (after B27) has a row with no text, attempt 2 of the existing 2-attempt policy re-asks with the **identical** request, and attempt 1 is the fallback.
+  - No third attempt.
+  - A row that is still empty is accepted and then not displayed.
+  - Score-1 rows that lack only the positive part are **not** re-asked (structural: 0/152 in the data, so a re-ask cannot fix them). They are shown with the improvement and counted.
+- **`/api/pck-summary`:** the moments use the same row text (so non-relevant entries, score-0 `evidence` and score-2 `what_could_be_better` no longer reach the summary input).
+- **Telemetry (A17, additive):**
+  - `pckRowsMissingPositive` (client, shown feedback);
+  - `pckRowTextRetries` (server, 0/1, every PCK entry).
+
+**Tests:**
+- **New:**
+  - `pckRowTextParity.test.js`: every combination of score, own fields and fallback lists, 18,816 cases;
+  - `server/test/api_pck_row_text.test.mjs`, 12 tests:
+    - re-ask once with the identical request;
+    - still empty → accepted;
+    - technical or parse failure on the re-ask → fallback;
+    - parse failure then an empty row → accepted;
+    - hidden or B27-suppressed feedback → no re-ask;
+    - fallback texts count as text;
+    - score-1 without a positive part → no re-ask;
+    - summary input.
+- **Updated:**
+  - `pckDisplayRows.test.js`, `pckSkillsDisplay.test.js` and `pckDisplayConsistency.test.js` (teacher views drop text-less rows, exports keep them);
+  - `chatTurnOrchestration.test.js`: an all-empty shown feedback is not displayed or logged; a score-1 row without a positive part is shown and counted; the re-ask count is logged;
+  - `callTelemetry.test.js`;
+  - two server key-shape expectations (`pckRowTextRetries`).
+- **Mutation check:** with the re-ask disabled, 3 of the 12 server tests fail.
+
+**Results:** 462 frontend and 340 backend tests pass (`npm run test:all`); the harness has 78; the build compiles (pre-existing lint warnings only).
+
+**Not done:** a live run on the real model (expected cost: one extra PCK call on about 9% of shown turns).
+
 ## Original proposal (kept for reference; see §0.6 for what is still open)
 
 ## 1. Starting state (before the baseline)

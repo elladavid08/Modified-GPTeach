@@ -3,6 +3,8 @@
 // One synthetic conversation (pckDisplayContractConversation) goes through: the view-model, the teacher sidebar,
 // the conversation-log viewer (ConversationDetail), the admin viewer (page render + "model output" CSV export)
 // and the Excel export. Each view is reduced to [skill name, main text, improvement text] per row.
+// Since 1.5.1, teacher-facing views (sidebar, log viewer, admin screen) never render a row with no
+// text at all; the exports (Excel, model-output CSV) keep every scored skill so the score stays visible to researchers.
 import React from "react";
 import { act } from "react";
 import * as XLSX from "xlsx-js-style";
@@ -66,6 +68,9 @@ const EXPECTED = {
 const NEVER_SHOWN = ["T1-EI-REC", "T1-EL-NOT-SHOWN", "T2-EI-MISPLACED", "T2-AMBIG-A", "T2-AMBIG-B", "T2-OBJECT", "T2-WRONG-CASE", "T2-STRING", "T2-NO-ID", "T2-NOT-RELEVANT", "T6-NOT-RELEVANT"];
 
 const expectedByName = (turnNumber) => EXPECTED[turnNumber].map(([id, main, imp]) => [nameOf(id), main, imp]);
+/** What a teacher-facing view renders: the same rows minus those with no text at all. */
+const shownByName = (turnNumber) => expectedByName(turnNumber).filter(([, main, imp]) => main || imp);
+const withText = (rows) => rows.filter(([, main, imp]) => main || imp);
 
 let conversation;
 let snapshot;
@@ -221,10 +226,10 @@ describe("the view-model matches the hand-written contract", () => {
 });
 
 describe("teacher sidebar", () => {
-	it.each([1, 2, 3, 4, 6])("turn %i shows the same rows as the view-model", (n) => {
+	it.each([1, 2, 3, 4, 6])("turn %i shows the same rows as the view-model, without rows that have no text", (n) => {
 		const view = render(<PCKFeedbackSidebar feedback={turnFeedback(n)} isVisible={true} />);
 		try {
-			expect(domRows(view.container)).toEqual(expectedByName(n));
+			expect(domRows(view.container)).toEqual(shownByName(n));
 		} finally {
 			view.unmount();
 		}
@@ -236,7 +241,7 @@ describe("conversation-log viewer (ConversationDetail)", () => {
 		const view = render(<ConversationDetail log={conversation} onExport={() => {}} onGenerateSummary={() => {}} onViewSummary={() => {}} isLoadingSummary={false} />);
 		try {
 			const byTurn = detailRowsByTurn(view.container);
-			for (const n of [1, 2, 3, 4, 5, 6]) expect([n, byTurn[n]]).toEqual([n, expectedByName(n)]);
+			for (const n of [1, 2, 3, 4, 5, 6]) expect([n, byTurn[n]]).toEqual([n, shownByName(n)]);
 			for (const text of NEVER_SHOWN) expect(view.container.textContent).not.toContain(text);
 		} finally {
 			view.unmount();
@@ -247,7 +252,7 @@ describe("conversation-log viewer (ConversationDetail)", () => {
 describe("admin viewer", () => {
 	it("on screen: the same rows as the sidebar / view-model", async () => {
 		const { screenRows } = await renderAdminAndExport();
-		for (const n of [1, 2, 3, 4, 5, 6]) expect([n, screenRows[n]]).toEqual([n, expectedByName(n)]);
+		for (const n of [1, 2, 3, 4, 5, 6]) expect([n, screenRows[n]]).toEqual([n, shownByName(n)]);
 	});
 
 	it("model-output CSV: same score column and the same per-skill text (both parts of a score-1 row in one cell)", async () => {
@@ -293,7 +298,7 @@ describe("Excel export", () => {
 });
 
 describe("all views agree", () => {
-	it("sidebar, conversation-log viewer, admin viewer and Excel export show identical per-skill text", async () => {
+	it("sidebar, conversation-log viewer, admin viewer and Excel export show identical per-skill text (exports also keep text-less rows)", async () => {
 		const detail = render(<ConversationDetail log={conversation} onExport={() => {}} onGenerateSummary={() => {}} onViewSummary={() => {}} isLoadingSummary={false} />);
 		const logRows = detailRowsByTurn(detail.container);
 		detail.unmount();
@@ -305,8 +310,9 @@ describe("all views agree", () => {
 			const sidebarRows = domRows(sidebar.container);
 			sidebar.unmount();
 			const excelView = excelRows(excel[n], feedback.feedback_message).map((p) => p.row);
-			expect({ n, log: logRows[n], admin: screenRows[n], excel: excelView, model: viewModelRows(feedback) })
+			expect({ n, log: logRows[n], admin: screenRows[n], excel: withText(excelView), model: withText(viewModelRows(feedback)) })
 				.toEqual({ n, log: sidebarRows, admin: sidebarRows, excel: sidebarRows, model: sidebarRows });
+			expect(excelView).toEqual(viewModelRows(feedback));
 		}
 	});
 

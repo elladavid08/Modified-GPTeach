@@ -20,6 +20,7 @@ import { countSuspectedQuoteCuts, isSpacePaddedTokenLimit } from './student_quot
 import { countGarbledReplies } from './student_garble.js';
 import { STUDENT_MODEL_ID, GENERAL_MODEL_ID, MODEL_IDS, VERTEX_LOCATION, VERTEX_API_ENDPOINT, baseGenerationConfig } from './model_config.js';
 import { applyBareAcknowledgementGuard } from './pck_bare_ack_guard.js';
+import { buildPckRows, countEmptyShownRows } from './pck_row_text.js';
 import { saveConversation, saveMessage, createUserProfile, getUserProfile, saveTestSubmission, checkTestSubmission, verifyAnnotator, verifyAdmin, getTestSubmissions, getTestSubmission, saveTestAnnotation, getTestAnnotation, getAllAnnotationsForSubmission, getAllUsersAdmin, getResearchParticipantsAdmin, updateUserResearchStatusAdmin, getConversationsByUserAdmin, getConversationsMeta, getFullConversationForAnnotation, createAnnotationAssignments, getAnnotationAssignments, getAnnotatorAssignments, getConvAnnotation, saveConvAnnotation, submitConvAnnotation, exportConvAnnotations, cancelAnnotationAssignment, getEligibleAgreementConversations, getAgreementReports, getAgreementReport, computeAndSaveAgreementReport, getConversationsWithCompletedPairs, createComparisonSet, updateComparisonSet, deleteComparisonSet, getComparisonSets, getComparisonSetDetail, getComparisonData, getConsensusAnnotation, saveConsensusAnnotation, submitConsensusAnnotation } from './services/firebaseAdmin.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -916,13 +917,18 @@ Return JSON only, no additional text:`;
 
     console.log('📤 Calling Vertex AI for comprehensive PCK analysis...');
     
-    // Retry / timeout policy (1.3.6): at most 2 attempts; parse/schema failures (C10) are retried
+    // Retry / timeout policy (1.3.6): at most 2 attempts; parse/schema failures (C10) are retried.
+    // Row-text completeness (1.5.1): if feedback that will be SHOWN (after the B27 guard) has a skill row with
+    // no text at all (server/pck_row_text.js, the client display rule), attempt 2 of the same loop re-asks once with
+    // the IDENTICAL request; attempt 1 stays the fallback. Never a third attempt; the final output is accepted and
+    // the display leaves out any row that is still empty.
+    let rowTextRetries = 0;
     const call = await callModelWithPolicy({
       agent: 'pck',
       model: pckTurnModel,
       modelId: GENERAL_MODEL_ID,
       request: { contents, generationConfig },
-      interpret: (result) => {
+      interpret: (result, { isFinalAttempt } = {}) => {
         const candidate = interpretCandidate(result);
         if (!candidate.ok) return candidate;
         console.log('✅ Raw PCK analysis received:', candidate.text.substring(0, 200) + '...');
@@ -946,10 +952,22 @@ Return JSON only, no additional text:`;
             problems
           };
         }
+        const emptyRows = countEmptyShownRows(applyBareAcknowledgementGuard(teacherMessage, parsed.value).analysis);
+        if (emptyRows > 0 && !isFinalAttempt) {
+          rowTextRetries = 1;
+          return {
+            ok: false,
+            kind: 'row_text',
+            retryable: true,
+            message: `shown feedback with ${emptyRows} skill row(s) without text`,
+            fallback: { value: parsed.value }
+          };
+        }
         return { ok: true, value: parsed.value };
       }
     });
-    telemetry = call.telemetry;
+    // Content-free (A17, additive): whether the row-text re-ask was sent
+    telemetry = { ...call.telemetry, pckRowTextRetries: rowTextRetries };
 
     if (!call.ok) {
       console.error('❌ PCK analysis failed after', telemetry.attempts, 'attempt(s):', call.failure.kind, call.failure.message);
@@ -1030,17 +1048,17 @@ app.post('/api/pck-summary', async (req, res) => {
         pckMomentsText += `Teacher said: "${moment.teacherMessage.substring(0, 100)}..."\n`;
         
         if (Array.isArray(moment.skills_assessment)) {
-          const relevantSkills = moment.skills_assessment.filter(s => s.is_relevant);
-          relevantSkills.forEach(skill => {
-            const scoreLabel = skill.score === 2 ? '✅ Excellent' : skill.score === 1 ? '⚠️ Partial' : '❌ Missed';
-            const skillDef = getPCKSkillById(skill.skill_id);
-            const hebrewName = skillDef ? skillDef.skill_name.he : skill.skill_id;
-            pckMomentsText += `  - ${hebrewName} (${skill.skill_id}): ${scoreLabel} (score ${skill.score})\n`;
-            if (skill.evidence) {
-              pckMomentsText += `    Evidence: ${skill.evidence}\n`;
+          // The same row text the teacher saw (server/pck_row_text.js = src/services/pckDisplayRows.js)
+          buildPckRows(moment.skills_assessment, moment.detected_skills, moment.missed_opportunities).forEach(row => {
+            const scoreLabel = row.score === 2 ? '✅ Excellent' : row.score === 1 ? '⚠️ Partial' : '❌ Missed';
+            const skillDef = getPCKSkillById(row.skillId);
+            const hebrewName = skillDef ? skillDef.skill_name.he : row.skillId;
+            pckMomentsText += `  - ${hebrewName} (${row.skillId}): ${scoreLabel} (score ${row.score})\n`;
+            if (row.positive) {
+              pckMomentsText += `    Evidence: ${row.positive}\n`;
             }
-            if (skill.what_could_be_better) {
-              pckMomentsText += `    Could improve: ${skill.what_could_be_better}\n`;
+            if (row.improvement) {
+              pckMomentsText += `    Could improve: ${row.improvement}\n`;
             }
           });
         } else {

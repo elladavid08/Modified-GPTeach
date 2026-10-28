@@ -884,8 +884,9 @@ describe("LLM call telemetry", () => {
 		attempts: meta.attempts,
 	});
 
-	// 1.4.3: when PCK feedback is shown, the pck entry also carries the content-free pckRowsWithoutText count
-	const shownPckTelemetry = (meta, rowsWithoutText = 0) => ({ ...expectedTelemetry(meta), pckRowsWithoutText: rowsWithoutText });
+	// 1.4.3: when PCK feedback is shown, the pck entry also carries the content-free pckRowsWithoutText count;
+	// 1.5.1 row-text fix: and pckRowsMissingPositive (score-1 rows shown with the improvement only)
+	const shownPckTelemetry = (meta, rowsWithoutText = 0, rowsMissingPositive = 0) => ({ ...expectedTelemetry(meta), pckRowsWithoutText: rowsWithoutText, pckRowsMissingPositive: rowsMissingPositive });
 
 	function pckWithMeta(meta, analysis = FEEDBACK_ANALYSIS) {
 		getPCKFeedback.mockImplementationOnce(async (_t, _h, _s, _f, options) => {
@@ -973,12 +974,61 @@ describe("LLM call telemetry", () => {
 		await startLesson();
 		await sendTeacherMessage("מה ההגדרה של מלבן?");
 		expect(loggedTelemetry(0).pck).toEqual(shownPckTelemetry(pckMeta, 1));
+		// 1.5.1: the text-less row is not rendered; the row with text is
+		expect(sidebarText()).not.toContain("זיהוי השגיאה");
+		expect(sidebarText()).toContain("APR-EVIDENCE");
 		// presentation only: the student agent receives the PCK analysis object itself, unchanged
 		expect(studentCalls[0].impact).toBe(analysis);
 		// the logged feedback keeps the model's fields exactly (no display text written back)
 		const logged = logger().addTurn.mock.calls[0][2];
 		expect(logged.skills_assessment).toEqual(analysis.skills_assessment);
 		expect(logged.detected_skills).toEqual(analysis.demonstrated_skills);
+	});
+
+	it("1.5.1: shown feedback whose every row has no text is neither displayed nor logged; the counts are kept", async () => {
+		const pckMeta = META("pck", 2100, { pckRowTextRetries: 1 });
+		const analysis = {
+			...FEEDBACK_ANALYSIS,
+			skills_assessment: [
+				{ skill_id: "error-identification", is_relevant: true, score: 2 },
+				{ skill_id: "adapted-pedagogical-response", is_relevant: true, score: 0, what_could_be_better: " " },
+			],
+			demonstrated_skills: [],
+			missed_opportunities: [],
+		};
+		pckWithMeta(pckMeta, analysis);
+		studentsWithMeta(META("student", 900));
+		await startLesson();
+		await sendTeacherMessage("מה ההגדרה של מלבן?");
+		expect(sidebarText()).not.toContain("FEEDBACK-MESSAGE");
+		expect(sidebarText()).not.toContain("זיהוי השגיאה");
+		expect(sidebarText()).not.toContain("תגובה פדגוגית מותאמת");
+		expect(logger().addTurn.mock.calls[0][2]).toBeNull();
+		expect(loggedTelemetry(0).pck).toEqual({ ...shownPckTelemetry(pckMeta, 2), pckRowTextRetries: 1 });
+		expect(studentCalls[0].impact).toBe(analysis); // the student agent is unaffected
+	});
+
+	it("1.5.1: score-1 rows without a positive part are shown with the improvement and counted; the server re-ask count is logged", async () => {
+		const pckMeta = META("pck", 4200, { attempts: 2, pckRowTextRetries: 1 });
+		const analysis = {
+			...FEEDBACK_ANALYSIS,
+			skills_assessment: [
+				{ skill_id: "error-identification", is_relevant: true, score: 2, evidence: "EI-EVIDENCE" },
+				{ skill_id: "diagnostic-interpretation", is_relevant: true, score: 1, what_could_be_better: "DI-IMPROVE" },
+				{ skill_id: "adapted-pedagogical-response", is_relevant: true, score: 0 },
+			],
+			demonstrated_skills: [],
+			missed_opportunities: [{ skill_id: "adapted-pedagogical-response", what_could_have_been_done: "APR-MISSED" }],
+		};
+		pckWithMeta(pckMeta, analysis);
+		studentsWithMeta(META("student", 900));
+		await startLesson();
+		await sendTeacherMessage("מה ההגדרה של מלבן?");
+		for (const text of ["EI-EVIDENCE", "DI-IMPROVE", "APR-MISSED"]) expect(sidebarText()).toContain(text);
+		expect(loggedTelemetry(0).pck).toEqual({ ...shownPckTelemetry(pckMeta, 0, 1), pckRowTextRetries: 1 });
+		const logged = logger().addTurn.mock.calls[0][2];
+		expect(logged.skills_assessment).toEqual(analysis.skills_assessment); // stored model fields unchanged
+		expect(logged.missed_opportunities).toEqual(analysis.missed_opportunities);
 	});
 
 	it("1.4.3: no feedback shown means no pckRowsWithoutText field", async () => {
