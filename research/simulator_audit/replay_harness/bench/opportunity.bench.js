@@ -44,7 +44,30 @@
 //     T10 apply   the Mode B T8 application question (content / drawing question)
 //   It separates "progressed appropriately" from "jumped to the full conclusion after one minimal teaching move".
 //
-// Environment: OPP_CASTS (random|designed), OPP_STUDENT (current|carrier|production), OPP_PLAN (standard|progression), OPP_SCENARIOS ("1,2"), OPP_REPEATS
+// 1.3.0 (2026-10-28, X12/pacing, bench-only):
+//   OPP_STUDENT=pacing  the production 1.5.1 student path (same session carrier as production) with the pacing
+//                       prototype P1 (prototype/pacing.js): a two-step carrier arc and the one-step peer rule.
+//                       Combine with x11_arm.cjs STUDENT_MODEL for the model x pacing comparison.
+//   OPP_STAGE2=1        X12 parallelism check: on every turn whose PCK feedback is shown, the frozen Stage 2
+//                       (pck_eval/x12/stage2_service.mjs, OPP_STAGE2_URL) runs CONCURRENTLY with the student call, as a production
+//                       two-stage design would. Needs a server started with pck_eval/x12/x12_arm.cjs (Stage-1 context).
+//                       Students still receive the unchanged Stage-1 analysis; wall times are recorded per turn.
+//   OPP_ARCH            X12b steering/feedback dependency (needs the stage2 service and the x12 arm), on shown turns:
+//     sequential        Stage 2 (dependent, full) BEFORE the students; students steered by its signal
+//     sequential_indep  the frozen independent X12 Stage 2 BEFORE the students; students steered by its signal
+//     dep_parallel      students from Stage-1 steering; dependent full Stage 2 in parallel
+//     dep_parallel_cal  as dep_parallel, Stage-1 steering recalibrated from Stage-1 fields (signalFromStage1Calibrated)
+//     fast              fast dependent assessment (scores only) BEFORE the students; students steered by its signal;
+//                       the text for those fixed scores in parallel with the students
+//     fast_indep        as fast, the fast assessment without the Stage-1 assessment as input
+//     stream            ONE independent streamed Stage-2 call (pck_eval/x12/stage2_stream.cjs): scores first; the
+//                       students start when the scores are complete; the same call then writes the text
+//     stream_v3         the frozen X12 call (as sequential_indep) streamed: the students start as soon as the steering
+//                       signal is determined (pck_eval/x12/stream_v3_call.cjs); the same call then finishes the text
+//   The signal (none / partial / strong) is written into the analysis the students see by
+//   pck_eval/x12/stage2_dep.cjs adaptImpact (values the student prompt already defines). Stage 1 is unchanged.
+//
+// Environment: OPP_CASTS (random|designed), OPP_STUDENT (current|carrier|production|pacing), OPP_PLAN (standard|progression), OPP_SCENARIOS ("1,2"), OPP_REPEATS
 // (default 6 random / 2 per designed cast), OPP_RUN_ID, HARNESS_API_URL (local server, default http://127.0.0.1:3101).
 // Output: results/<run id>/conversations/*.json (git-ignored). Run only this file:
 //   npx jest --config research/simulator_audit/replay_harness/jest.harness.json --runInBand --testPathPattern opportunity
@@ -62,13 +85,23 @@ import { DRAWINGS } from '../lib/assets.js';
 import { misconceptionClaims } from '../lib/teacher.js';
 import { firstTurnAddendum } from '../lib/turnFlow.js';
 import { buildCarrierModule, selectCarrier, baseAiSource } from '../prototype/carrier.js';
+import { buildPacingModule } from '../prototype/pacing.js';
 import { selectMisconceptionCarrier, withMisconceptionCarrier } from '../../../../src/services/misconceptionCarrier.js';
 import { nextMisconceptionState } from '../prototype/addressedJudge.js';
+// X12 Stage 2 through the local research service (pck_eval/x12/stage2_service.mjs; Jest here cannot load the Vertex SDK)
+const stage2Post = async (route, body) => {
+  const base = process.env.OPP_STAGE2_URL || 'http://127.0.0.1:3120';
+  if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) throw new Error('OPP_STAGE2_URL must be a local stage2 service (http://127.0.0.1:<port>)');
+  const r = await global.fetch(`${base}${route}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  return r.json();
+};
+const runStage2 = (ctx) => stage2Post('/stage2', { ctx });
+const DEP = require('../../pck_eval/x12/stage2_dep.cjs'); // eslint-disable-line global-require
 
 jest.setTimeout(6 * 60 * 60 * 1000);
 const HARNESS = path.resolve(__dirname, '..');
 const REPO = path.resolve(HARNESS, '../../..');
-export const OPPORTUNITY_VERSION = '1.2.0';
+export const OPPORTUNITY_VERSION = '1.3.0';
 
 /** T2: a neutral concept question per scenario (does not name or hint the misconception). */
 const OPPORTUNITY_NEUTRAL = {
@@ -169,7 +202,7 @@ async function completionJudge(prompt) {
 it('opportunity', async () => {
   const castKind = env.OPP_CASTS;
   const studentArm = env.OPP_STUDENT || 'current';
-  if (!['current', 'production', 'carrier', 'carrier2', 'carrier3', 'carrierpc'].includes(studentArm)) throw new Error('OPP_STUDENT must be current, production (1.5.0 carrier) or carrier / carrier2 / carrier3 / carrierpc (prototype v1 / v2 / v3 / pc1)');
+  if (!['current', 'production', 'pacing', 'carrier', 'carrier2', 'carrier3', 'carrierpc'].includes(studentArm)) throw new Error('OPP_STUDENT must be current, production (1.5.0 carrier) or carrier / carrier2 / carrier3 / carrierpc (prototype v1 / v2 / v3 / pc1)');
   const planKind = env.OPP_PLAN || 'standard';
   if (!['standard', 'progression'].includes(planKind)) throw new Error('OPP_PLAN must be standard or progression');
   if (!['random', 'designed'].includes(castKind)) throw new Error('Set OPP_CASTS=random or OPP_CASTS=designed');
@@ -187,7 +220,12 @@ it('opportunity', async () => {
   fs.writeFileSync(path.join(outDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
 
   let callAI = productionCallAI;
-  if (studentArm !== 'current' && studentArm !== 'production') {
+  const productionCarrier = studentArm === 'production' || studentArm === 'pacing';
+  if (studentArm === 'pacing') {
+    const patched = path.join(outDir, 'ai.pacing.js');
+    fs.writeFileSync(patched, buildPacingModule(REPO));
+    callAI = require(patched).default; // eslint-disable-line global-require
+  } else if (studentArm !== 'current' && studentArm !== 'production') {
     const patched = path.join(outDir, 'ai.carrier.js');
     fs.writeFileSync(patched, buildCarrierModule(baseAiSource(REPO), path.join(REPO, 'src/utils'), { variant: { carrier: 'v1', carrier2: 'v2', carrier3: 'v3', carrierpc: 'pc1' }[studentArm] }));
     callAI = require(patched).default; // eslint-disable-line global-require
@@ -214,8 +252,8 @@ it('opportunity', async () => {
     for (const { cast, tag } of runs) {
       const students = cast.map((name) => personas.students[name]);
       const id = `O-s${scenarioId}-${tag}`;
-      const sessionCarrier = studentArm === 'production' ? selectMisconceptionCarrier(students, scenario) : null;
-      const carrier = studentArm === 'production' ? sessionCarrier && sessionCarrier.name : studentArm !== 'current' ? selectCarrier(students) : null;
+      const sessionCarrier = productionCarrier ? selectMisconceptionCarrier(students, scenario) : null;
+      const carrier = productionCarrier ? sessionCarrier && sessionCarrier.name : studentArm !== 'current' ? selectCarrier(students) : null;
       let misconceptionState = studentArm === 'carrierpc' ? 'open' : null;
       const conv = { conversationId: id, runId, scenarioId, slug: plan.slug, castKind, studentArm, cast, carrier, carrierDetected: null, addressedAtTurn: null, turns: [] };
       const messages = [];
@@ -223,7 +261,7 @@ it('opportunity', async () => {
       for (const step of turns) {
         let text = step.text;
         if (step.check) {
-          const addressee = studentArm === 'production' ? carrier : conv.carrierDetected;
+          const addressee = productionCarrier ? carrier : conv.carrierDetected;
           text = addressee ? step.check.replace(/\{A\}/g, addressee) : stripAddress(step.check);
         }
         const drawing = step.drawing ? DRAWINGS[step.drawing] : null;
@@ -235,6 +273,7 @@ it('opportunity', async () => {
         const judgeP = misconceptionState ? nextMisconceptionState(misconceptionState, scenario.misconception_focus, text, completionJudge).then((r) => ({ ...r, ms: Date.now() - judgeStart })) : Promise.resolve(null);
         let impact = null;
         const pck = { ok: false };
+        const pckStart = Date.now();
         try {
           let pckMeta = null;
           impact = await getPCKFeedback(text, messages, scenario, feedbackHistory.slice(-3), { onMeta: (m) => { pckMeta = m; } });
@@ -245,6 +284,7 @@ it('opportunity', async () => {
             hints: ((impact.predicted_student_state && impact.predicted_student_state.student_reaction_hints) || []).map((h) => `${h.student}:${h.reaction_type}`),
             risk: impact.misconception_risk, addressed: impact.addressed_misconception,
           });
+          pck.wallMs = Date.now() - pckStart;
           feedbackHistory.push({ pedagogical_quality: impact.pedagogical_quality, feedback_message_hebrew: impact.feedback_message_hebrew, predicted_student_state: impact.predicted_student_state, skills_assessment: impact.skills_assessment || [] });
           if (feedbackHistory.length > 5) feedbackHistory.shift();
         } catch (e) {
@@ -263,10 +303,55 @@ it('opportunity', async () => {
         let replies = null;
         const student = { ok: true };
         const history = { toAIformat: () => messages.map((m) => m.toAIformat()), toString: () => messages.join('\n'), getMessages: () => messages, getLength: () => messages.length };
+        // X12: Stage 2 starts together with the student call (both need only the Stage-1 result)
+        const arch = env.OPP_ARCH || null;
+        const shownS1 = Boolean(impact && impact.should_provide_feedback === true && impact._x12ctx);
+        const s1Only = impact ? (({ _x12ctx, ...rest }) => rest)(impact) : null;
+        let studentImpact = impact;
+        let stage2P = env.OPP_STAGE2 === '1' && impact && impact.should_provide_feedback === true ? runStage2(impact._x12ctx || null) : null;
+        let x12b = null;
+        if (arch && shownS1) {
+          x12b = { arch, preStudentMs: 0 };
+          const t0 = Date.now();
+          if (arch === 'sequential') {
+            const s2 = await stage2Post('/dep_full', { ctx: impact._x12ctx, s1: s1Only });
+            x12b.stage2 = s2; x12b.signal = s2.status === 'ok' ? DEP.signalFromRows(s2.rows) : null;
+          } else if (arch === 'sequential_indep') {
+            const s2 = await stage2Post('/stage2', { ctx: impact._x12ctx });
+            x12b.stage2 = s2; x12b.signal = s2.status === 'stage2' ? DEP.signalFromRows(s2.rows) : null;
+          } else if (arch === 'fast' || arch === 'fast_indep') {
+            const fa = arch === 'fast' ? await stage2Post('/fast', { ctx: impact._x12ctx, s1: s1Only }) : await stage2Post('/fast_indep', { ctx: impact._x12ctx });
+            x12b.fast = fa; x12b.signal = fa.status === 'ok' ? DEP.signalFromRows(fa.rows) : null;
+            if (fa.status === 'ok') stage2P = stage2Post('/text', { ctx: impact._x12ctx, rows: fa.rows });
+          } else if (arch === 'stream') {
+            const st = await stage2Post('/stream_start', { ctx: impact._x12ctx });
+            x12b.fast = st; x12b.signal = st.scoreRows ? DEP.signalFromRows(st.scoreRows) : null;
+            if (st.id) stage2P = stage2Post('/stream_result', { id: st.id });
+          } else if (arch === 'stream_v3') {
+            const st = await stage2Post('/stream_v3_start', { ctx: impact._x12ctx });
+            x12b.fast = st; x12b.signal = st.signal || null;
+            if (st.id) stage2P = stage2Post('/stream_v3_result', { id: st.id });
+          } else if (arch === 'dep_parallel' || arch === 'dep_parallel_cal') {
+            x12b.signal = arch === 'dep_parallel_cal' ? DEP.signalFromStage1Calibrated(s1Only) : null;
+            stage2P = stage2Post('/dep_full', { ctx: impact._x12ctx, s1: s1Only });
+          } else throw new Error(`unknown OPP_ARCH ${arch}`);
+          x12b.preStudentMs = Date.now() - t0;
+          x12b.stage1Signal = DEP.signalFromStage1(s1Only);
+          if (x12b.signal) studentImpact = DEP.adaptImpact(impact, x12b.signal);
+          x12b.studentSteer = { quality: studentImpact.pedagogical_quality, understanding: studentImpact.predicted_student_state && studentImpact.predicted_student_state.understanding_level,
+            addressed: studentImpact.addressed_misconception, hints: ((studentImpact.predicted_student_state && studentImpact.predicted_student_state.student_reaction_hints) || []).map((h) => `${h.student}:${h.reaction_type}`) };
+        }
+        const parallelStart = Date.now();
         try {
-          await callAI(history, students, studentScenario, addendum, impact, (msgs, _c, _s, meta) => { replies = msgs; student.meta = meta; });
+          await callAI(history, students, studentScenario, addendum, studentImpact, (msgs, _c, _s, meta) => { replies = msgs; student.meta = meta; });
         } catch (e) {
           Object.assign(student, { ok: false, error: String(e.serverError || e.message).slice(0, 160), meta: e.meta || null });
+        }
+        student.wallMs = Date.now() - parallelStart;
+        let stage2 = null;
+        if (stage2P) {
+          stage2 = await stage2P;
+          stage2.parallelWallMs = Date.now() - parallelStart; // students and Stage 2 both done
         }
         (replies || []).forEach((r) => messages.push(r));
         const out = (replies || []).map((r) => ({ student: r.agent, message: r.text, claim: misconceptionClaims(scenarioId, r.text).length > 0 }));
@@ -274,7 +359,8 @@ it('opportunity', async () => {
           const first = out.find((r) => r.claim);
           if (first) conv.carrierDetected = first.student;
         }
-        conv.turns.push({ label: step.label, teacher: text, drawing: step.drawing || null, pck, misconceptionState: misconceptionState || undefined, judge: judged || undefined, student, replies: out });
+        if (x12b) { x12b.parallel = stage2; stage2 = undefined; }
+        conv.turns.push({ label: step.label, teacher: text, drawing: step.drawing || null, pck, misconceptionState: misconceptionState || undefined, judge: judged || undefined, student, stage2: stage2 || undefined, x12b: x12b || undefined, replies: out });
         fs.writeFileSync(path.join(outDir, 'conversations', `${id}.json`), JSON.stringify(conv, null, 2));
       }
       process.stdout.write(`${id} done\n`);
