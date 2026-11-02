@@ -273,6 +273,33 @@ it("runs PCK analysis before the student agent and passes the analysis to it (B1
 });
 
 
+it("A1i: the next PCK request carries the server's Stage-1 fields as feedback history, not the final analysis", async () => {
+	const STAGE1 = { pedagogical_quality: "neutral", feedback_message_hebrew: "STAGE1-MESSAGE", predicted_student_state: { understanding_level: "same" }, skills_assessment: [{ skill_id: "adapted-pedagogical-response", is_relevant: true, score: 1 }] };
+	getPCKFeedback.mockImplementation(async (_t, _h, _s, _fb, opts) => {
+		if (opts && opts.onStage1) opts.onStage1(STAGE1);
+		return FEEDBACK_ANALYSIS;
+	});
+	await startLesson();
+	await sendTeacherMessage("שאלה ראשונה");
+	await sendTeacherMessage("שאלה שנייה");
+	expect(studentCalls[0].impact).toBe(FEEDBACK_ANALYSIS); // students: the final analysis
+	expect(getPCKFeedback.mock.calls[1][3]).toEqual([STAGE1]);
+	expect(sidebarText()).toContain("SIDEBAR-EVIDENCE");
+});
+
+it("1.5.1 response (no Stage-1 fields): feedback history is built from the analysis, as before", async () => {
+	getPCKFeedback.mockResolvedValue(FEEDBACK_ANALYSIS);
+	await startLesson();
+	await sendTeacherMessage("שאלה ראשונה");
+	await sendTeacherMessage("שאלה שנייה");
+	expect(getPCKFeedback.mock.calls[1][3]).toEqual([{
+		pedagogical_quality: FEEDBACK_ANALYSIS.pedagogical_quality,
+		feedback_message_hebrew: FEEDBACK_ANALYSIS.feedback_message_hebrew,
+		predicted_student_state: FEEDBACK_ANALYSIS.predicted_student_state,
+		skills_assessment: FEEDBACK_ANALYSIS.skills_assessment,
+	}]);
+});
+
 it("shows feedback and logs it with its fields when should_provide_feedback is true (A2)", async () => {
 	getPCKFeedback.mockResolvedValue(FEEDBACK_ANALYSIS);
 	await startLesson();

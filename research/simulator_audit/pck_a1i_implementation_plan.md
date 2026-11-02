@@ -1,6 +1,6 @@
 # A1i in production: implementation plan (not implemented)
 
-Status: plan only, 2026-10-29, revised 2026-11-02 (student data contract, §1a). Based on committed **1.5.1** (`6452787`). Nothing here is implemented; production code, models and `SYSTEM_VERSION` are unchanged.
+Status: plan 2026-10-29, revised 2026-11-02 (student data contract, §1a). **Implemented as 1.6.0**, on by default (`PCK_STAGE2=off` restores 1.5.1; §6a, §7), on top of **1.5.1** (`6452787`). Not merged or deployed. The student model is unchanged.
 - **Candidate:** `pck_eval/x12/FINAL_FREEZE.md`, hashes in `pck_eval/x12/FINAL.sha256`.
 - **Rules and results:** `pck_stage2_final_round.md`.
 - **Architecture evidence:** `pck_steering_dependency_experiment.md`, `pck_single_call_streaming_experiment.md`.
@@ -250,11 +250,63 @@ These are regression checks, not a blind validation. The thresholds R1–R7 are 
 
 Then the version bump (**1.6.0**: teacher-facing feedback and student steering change), the changelog and the history entry, and the educational team's end-to-end review. That review is the next human validation.
 
+## 6a. Implementation and pre-release checks (2026-11-02; released as SYSTEM_VERSION 1.6.0 with PCK_STAGE2 on by default; not merged or deployed)
+
+**Production files:**
+- **New:**
+  - `server/pck_stage2.js` (prompt, schema, validator, context extraction);
+  - `server/pck_stage2_rubric.json` (generated from the frozen rubric);
+  - `server/pck_leveraging_guard.js` (guard v2);
+  - `server/pck_stage2_policy.js` (finalisation, signal, `studentPckView`, display shape).
+- **Changed:**
+  - `server/server.js` (flag, Stage-2 call, response);
+  - `src/services/genai.js` (`onStage1`);
+  - `src/pages/Chat.jsx` (feedback history from the Stage-1 fields);
+  - `src/services/callTelemetry.js` (Stage-2 keys);
+  - `src/testUtils/conversationContract.js`;
+  - `ENVIRONMENT_VARIABLES.md`.
+- **Tests:**
+  - new: `server/test/pck_stage2_parity.test.mjs` (R1), `server/test/api_pck_stage2.test.mjs`;
+  - extended: three client test files.
+
+**Deviations from the plan above:**
+- **Stage-2 failure / skip:** the Stage-1 analysis exactly (1.5.1), without the leveraging guard, as requested.
+- **No new model instance:** Stage 2 reuses the PCK turn model; its limits come from its own policy.
+- **`CLIENT_TIMEOUT_MS` unchanged:** Stage 2 is skipped after 30 s of Stage 1 and has a 12 s budget, so the server's 45 s budget still bounds the turn.
+- **Response shape:** the plan's `analysis` / `stage1` / `meta` shape, with flat Stage-2 telemetry keys.
+
+| check | result | verdict |
+|---|---|---|
+| R1 parity | the research reference matches its recorded hashes; rubric, prompt (byte-identical), schema, validator, context extraction, guard list and decisions, signal, no-feedback rule and student view equal the frozen research functions; the live Stage-2 request equals the research request built from the live Stage-1 prompt (11 + 18 tests) | pass |
+| R2 show/hide | Stage 2 only on turns the 1.5.1 rule shows. Suppressed: dev 2.1%, consensus + agreed 1.5% (research 2.8% / 1.7%) | pass |
+| R3 operations | 0 fallbacks in 335 shown B200 turns (1 in 394 in the extra passes, 0.3%), 0 in 556 live; text contract 722 / 722 rows | pass |
+| R4 decision cases | 20 / 23, the same three failures as the research final | pass |
+| R5 team cases | every case within 2 / 8 of the research final. The largest gap is exactly 2 / 8 (synthetic pure-"why" case, APR not relevant 0 vs 2) | pass (at the limit) |
+| R6 B200 consensus + agreed | three passes. Every skill within 0.05 F1 of the research final, except consensus Interpretation 0.23 vs 0.32. The gap is 4 hits of 45 gold samples (Fisher p ≈ 0.4): one turn the Stage-1 pass hid, one Stage-2 sampling flip. Agreed (0.25 vs 0.24) and dev (recall 0.59 vs 0.59) are identical. Leveraging bias +0.43 / −0.24 (within ±0.5) | **accepted exception** (below) |
+| R7 live (2 × 36 on, 1 × 36 off) | peer jumps after the hint 14 + 11 = 12.5 / 36 (limit 16.5; off 23); carrier premature resolution 1 / 36 (limit 2); carrier voices it 35 / 36 (off 36); 0 failed turns; 0 audit flags; students +2.1 s at p50 on shown turns (6.4 vs 4.3 s; limit +2.3) | pass |
+| synthetic benchmark | case constraints 33 / 39 (84.6%; 1.5.1: 11 / 39) | pass |
+| test suites | client 469 / 469, server 369 / 369, research harness 82 / 82 | pass |
+
+**Accepted exception: R6, consensus Interpretation** (decided 2026-11-02; released as 1.6.0):
+- **The only strict miss:** it is the only strict R1–R7 miss. Every other skill, on both the consensus and agreed tiers, is within the 0.05 F1 regression threshold.
+- **Small:** the absolute difference is about 4 hits out of 45 gold samples (Interpretation F1 0.23 vs 0.32; Fisher p ≈ 0.4).
+- **Same candidate:** the production prompt and candidate are identical to the frozen research version (R1: byte-identical prompt, rubric, schema, validator and policy; the live request equals the research request).
+- **Other tiers match:** the agreed tier (F1 0.25 vs 0.24) and the dev tier (recall 0.59 vs 0.59) match the research results.
+- **Known variation:** this metric has shown substantial run-to-run sampling variation before. Consensus Interpretation recall ranged 0.13–0.27 across near-identical research variants (v3, v4, v5, v5b, v5c).
+- **Handling:**
+  - Treated as a documented, accepted exception.
+  - No tuning and no extra reruns against the already-used consensus tier, which is not a blind validation set.
+  - The next human check of Interpretation is the educational team's end-to-end review.
+
 ## 7. Rollout and monitoring
 
 - **Flag:**
-  - `PCK_STAGE2=on|off` (server environment, default off until the checks pass).
+  - `PCK_STAGE2` (server environment). **1.6.0: ON by default** (decided 2026-11-02; Stage 2 is the intended behaviour of the release).
+    - unset / empty / `on` / `1` / `true` → ON;
+    - `off` / `0` / `false` → OFF;
+    - any other value → ON with a logged warning.
   - Off = 1.5.1 behaviour bit for bit: no Stage-2 call, response without `stage1` (the client falls back to `analysis`).
+  - **Verifying the state:** the startup log line (`PCK Stage 2: ON (default)` / `OFF (explicit override, PCK_STAGE2=off)`), or `GET /api/health` → `pckStage2Enabled`, `pckStage2Source`.
 - **Telemetry per turn (content free):**
   - Stage-2 status / attempts / latency;
   - fallback;

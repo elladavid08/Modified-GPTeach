@@ -20,7 +20,10 @@ import { countSuspectedQuoteCuts, isSpacePaddedTokenLimit } from './student_quot
 import { countGarbledReplies } from './student_garble.js';
 import { STUDENT_MODEL_ID, GENERAL_MODEL_ID, MODEL_IDS, VERTEX_LOCATION, VERTEX_API_ENDPOINT, baseGenerationConfig } from './model_config.js';
 import { applyBareAcknowledgementGuard } from './pck_bare_ack_guard.js';
-import { buildPckRows, countEmptyShownRows } from './pck_row_text.js';
+import { buildPckRows, countEmptyShownRows, isEmptyPckRow } from './pck_row_text.js';
+import { extractStage2Context, buildStage2Prompt, buildStage2Schema, validateStage2Output, STAGE2_CANDIDATE, STAGE2_MAX_OUTPUT_TOKENS } from './pck_stage2.js';
+import { finalizeStage2Turn } from './pck_stage2_policy.js';
+import { resolvePckStage2Flag, describePckStage2Flag } from './pck_stage2_flag.js';
 import { saveConversation, saveMessage, createUserProfile, getUserProfile, saveTestSubmission, checkTestSubmission, verifyAnnotator, verifyAdmin, getTestSubmissions, getTestSubmission, saveTestAnnotation, getTestAnnotation, getAllAnnotationsForSubmission, getAllUsersAdmin, getResearchParticipantsAdmin, updateUserResearchStatusAdmin, getConversationsByUserAdmin, getConversationsMeta, getFullConversationForAnnotation, createAnnotationAssignments, getAnnotationAssignments, getAnnotatorAssignments, getConvAnnotation, saveConvAnnotation, submitConvAnnotation, exportConvAnnotations, cancelAnnotationAssignment, getEligibleAgreementConversations, getAgreementReports, getAgreementReport, computeAndSaveAgreementReport, getConversationsWithCompletedPairs, createComparisonSet, updateComparisonSet, deleteComparisonSet, getComparisonSets, getComparisonSetDetail, getComparisonData, getConsensusAnnotation, saveConsensusAnnotation, submitConsensusAnnotation } from './services/firebaseAdmin.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -86,6 +89,32 @@ const pckTurnModel = vertexAI.getGenerativeModel({
 });
 
 console.log('✅ Vertex AI initialized successfully with service account');
+
+// A1i two-stage PCK (research/simulator_audit/pck_a1i_implementation_plan.md), the 1.6.0 behaviour. ON by default;
+// PCK_STAGE2=off / 0 / false is the explicit override to the 1.5.1 behaviour bit for bit (no Stage-2 call, the 1.5.1
+// response). Unrecognised values keep it ON with a warning (pck_stage2_flag.js). Read per request.
+const warnedPckStage2Values = new Set();
+const pckStage2Flag = () => {
+  const flag = resolvePckStage2Flag(process.env.PCK_STAGE2);
+  if (flag.warning && !warnedPckStage2Values.has(flag.raw)) {
+    warnedPckStage2Values.add(flag.raw);
+    console.warn(`⚠️ ${flag.warning}`);
+  }
+  return flag;
+};
+const isPckStage2Enabled = () => pckStage2Flag().enabled;
+const positiveEnv = (name, fallback) => {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+};
+// Stage 2's own budget (at most 2 identical attempts, as in research); skipped when Stage 1 already took this long.
+// Read per request, like the flag.
+const pckStage2Policy = () => Object.freeze({
+  ...LLM_CALL_POLICY,
+  perAttemptTimeoutMs: positiveEnv('PCK_STAGE2_ATTEMPT_TIMEOUT_MS', 8000),
+  totalBudgetMs: positiveEnv('PCK_STAGE2_TOTAL_BUDGET_MS', 12000),
+});
+const pckStage2SkipAfterMs = () => positiveEnv('PCK_STAGE2_SKIP_AFTER_MS', 30000);
 
 /**
  * Retries an async function on Vertex AI quota/rate-limit errors using
@@ -489,6 +518,7 @@ app.post('/api/generate', async (req, res) => {
 // NEW: Comprehensive PCK Feedback Analysis Endpoint
 app.post('/api/pck-feedback', async (req, res) => {
   let telemetry = null;
+  const requestStarted = Date.now();
   try {
     console.log('💡 Received comprehensive PCK feedback analysis request');
     
@@ -985,11 +1015,31 @@ Return JSON only, no additional text:`;
     if (!analysis.should_provide_feedback) {
       analysis.feedback_message_hebrew = '';
     }
-    
-    res.json({ 
+
+    if (!isPckStage2Enabled()) {
+      return res.json({ 
+        success: true,
+        analysis: analysis,
+        meta: telemetry
+      });
+    }
+
+    // A1i (PCK_STAGE2=on). `stage1`: exactly the fields the 1.5.1 client keeps as feedback history, so Stage 1's own
+    // input on later turns is unchanged. Stage 2 runs only on turns the 1.5.1 display rule shows.
+    const stage1 = {
+      pedagogical_quality: analysis.pedagogical_quality,
+      feedback_message_hebrew: analysis.feedback_message_hebrew,
+      predicted_student_state: analysis.predicted_student_state,
+      skills_assessment: analysis.skills_assessment || [],
+    };
+    const shownByStage1 = analysis.should_provide_feedback === true
+      && buildPckRows(analysis.skills_assessment, analysis.demonstrated_skills, analysis.missed_opportunities).some((row) => !isEmptyPckRow(row));
+    const stage2Meta = await runPckStage2(teacherMessage, pckPrompt, analysis, shownByStage1, requestStarted);
+    res.json({
       success: true,
-      analysis: analysis,
-      meta: telemetry
+      analysis: stage2Meta.analysis,
+      stage1,
+      meta: { ...telemetry, ...stage2Meta.meta }
     });
   } catch (error) {
     console.error('❌ Error in PCK feedback:', error);
@@ -1000,6 +1050,48 @@ Return JSON only, no additional text:`;
     });
   }
 });
+
+/**
+ * A1i Stage 2 for one turn (PCK_STAGE2=on). Returns the final analysis (display + students) and content-free telemetry:
+ *   stage2Status: not_run (Stage 1 hides the turn) | ok | fallback (failed after its attempts) | skipped (no time left);
+ *   stage2Attempts, stage2LatencyMs, stage2GuardDropped (0/1), stage2Suppressed (0/1), stage2Signal (none|partial|strong).
+ * Fallback and skipped return the Stage-1 analysis unchanged (exactly 1.5.1).
+ */
+async function runPckStage2(teacherMessage, stage1Prompt, stage1Analysis, shownByStage1, requestStarted) {
+  if (!shownByStage1) return { analysis: stage1Analysis, meta: { stage2Status: 'not_run' } };
+  const ctx = extractStage2Context(stage1Prompt);
+  if (!ctx || Date.now() - requestStarted > pckStage2SkipAfterMs()) {
+    console.warn(`⚠️ PCK Stage 2 skipped (${ctx ? 'no time left' : 'no context'}): 1.5.1 feedback kept`);
+    return { analysis: stage1Analysis, meta: { stage2Status: 'skipped', stage2Candidate: STAGE2_CANDIDATE } };
+  }
+  const call = await callModelWithPolicy({
+    agent: 'pck_stage2',
+    model: pckTurnModel,
+    modelId: GENERAL_MODEL_ID,
+    policy: pckStage2Policy(),
+    request: {
+      contents: [{ role: 'user', parts: [{ text: buildStage2Prompt(ctx) }] }],
+      generationConfig: { ...baseGenerationConfig(), maxOutputTokens: STAGE2_MAX_OUTPUT_TOKENS, responseMimeType: 'application/json', responseSchema: buildStage2Schema() },
+    },
+    interpret: (result) => {
+      const candidate = interpretCandidate(result);
+      if (!candidate.ok) return candidate;
+      const v = validateStage2Output(candidate.text);
+      return v.ok ? { ok: true, value: v.rows } : { ok: false, kind: 'stage2_invalid', retryable: true, message: v.reason };
+    },
+  });
+  const base = { stage2Candidate: STAGE2_CANDIDATE, stage2Attempts: call.telemetry.attempts, stage2LatencyMs: call.telemetry.latencyMs };
+  if (!call.ok) {
+    console.warn('⚠️ PCK Stage 2 failed after', call.telemetry.attempts, 'attempt(s):', call.failure && call.failure.kind, '- 1.5.1 feedback kept');
+    return { analysis: stage1Analysis, meta: { stage2Status: 'fallback', ...base } };
+  }
+  const f = finalizeStage2Turn({ teacherMessage, stage1Analysis, stage2: { ok: true, rows: call.value } });
+  if (f.suppressed) console.log('🔇 PCK feedback suppressed: no displayable Stage-2 row left');
+  return {
+    analysis: f.analysis,
+    meta: { stage2Status: 'ok', ...base, stage2GuardDropped: f.guardDropped ? 1 : 0, stage2Suppressed: f.suppressed ? 1 : 0, ...(f.signal ? { stage2Signal: f.signal } : {}) },
+  };
+}
 
 // New endpoint for comprehensive PCK summary feedback
 app.post('/api/pck-summary', async (req, res) => {
@@ -1353,6 +1445,8 @@ app.get('/api/health', async (req, res) => {
     project: PROJECT_ID,
     location: LOCATION,
     models: MODEL_IDS,
+    pckStage2Enabled: pckStage2Flag().enabled,
+    pckStage2Source: pckStage2Flag().source,
     ai: aiStatus,
     ...(aiError ? { ai_error: aiError } : {})
   });
@@ -2318,6 +2412,7 @@ app.listen(PORT, () => {
   console.log('🌍 Location:', LOCATION);
   console.log('🤖 Student model:', STUDENT_MODEL_ID);
   console.log('🤖 PCK / summary / completion / test model:', GENERAL_MODEL_ID);
+  console.log(`🧩 ${describePckStage2Flag(pckStage2Flag())}`);
   console.log('');
   console.log('Available endpoints:');
   console.log('  GET  /api/health - Health check');

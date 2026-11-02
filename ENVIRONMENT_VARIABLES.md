@@ -16,6 +16,10 @@ These variables must be set on the Windows Server in the `server/.env` file.
 | `PORT` | No | `3001` | Port for backend server to listen on |
 | `NODE_ENV` | **Yes** | `development` | Set to `production` for production deployment |
 | `ENABLE_DEBUG_CREDENTIALS` | No | `false` | Set to `true` to enable `/api/debug/credentials` endpoint for troubleshooting |
+| `PCK_STAGE2` | No | on | Two-stage PCK feedback (A1i, the 1.6.0 behaviour; `research/simulator_audit/pck_a1i_implementation_plan.md`). **ON** when unset or empty, or `on` / `1` / `true`: on turns the first PCK call shows, a second call with the frozen Stage-2 rubric decides the skill rows, scores and feedback text and the PCK information the students receive. If no row is left, no feedback is shown. If it fails, the 1.5.1 feedback is used. **OFF** with `off` / `0` / `false` (explicit override): the 1.5.1 behaviour exactly. Any other value stays ON and the server logs a warning. Trimmed, case-insensitive, read per request. **To check the active state:** the startup log line `🧩 PCK Stage 2: ON (default)` / `ON (environment, PCK_STAGE2=on)` / `OFF (explicit override, PCK_STAGE2=off)`, or `GET /api/health` → `pckStage2Enabled` (true / false) and `pckStage2Source` (`default` / `environment`). |
+| `PCK_STAGE2_ATTEMPT_TIMEOUT_MS` | No | `8000` | Per-attempt limit of the Stage-2 call (at most 2 attempts) |
+| `PCK_STAGE2_TOTAL_BUDGET_MS` | No | `12000` | Total limit of the Stage-2 call; after it the 1.5.1 feedback is used |
+| `PCK_STAGE2_SKIP_AFTER_MS` | No | `30000` | Stage 2 is skipped (1.5.1 feedback) when the first PCK call already took longer than this |
 
 ### Example server/.env for Production
 

@@ -1318,6 +1318,53 @@ The 1.4.4 tests are kept. One was replaced: "not offered before finishing" no lo
 
 **Not done:** a live run on the real model (expected cost: one extra PCK call on about 9% of shown turns).
 
+### 0.36 Two-stage PCK feedback (A1i), PCK_STAGE2 on by default (2026-11-02, version 1.6.0)
+
+**Change (B32 new; A17 extended):**
+- **Flag on:** an independent Stage 2 (the frozen candidate `x12-final-v5c`) runs before the students on turns Stage 1 shows. Its rows are the display rows and the source of the students' PCK input (the tested student contract).
+- **No row left:** no feedback.
+- **Failure:** the 1.5.1 behaviour exactly.
+- **Flag off:** 1.5.1 exactly.
+- **Activation:**
+  - unset / empty / `on` / `1` / `true` → ON (the default);
+  - `off` / `0` / `false` → OFF;
+  - unrecognised → ON with a warning;
+  - state reported in the startup log and by `/api/health` (`pckStage2Enabled`, `pckStage2Source`).
+- Details: `pck_a1i_implementation_plan.md` §1a, §6a.
+
+**Tests (stubbed model):**
+- **`server/test/pck_stage2_parity.test.mjs`:**
+  - the research reference matches its recorded hashes;
+  - rubric, prompt (byte-identical), schema, validator, context extraction, guard list and decisions, signal, the no-feedback rule and the student view equal the frozen research functions.
+- **`server/test/api_pck_stage2.test.mjs`:**
+  - ON for unset, empty, `on` / `1` / `true` (any case) and unrecognised values; OFF (`off` / `0` / `false`, any case): one call and the 1.5.1 response;
+  - `/api/health` reports the resolved state and source;
+- **`server/test/pck_stage2_flag.test.mjs`:** every value, its source, the warning and the startup line;
+- **`api_model_routing.test.mjs`:** the startup line and the health field;
+- **Pinned off:** the other 1.5.1 endpoint suites run with `PCK_STAGE2=off` (pinned by `test-support/startServer.mjs` unless a test sets it), i.e. they test the explicit-off path;
+  - flag on: no Stage 2 on hidden turns; the live Stage-2 request equals the research request built from the live Stage-1 prompt;
+  - display and student fields per the contract, and the Stage-1 history fields unmodified;
+  - one identical retry; fallback on invalid output, no relevant skill, model error or timeout; skip after `PCK_STAGE2_SKIP_AFTER_MS`;
+  - suppression on an acknowledgement; the guard keeps a missed identification; B27 still decides first;
+  - a Stage-1 failure is still a 500; the row-text re-ask still runs first.
+- **Client:**
+  - `callTelemetry` (Stage-2 keys, enums, omitted when not reported);
+  - `genaiErrors` (`onStage1`);
+  - `chatTurnOrchestration` (feedback history from the Stage-1 fields; the 1.5.1 response handled as before).
+
+**Live pre-release checks** (real model; R1–R7 of `pck_eval/x12/REGRESSION_PROTOCOL.md`):
+- **Result:** all pass except R6 consensus Interpretation, a documented accepted exception (about 4 of 45 gold samples; the identical candidate; the agreed and dev tiers match research).
+- **Live opportunity bench, flag on vs off:**
+  - peer jumps right after the hint: 12.5 vs 23 per 36;
+  - carrier premature resolution: 1 per 36;
+  - 0 failed turns;
+  - 0 student-contract inconsistencies;
+  - students +2.1 s at p50 on shown turns.
+
+**Not covered live:**
+- The bench's fixed teacher script has no bare acknowledgement after resolution, so the guard and suppression were exercised only offline and in the stubbed tests.
+- No fresh blind validation. The next human check is the educational team's end-to-end review.
+
 ## Original proposal (kept for reference; see §0.6 for what is still open)
 
 ## 1. Starting state (before the baseline)

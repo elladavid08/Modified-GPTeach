@@ -200,8 +200,10 @@ export async function generateWithGenAICompletion(prompt, options = {}) {
  * @param {Object} scenario - Current scenario context
  * @returns {Promise<Object>} - Structured PCK analysis object
  */
-export async function getPCKFeedback(teacherMessage, conversationHistory = [], scenario = {}, feedbackHistory = [], { onMeta, timeoutMs = CLIENT_TIMEOUT_MS } = {}) {
-  // onMeta (optional) receives call telemetry; it is not sent to the server
+export async function getPCKFeedback(teacherMessage, conversationHistory = [], scenario = {}, feedbackHistory = [], { onMeta, onStage1, timeoutMs = CLIENT_TIMEOUT_MS } = {}) {
+  // onMeta (optional) receives call telemetry; it is not sent to the server.
+  // onStage1 (optional, A1i / PCK_STAGE2): receives the unmodified Stage-1 fields the caller keeps as feedback history;
+  // called only when the server sends them (two-stage PCK on), so the 1.5.1 response is handled exactly as before.
   const started = Date.now();
   try {
     console.log('💡 Requesting structured PCK feedback analysis...');
@@ -242,6 +244,9 @@ export async function getPCKFeedback(teacherMessage, conversationHistory = [], s
       console.log('   Predicted understanding:', result.analysis.predicted_student_state && result.analysis.predicted_student_state.understanding_level);
       if (onMeta) {
         onMeta({ ...(result.meta || {}), clientLatencyMs: Date.now() - started });
+      }
+      if (onStage1 && result.stage1) {
+        onStage1(result.stage1);
       }
       return result.analysis;
     } else {

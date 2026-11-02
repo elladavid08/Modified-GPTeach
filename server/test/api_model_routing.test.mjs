@@ -212,6 +212,15 @@ test('startup log reports the student and PCK/general models and the global loca
   assert.ok(!log.includes('gemini-2.5'));
 });
 
+// 1.6.0: the resolved PCK_STAGE2 state is printed on every start and exposed by /api/health (the test server pins
+// "off" for the 1.5.1 suites; every value is covered in pck_stage2_flag.test.mjs and api_pck_stage2.test.mjs)
+test('startup log and /api/health report the PCK Stage 2 state and its source', async () => {
+  assert.match(srv.startupLog.join('\n'), /PCK Stage 2: OFF \(explicit override, PCK_STAGE2=off\)/);
+  const body = await (await fetch(`${srv.baseUrl}/api/health`)).json();
+  assert.equal(body.pckStage2Enabled, false);
+  assert.equal(body.pckStage2Source, 'environment');
+});
+
 // ─── No 2.5 model or sampling parameter left in active runtime configuration ─
 
 test('server.js: no gemini-2.5 model id, no temperature / topP in any generation config', () => {

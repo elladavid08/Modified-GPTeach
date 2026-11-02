@@ -1,5 +1,5 @@
 // LLM-call telemetry (A17, REVIEW): a strict, bounded whitelist of timing metadata.
-import { buildCallTelemetry, TELEMETRY_KEYS, TELEMETRY_BASE_KEYS, TELEMETRY_DUPLICATE_KEYS, TELEMETRY_QUOTE_CUT_KEYS, TELEMETRY_GARBLE_KEYS, TELEMETRY_SPEAKER_KEYS, TELEMETRY_PCK_DISPLAY_KEYS, TELEMETRY_PCK_ROW_TEXT_KEYS, DUPLICATE_OUTCOMES, countUnknownSpeakers } from "../services/callTelemetry";
+import { buildCallTelemetry, TELEMETRY_KEYS, TELEMETRY_BASE_KEYS, TELEMETRY_DUPLICATE_KEYS, TELEMETRY_QUOTE_CUT_KEYS, TELEMETRY_GARBLE_KEYS, TELEMETRY_SPEAKER_KEYS, TELEMETRY_PCK_DISPLAY_KEYS, TELEMETRY_PCK_ROW_TEXT_KEYS, TELEMETRY_PCK_STAGE2_KEYS, DUPLICATE_OUTCOMES, countUnknownSpeakers } from "../services/callTelemetry";
 
 const META = {
 	agent: "pck",
@@ -97,7 +97,7 @@ describe("student duplicate-guard telemetry (1.3.11, A17 additive)", () => {
 		// 1.4.2 appends the garbled-text and unknown-speaker counters (additive)
 		// 1.4.3 appends the PCK display counter (additive); the 1.5.1 row-text fix appends the
 		// missing-positive display counter and the server's row-text re-ask counter (additive)
-		expect(TELEMETRY_KEYS).toEqual([...TELEMETRY_BASE_KEYS, ...TELEMETRY_DUPLICATE_KEYS, ...TELEMETRY_QUOTE_CUT_KEYS, ...TELEMETRY_GARBLE_KEYS, ...TELEMETRY_SPEAKER_KEYS, ...TELEMETRY_PCK_DISPLAY_KEYS, ...TELEMETRY_PCK_ROW_TEXT_KEYS]);
+		expect(TELEMETRY_KEYS).toEqual([...TELEMETRY_BASE_KEYS, ...TELEMETRY_DUPLICATE_KEYS, ...TELEMETRY_QUOTE_CUT_KEYS, ...TELEMETRY_GARBLE_KEYS, ...TELEMETRY_SPEAKER_KEYS, ...TELEMETRY_PCK_DISPLAY_KEYS, ...TELEMETRY_PCK_ROW_TEXT_KEYS, ...TELEMETRY_PCK_STAGE2_KEYS]);
 	});
 
 	it("only accepts the known outcomes and non-negative integer counts; never text", () => {
@@ -209,3 +209,28 @@ describe("PCK display telemetry (1.4.3, A17 additive, content-free)", () => {
 	});
 });
 
+
+describe("Two-stage PCK telemetry (A1i, server PCK_STAGE2=on; content-free)", () => {
+	const PCK_META = { ...META, agent: "pck" };
+	const STAGE2 = { stage2Status: "ok", stage2Candidate: "x12-final-v5c", stage2Attempts: 1, stage2LatencyMs: 2010, stage2GuardDropped: 0, stage2Suppressed: 0, stage2Signal: "partial" };
+
+	it("keeps the Stage-2 fields when the server reports them", () => {
+		expect(TELEMETRY_PCK_STAGE2_KEYS).toEqual(["stage2Status", "stage2Candidate", "stage2Attempts", "stage2LatencyMs", "stage2GuardDropped", "stage2Suppressed", "stage2Signal"]);
+		expect(buildCallTelemetry("ok", { ...PCK_META, ...STAGE2 })).toMatchObject(STAGE2);
+	});
+
+	it("rejects values outside the enums and non-integers", () => {
+		const t = buildCallTelemetry("ok", { ...PCK_META, stage2Status: "teacher text", stage2Signal: "great", stage2Attempts: 1.5, stage2Suppressed: -1 });
+		expect(t).toMatchObject({ stage2Status: null, stage2Signal: null, stage2Attempts: null, stage2Suppressed: null });
+	});
+
+	it("omits every Stage-2 field when not reported (flag off: the 1.5.1 telemetry exactly)", () => {
+		const t = buildCallTelemetry("ok", PCK_META);
+		expect(TELEMETRY_PCK_STAGE2_KEYS.some((k) => k in t)).toBe(false);
+	});
+
+	it("not_run (Stage 1 hides the turn) carries only the status", () => {
+		const t = buildCallTelemetry("ok", { ...PCK_META, stage2Status: "not_run" });
+		expect(t).toMatchObject({ stage2Status: "not_run", stage2Attempts: null, stage2Signal: null });
+	});
+});

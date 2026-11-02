@@ -76,6 +76,11 @@
 //                                quality statement from the Stage-2 rows / signal, no Stage-1 assessment text)
 //   Both record content-free prompt-consistency flags (student_view.cjs auditStudentInput) per Stage-2 turn.
 //
+// 1.5.0 (2026-11-02, A1i production check, bench-only): with a server run with PCK_STAGE2=on (the production two-stage
+// PCK) and no OPP_ARCH, the bench mirrors the production client: the server's Stage-1 fields (getPCKFeedback onStage1)
+// are kept as feedback history; on every turn whose feedback came from Stage 2 (meta stage2Status ok, not suppressed)
+// the analysis the students receive is audited (pck.audit) against the shown rows. With PCK_STAGE2 off nothing changes.
+//
 // Environment: OPP_CASTS (random|designed), OPP_STUDENT (current|carrier|production|pacing), OPP_PLAN (standard|progression), OPP_SCENARIOS ("1,2"), OPP_REPEATS
 // (default 6 random / 2 per designed cast), OPP_RUN_ID, HARNESS_API_URL (local server, default http://127.0.0.1:3101).
 // Output: results/<run id>/conversations/*.json (git-ignored). Run only this file:
@@ -112,7 +117,7 @@ const STUDENT = require('../../pck_eval/x12/student_view.cjs'); // eslint-disabl
 jest.setTimeout(6 * 60 * 60 * 1000);
 const HARNESS = path.resolve(__dirname, '..');
 const REPO = path.resolve(HARNESS, '../../..');
-export const OPPORTUNITY_VERSION = '1.4.0';
+export const OPPORTUNITY_VERSION = '1.5.0';
 
 /** T2: a neutral concept question per scenario (does not name or hint the misconception). */
 const OPPORTUNITY_NEUTRAL = {
@@ -287,7 +292,8 @@ it('opportunity', async () => {
         const pckStart = Date.now();
         try {
           let pckMeta = null;
-          impact = await getPCKFeedback(text, messages, scenario, feedbackHistory.slice(-3), { onMeta: (m) => { pckMeta = m; } });
+          let stage1History = null;
+          impact = await getPCKFeedback(text, messages, scenario, feedbackHistory.slice(-3), { onMeta: (m) => { pckMeta = m; }, onStage1: (f) => { stage1History = f; } });
           Object.assign(pck, {
             meta: pckMeta,
             ok: true, quality: impact.pedagogical_quality, shown: Boolean(impact.should_provide_feedback),
@@ -296,7 +302,12 @@ it('opportunity', async () => {
             risk: impact.misconception_risk, addressed: impact.addressed_misconception,
           });
           pck.wallMs = Date.now() - pckStart;
-          feedbackHistory.push({ pedagogical_quality: impact.pedagogical_quality, feedback_message_hebrew: impact.feedback_message_hebrew, predicted_student_state: impact.predicted_student_state, skills_assessment: impact.skills_assessment || [] });
+          feedbackHistory.push(stage1History || { pedagogical_quality: impact.pedagogical_quality, feedback_message_hebrew: impact.feedback_message_hebrew, predicted_student_state: impact.predicted_student_state, skills_assessment: impact.skills_assessment || [] });
+          if (pckMeta && pckMeta.stage2Status === 'ok' && !pckMeta.stage2Suppressed) {
+            const rows = (impact.skills_assessment || []).filter((x) => x.is_relevant === true)
+              .map((x) => ({ skillId: x.skill_id, score: x.score, positive: x.evidence || null, improvement: x.what_could_be_better || null }));
+            pck.audit = STUDENT.auditStudentInput(impact, rows, pckMeta.stage2Signal);
+          }
           if (feedbackHistory.length > 5) feedbackHistory.shift();
         } catch (e) {
           Object.assign(pck, { error: String(e.serverError || e.message).slice(0, 160) });

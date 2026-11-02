@@ -51,6 +51,20 @@ describe("telemetry delivery (onMeta)", () => {
 		expect(JSON.parse(global.fetch.mock.calls[0][1].body)).toEqual({ teacherMessage: "שאלה", conversationHistory: [], scenario: {}, feedbackHistory: [] });
 	});
 
+	it("A1i: getPCKFeedback hands the server's unmodified Stage-1 fields to onStage1; not called for the 1.5.1 response", async () => {
+		const STAGE1 = { pedagogical_quality: "positive", feedback_message_hebrew: "S1", predicted_student_state: { understanding_level: "improved" }, skills_assessment: [] };
+		global.fetch = jest.fn(async () => jsonResponse(200, { success: true, analysis: { pedagogical_quality: "neutral" }, stage1: STAGE1, meta: { ...META, stage2Status: "ok" } }));
+		const onStage1 = jest.fn();
+		const analysis = await getPCKFeedback("שאלה", [], {}, [], { onStage1 });
+		expect(analysis).toEqual({ pedagogical_quality: "neutral" });
+		expect(onStage1).toHaveBeenCalledWith(STAGE1);
+		expect(JSON.parse(global.fetch.mock.calls[0][1].body)).toEqual({ teacherMessage: "שאלה", conversationHistory: [], scenario: {}, feedbackHistory: [] });
+		global.fetch = jest.fn(async () => jsonResponse(200, { success: true, analysis: { pedagogical_quality: "neutral" }, meta: META }));
+		const later = jest.fn();
+		await getPCKFeedback("שאלה", [], {}, [], { onStage1: later });
+		expect(later).not.toHaveBeenCalled();
+	});
+
 	it("generateWithGenAI returns the text and reports meta via onMeta; onMeta is not sent", async () => {
 		global.fetch = jest.fn(async () => jsonResponse(200, { success: true, text: "{}", meta: { ...META, agent: "student" } }));
 		const onMeta = jest.fn();

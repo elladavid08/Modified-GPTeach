@@ -1,11 +1,13 @@
-# Simulator version history (1.0.0 → 1.5.1)
+# Simulator version history (1.0.0 → 1.6.0)
 
 **Purpose:** one consolidated record of how the teaching simulator changed between its first versioned release and the current released baseline, **1.5.0**, written so that the iterations can later be described in a paper.
 - It records what changed in each version, why it changed, and how the behaviour of the system changed.
 - Research experiments that did **not** ship are kept in a separate section (§4), so they cannot be mistaken for released behaviour.
 
 **Compiled:** 2026-10-26, from the repository. No production code, prompt, model, schema or `SYSTEM_VERSION` was changed for this document.
-**Updated:** 2026-10-28, to add **1.5.1**, the first post-1.5.0 iteration (a development version, not yet merged or deployed; §2, §6).
+**Updated:**
+- 2026-10-28, to add **1.5.1**, the first post-1.5.0 iteration (a development version, not yet merged or deployed; §2, §6).
+- 2026-11-02, to add **1.6.0**, the two-stage PCK feedback (A1i; `PCK_STAGE2`, on by default; a development version, not yet merged or deployed).
 
 **Sources (the source of truth, in this order):**
 1. `src/config/version.js`: the `SYSTEM_VERSION` constant and its changelog, read on `main` at `1ce6b21`.
@@ -55,6 +57,7 @@
 | 1.4.4 | 2026-10-13 | Persistent teacher briefing; attempted-scenario marks; return after finishing; history reset | development |
 | **1.5.0** | 2026-10-14 | Misconception carrier; return before finishing (single exit); drawing Undo and colours; transparent questionnaire images | **production release** (merged to `main` as `1ce6b21`) |
 | 1.5.1 | 2026-10-28 | **First post-1.5.0 iteration:** PCK feedback text consistency (one row-text rule for every view and the summary input; no empty rows; one identical re-ask) | development (`feature/post-1.5-educational-feedback`; not merged or deployed) |
+| 1.6.0 | 2026-11-02 | **Two-stage PCK feedback (A1i)**, on by default (`PCK_STAGE2=off` restores 1.5.1): an independent Stage 2 decides the skill rows, scores, text and the students' PCK input; no feedback when no row remains; fallback to 1.5.1 | development (`feature/post-1.5-educational-feedback`; not merged or deployed) |
 
 **About `1.3.0-gemini3`:**
 - It was **not** a step of the post-pilot development line. It was the pilot code (1.3.0) with only the model migration. It was made because `gemini-2.5-flash-lite` retires on Vertex AI on 2026-10-20, and it was merged to `main` (`7f7fb25`, merge `d7fbe55`).
@@ -333,6 +336,53 @@ The first change made after the educational team's feedback round on 1.5.0 (`pos
   - client tests 462/462, server tests 340/340, harness tests 78/78; production build OK;
   - not yet validated live on the real model.
 
+### 1.6.0 (2026-11-02): two-stage PCK feedback (A1i), on by default (`PCK_STAGE2`) [PCK] [STU] [LOG]
+
+The second post-1.5.0 iteration, from the educational team's feedback on 1.5.0 and their rubric decisions.
+- **Research:** `pck_two_stage_x12_experiment.md`, `pck_steering_dependency_experiment.md`, `pck_single_call_streaming_experiment.md`, `pck_stage2_final_round.md`.
+- **Plan and pre-release checks:** `pck_a1i_implementation_plan.md` §1a, §5, §6a.
+- **Invariants:** B32 (new), A17.
+
+- **Problem (1.5.0 / 1.5.1):**
+  - **One call does everything:** a single PCK call decides show/hide, skill relevance, scores, feedback text and the student steering.
+  - **Teacher-facing calibration:** the team's issues were inflated Leveraging scores, "כן" treated as a missed Leveraging opportunity, Interpretation not surfaced, and all-green feedback.
+  - **Steering:** Stage-1 steering agreed poorly with the experts (κ ≈ 0.09; "strong" while the expert sees partial / none on 46% of turns).
+- **Change** (server flag `PCK_STAGE2`, **ON by default**; `off` / `0` / `false` switches back to the 1.5.1 behaviour; the startup log and `/api/health` report the state):
+  - **Stage 1:** the unchanged 1.5.1 call; the first show/hide gate and the source of context.
+  - **Stage 2:**
+    - On every turn Stage 1 shows, an independent call with the frozen Stage-2 rubric (`x12-final-v5c`) runs before the students.
+    - It decides the relevant skills, the 0 / 1 / 2 scores and the teacher-facing text (score 2: what exists; 1: what exists + what to improve; 0: what to improve).
+    - Same model and settings as Stage 1; at most 2 identical attempts; own 8 s / 12 s budget.
+  - **Rubric:** the team's rubric decisions are part of it:
+    - Interpretation: articulating the student's reasoning without probing it is 1; a question about the mathematics itself is 0.
+    - Leveraging: a bare acknowledgement, praise or goodbye after resolution is not relevant; a local summary or restated conclusion is 0.
+  - **Guard:** a deterministic acknowledgement guard drops the Leveraging row for a message that is only an acknowledgement.
+  - **Student contract:**
+    - On a Stage-2 turn, every current-turn PCK quality statement the students receive is derived from the shown rows and their signal. The skill lists are projected from the rows, and the level is capped by the signal.
+    - No Stage-1 assessment text reaches the students.
+    - The student prompt code and the student model are unchanged.
+  - **No row left:** no feedback that turn. The students get the Stage-1 analysis, as on a 1.5.1 turn without feedback.
+  - **Stage-2 failure, timeout or skip:** the 1.5.1 feedback and student input, exactly.
+  - **Feedback history:** the client keeps Stage 1's unmodified fields, so Stage 1's own input matches 1.5.1.
+- **Unchanged:**
+  - the student model and prompt code;
+  - the Stage-1 prompt, schema and model;
+  - the misconception carrier;
+  - the stored conversation format, apart from additive telemetry.
+- **Data:**
+  - Conversations carry `systemVersion: "1.6.0"` whether Stage 2 is on (the default) or switched off.
+  - **Telling the arms apart:** with Stage 2 on (the default), every successful PCK telemetry entry (`status: ok`) carries `stage2Status`, together with `stage2Candidate`, `stage2Attempts`, `stage2LatencyMs`, `stage2GuardDropped`, `stage2Suppressed` and `stage2Signal` where they apply. A 1.6.0 conversation whose successful PCK entries have no `stage2Status` ran with `PCK_STAGE2=off`, i.e. 1.5.1 behaviour.
+- **Validation:**
+  - **Suites:** client tests 469/469, server tests 369/369, harness tests 82/82. The parity tests compare the production modules with the frozen research files.
+  - **Pre-release checks R1–R7** (`pck_a1i_implementation_plan.md` §6a): all pass, with one documented accepted exception (R6: consensus Interpretation F1 0.23 vs 0.32, about 4 of 45 gold samples, attributed to sampling).
+  - **Live, flag on vs off:**
+    - peer jumps right after the minimal hint: 12.5 vs 23 per 36;
+    - carrier premature resolution: 1 per 36;
+    - 0 failed turns;
+    - 0 student-contract inconsistencies;
+    - students +2.1 s at p50 on shown turns.
+  - None of this is a fresh blind validation. The next human validation is the educational team's end-to-end review.
+
 ---
 
 ## 3. Post-pilot work grouped by research purpose
@@ -450,7 +500,9 @@ In short, B200 entered the simulator as evaluation ground truth and as rubric an
 - The 1.5.0 merge replaced the production hotfix `1.3.0-gemini3`. Conversations recorded in production before the deployment carry `1.3.0-gemini3` (or `1.3.0`, if recorded before the hotfix).
 - **1.5.0 is the version the educational team tested** in the subsequent feedback round.
   - Their issue list, **"טבלת בעיות סימולטור 22.10.docx"**, therefore describes issues observed on 1.5.0. It is kept outside the repository.
-- **The first change based on that feedback is 1.5.1** (2026-10-28, PCK feedback text consistency, §2). It is a development version on `feature/post-1.5-educational-feedback` and is not merged or deployed. Until it is deployed, production data is 1.5.0.
+- **The first change based on that feedback is 1.5.1** (2026-10-28, PCK feedback text consistency, §2).
+- **The second is 1.6.0** (2026-11-02, two-stage PCK feedback, on by default, `PCK_STAGE2`, §2).
+- Both are development versions on `feature/post-1.5-educational-feedback` and are not merged or deployed. Until one is deployed, production data is 1.5.0.
 - The next investigation starts from 1.5.0. Any change it produces must be released under a new `SYSTEM_VERSION`, so data from the team's evaluation stays distinguishable from later versions.
 
 Branch state when this document was written:

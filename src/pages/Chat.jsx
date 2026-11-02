@@ -287,6 +287,9 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 			// Per-turn LLM-call telemetry (logged with the turn; no content)
 			let pckTelemetry = null;
 			let pckMeta = null;
+			// A1i (server PCK_STAGE2=on): the unmodified Stage-1 fields, kept as feedback history so Stage 1's own input
+			// on later turns is exactly as in 1.5.1. Null with the 1.5.1 response (then the analysis itself is used).
+			let stage1History = null;
 			
 			// Step 1: Get PCK feedback analysis FIRST (except for first message)
 			try {
@@ -304,7 +307,7 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 						history.getMessages(),
 						scenario,
 						feedbackHistory.slice(-3), // Pass last 3 feedback items for context
-						{ onMeta: (meta) => { pckMeta = meta; } }
+						{ onMeta: (meta) => { pckMeta = meta; }, onStage1: (fields) => { stage1History = fields; } }
 					);
 					pckTelemetry = buildCallTelemetry("ok", pckMeta);
 					
@@ -346,7 +349,7 @@ Do NOT wait for the teacher to speak first - students initiate naturally!`;
 				
 				// Update feedback history for persistence tracking (last 3 turns)
 				setFeedbackHistory(prev => {
-					const newHistory = [...prev, {
+					const newHistory = [...prev, stage1History || {
 						pedagogical_quality: impact_analysis.pedagogical_quality,
 						feedback_message_hebrew: impact_analysis.feedback_message_hebrew,
 						predicted_student_state: impact_analysis.predicted_student_state,
