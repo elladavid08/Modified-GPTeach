@@ -1,0 +1,683 @@
+{
+ "version": "1.1.0",
+ "note": "Synthetic decision-check set for the final X12 Stage-2 candidate (A1i). DEVELOPER-WRITTEN REGRESSION CASES, NOT A BLIND VALIDATION SET: the expectations were written by the developer from the team's decisions. Synthetic only: invented wording, cast names from the simulator. 1.0.0 (21 cases) was written after the previous candidate was frozen and never run. 1.1.0 (2026-10-29), still before any run: the two pending leveraging points are resolved by the team's evidence hierarchy (latest team feedback, then the existing B200 expert annotations and comments): F-D2-RESTATE-CONCLUSION is now leveraging relevant with 0 (consensus labels), F-D2-SUMMARY-LOCAL is confirmed 0; three leveraging cases were added (goodbye without content, longer praise without content: not relevant; a general principle stated without applying it: 1). Expectations per skill: 'relevant' | 'not_relevant' | {\"score\": n} | {\"max\": n} | {\"min\": n}. Scored by score_fresh.mjs on the final displayed rows; a sample counts when Stage 1 shows feedback (a sample the final policy suppresses counts as 'no row').",
+ "skills": {
+  "p1": "error-identification",
+  "p2": "error-characterization",
+  "p3": "diagnostic-interpretation",
+  "p4": "adapted-pedagogical-response",
+  "p5": "error-leveraging"
+ },
+ "cases": [
+  {
+   "id": "F-D1-ARTICULATE-1",
+   "group": "D1",
+   "intent": "The teacher states what lies behind the error (orientation of the drawing) without asking the student: interpretation 1.",
+   "scenario_index": 2,
+   "history": [
+    {
+     "teacher": "הסתכלו על הצורה בשרטוט. איזה מרובע זה?",
+     "students": [
+      {
+       "name": "נועה",
+       "message": "זה לא מלבן, הוא עומד עקום. מלבן שוכב ישר."
+      }
+     ]
+    }
+   ],
+   "teacher": "נועה, נדמה לי שאת מחליטה לפי איך שהצורה מונחת על הדף, ולא לפי הזוויות שלה.",
+   "expect": {
+    "p3": {
+     "score": 1
+    }
+   }
+  },
+  {
+   "id": "F-D1-ARTICULATE-2",
+   "group": "D1",
+   "intent": "The teacher articulates the over-generalisation behind the claim, precisely, without checking it with the student: still 1.",
+   "scenario_index": 1,
+   "history": [
+    {
+     "teacher": "מה אתם יודעים על האלכסונים של מעוין?",
+     "students": [
+      {
+       "name": "יובל",
+       "message": "הם מאונכים זה לזה."
+      }
+     ]
+    },
+    {
+     "teacher": "והנה מרובע שהאלכסונים שלו מאונכים. מה הוא?",
+     "students": [
+      {
+       "name": "יובל",
+       "message": "האלכסונים מאונכים, אז זה בטוח מעוין."
+      }
+     ]
+    }
+   ],
+   "teacher": "יובל, אני חושבת שאתה מניח שאם תכונה נכונה במעוין, אז כל מרובע שיש לו את התכונה הזאת הוא מעוין.",
+   "expect": {
+    "p3": {
+     "score": 1
+    }
+   }
+  },
+  {
+   "id": "F-D1-ARTICULATE-IN-EXPLANATION",
+   "group": "D1",
+   "intent": "Articulation inside an instructional move: interpretation 1, and the move itself is an adapted pedagogical response.",
+   "scenario_index": 5,
+   "history": [
+    {
+     "teacher": "מה ההגדרה של דלתון?",
+     "students": [
+      {
+       "name": "תמר",
+       "message": "מרובע עם שני זוגות של צלעות סמוכות שוות."
+      }
+     ]
+    },
+    {
+     "teacher": "האם מעוין הוא דלתון?",
+     "students": [
+      {
+       "name": "מעיין",
+       "message": "לא, מעוין זה לא דלתון. הם נראים שונים לגמרי."
+      }
+     ]
+    }
+   ],
+   "teacher": "מעיין, את מסתכלת על הצורה הכללית ולא על התכונות. בואו נבדוק: האם במעוין יש שני זוגות של צלעות סמוכות שוות?",
+   "expect": {
+    "p3": {
+     "score": 1
+    },
+    "p4": "relevant"
+   }
+  },
+  {
+   "id": "F-D1-HYPOTHESIS-CHECKED",
+   "group": "D1",
+   "intent": "The teacher states a hypothesis about the reasoning AND asks the student whether that is how they thought: 2.",
+   "scenario_index": 0,
+   "history": [
+    {
+     "teacher": "האם ריבוע הוא מלבן?",
+     "students": [
+      {
+       "name": "רועי",
+       "message": "לא, ריבוע זה לא מלבן כי כל הצלעות שלו שוות."
+      }
+     ]
+    }
+   ],
+   "teacher": "רועי, האם אתה מחליט ככה כי הריבוע נראה לך שונה מהמלבן הרגיל? ספר לי איך חשבת.",
+   "expect": {
+    "p3": {
+     "score": 2
+    }
+   }
+  },
+  {
+   "id": "F-D1-PURE-PROBE",
+   "group": "D1",
+   "intent": "An open question about how the student reached the claim: interpretation 2; the move is not an adapted pedagogical response.",
+   "scenario_index": 3,
+   "history": [
+    {
+     "teacher": "מה אפשר לומר על האלכסון של מרובע?",
+     "students": [
+      {
+       "name": "עדי",
+       "message": "האלכסון תמיד חוצה את הזווית, בכל מרובע."
+      }
+     ]
+    }
+   ],
+   "teacher": "מעניין, עדי. איך הגעת למסקנה הזאת?",
+   "expect": {
+    "p3": {
+     "score": 2
+    },
+    "p4": "not_relevant"
+   }
+  },
+  {
+   "id": "F-D1-CORRECT-NO-PROBE",
+   "group": "D1",
+   "intent": "A direct correction with no attention to how the student reasoned: interpretation is a missed 0; the explicit 'not correct' is identification 2.",
+   "scenario_index": 4,
+   "history": [
+    {
+     "teacher": "אם במרובע האלכסונים שווים ומאונכים, מה אפשר לומר עליו?",
+     "students": [
+      {
+       "name": "הילה",
+       "message": "שזה חייב להיות ריבוע."
+      }
+     ]
+    }
+   ],
+   "teacher": "זה לא נכון, הילה. כדי שזה יהיה ריבוע האלכסונים צריכים גם לחצות זה את זה.",
+   "expect": {
+    "p3": {
+     "score": 0
+    },
+    "p1": {
+     "score": 2
+    }
+   }
+  },
+  {
+   "id": "F-D1-WHY-IN-PASSING",
+   "group": "D1",
+   "intent": "A 'why' asked in passing, then the teacher moves on without letting the student explain: 1, not 2.",
+   "scenario_index": 0,
+   "history": [
+    {
+     "teacher": "האם ריבוע הוא מלבן?",
+     "students": [
+      {
+       "name": "דנה",
+       "message": "לא, ריבוע זה צורה אחרת."
+      }
+     ]
+    }
+   ],
+   "teacher": "למה? טוב, בכל מקרה, בואו נזכור שמלבן הוא מרובע שכל הזוויות שלו ישרות.",
+   "expect": {
+    "p3": {
+     "max": 1
+    }
+   }
+  },
+  {
+   "id": "F-D2-YES-AFTER-RESOLUTION",
+   "group": "D2",
+   "intent": "A bare 'yes' after the students themselves resolved the misconception: leveraging not relevant.",
+   "scenario_index": 0,
+   "history": [
+    {
+     "teacher": "האם ריבוע הוא מלבן?",
+     "students": [
+      {
+       "name": "יונתן",
+       "message": "לא, ריבוע זה לא מלבן."
+      }
+     ]
+    },
+    {
+     "teacher": "מה ההגדרה של מלבן?",
+     "students": [
+      {
+       "name": "תמר",
+       "message": "מרובע שכל הזוויות שלו ישרות."
+      }
+     ]
+    },
+    {
+     "teacher": "ומה עם ריבוע?",
+     "students": [
+      {
+       "name": "יונתן",
+       "message": "רגע, גם בריבוע כל הזוויות ישרות. אז ריבוע הוא כן מלבן!"
+      },
+      {
+       "name": "תמר",
+       "message": "כן, הוא מקיים את ההגדרה של מלבן."
+      }
+     ]
+    }
+   ],
+   "teacher": "כן",
+   "expect": {
+    "p5": "not_relevant"
+   }
+  },
+  {
+   "id": "F-D2-PRAISE-AFTER-RESOLUTION",
+   "group": "D2",
+   "intent": "Short praise with a name after resolution: leveraging not relevant.",
+   "scenario_index": 5,
+   "history": [
+    {
+     "teacher": "האם מעוין הוא דלתון?",
+     "students": [
+      {
+       "name": "נועה",
+       "message": "לא, אלה צורות שונות."
+      }
+     ]
+    },
+    {
+     "teacher": "בדקו לפי ההגדרה של דלתון.",
+     "students": [
+      {
+       "name": "נועה",
+       "message": "אה, במעוין כל הצלעות שוות, אז יש בו שני זוגות של צלעות סמוכות שוות. אז מעוין הוא דלתון."
+      }
+     ]
+    }
+   ],
+   "teacher": "בדיוק, כל הכבוד נועה!",
+   "expect": {
+    "p5": "not_relevant"
+   }
+  },
+  {
+   "id": "F-D2-YES-STILL-UNSURE",
+   "group": "D2",
+   "intent": "'Yes' while a student is still unsure: the episode is not resolved, so leveraging is not relevant either.",
+   "scenario_index": 2,
+   "history": [
+    {
+     "teacher": "האם מלבן שמסובבים אותו נשאר מלבן?",
+     "students": [
+      {
+       "name": "עדי",
+       "message": "אני עדיין לא בטוחה. אז מלבן מסובב זה עדיין מלבן?"
+      }
+     ]
+    }
+   ],
+   "teacher": "כן",
+   "expect": {
+    "p5": "not_relevant"
+   }
+  },
+  {
+   "id": "F-D2-RESTATE-CONCLUSION",
+   "group": "D2",
+   "intent": "Praise that restates the conclusion of the resolved error: a consolidation move kept to this case, leveraging 0 (B200 consensus).",
+   "scenario_index": 1,
+   "history": [
+    {
+     "teacher": "האם כל מרובע שהאלכסונים שלו מאונכים הוא מעוין?",
+     "students": [
+      {
+       "name": "יובל",
+       "message": "כן."
+      }
+     ]
+    },
+    {
+     "teacher": "חשבו על דלתון.",
+     "students": [
+      {
+       "name": "יובל",
+       "message": "אה, גם בדלתון האלכסונים מאונכים והוא לא מעוין. אז זה לא מספיק."
+      }
+     ]
+    }
+   ],
+   "teacher": "נכון מאוד, אלכסונים מאונכים לבד לא מספיקים כדי לקבוע שזה מעוין. כל הכבוד.",
+   "expect": {
+    "p5": {
+     "score": 0
+    }
+   }
+  },
+  {
+   "id": "F-D2-SUMMARY-LOCAL",
+   "group": "D2",
+   "intent": "The teacher explicitly closes the episode with a summary that stays local: leveraging 0 (B200 consensus and both annotators).",
+   "scenario_index": 0,
+   "history": [
+    {
+     "teacher": "האם ריבוע הוא מלבן?",
+     "students": [
+      {
+       "name": "דנה",
+       "message": "לא."
+      }
+     ]
+    },
+    {
+     "teacher": "מה ההגדרה של מלבן? ומה עם ריבוע?",
+     "students": [
+      {
+       "name": "דנה",
+       "message": "מרובע שכל הזוויות שלו ישרות. אז גם ריבוע הוא מלבן, כי גם בו כל הזוויות ישרות."
+      }
+     ]
+    }
+   ],
+   "teacher": "בואו נסכם מה גילינו: ריבוע הוא מלבן, כי הוא מקיים את ההגדרה של מלבן.",
+   "expect": {
+    "p5": {
+     "score": 0
+    }
+   }
+  },
+  {
+   "id": "F-D2-GENERALISE-TRANSFER",
+   "group": "D2",
+   "intent": "The teacher states the principle and transfers it to a new case: leveraging 2.",
+   "scenario_index": 0,
+   "history": [
+    {
+     "teacher": "האם ריבוע הוא מלבן?",
+     "students": [
+      {
+       "name": "רועי",
+       "message": "לא, הוא נראה אחרת."
+      }
+     ]
+    },
+    {
+     "teacher": "בדקו לפי ההגדרה.",
+     "students": [
+      {
+       "name": "רועי",
+       "message": "אה, כל הזוויות בריבוע ישרות, אז הוא כן מלבן."
+      }
+     ]
+    }
+   ],
+   "teacher": "בדיוק: כדי לדעת לאיזו משפחה צורה שייכת בודקים את ההגדרה, לא את המראה. בואו נפעיל את אותו כלל על מעוין: האם ריבוע הוא גם מעוין?",
+   "expect": {
+    "p5": {
+     "score": 2
+    }
+   }
+  },
+  {
+   "id": "F-D2-NEW-DIRECTION",
+   "group": "D2",
+   "intent": "After resolution the teacher opens a new direction without developing it: leveraging 1.",
+   "scenario_index": 5,
+   "history": [
+    {
+     "teacher": "האם מעוין הוא דלתון?",
+     "students": [
+      {
+       "name": "מעיין",
+       "message": "לא נראה לי."
+      }
+     ]
+    },
+    {
+     "teacher": "מה ההגדרה של דלתון?",
+     "students": [
+      {
+       "name": "מעיין",
+       "message": "שני זוגות של צלעות סמוכות שוות. ובמעוין כל הצלעות שוות, אז כן, מעוין הוא דלתון."
+      }
+     ]
+    }
+   ],
+   "teacher": "יופי. איזו עוד תכונה משותפת לדלתון ולמעוין אפשר למצוא?",
+   "expect": {
+    "p5": {
+     "score": 1
+    }
+   }
+  },
+  {
+   "id": "F-D2-EARLY-NOT-RESOLVED",
+   "group": "D2",
+   "intent": "A broad question while the misconception is still held: leveraging not relevant (not resolved).",
+   "scenario_index": 2,
+   "history": [
+    {
+     "teacher": "האם הצורה המסובבת הזאת היא מלבן?",
+     "students": [
+      {
+       "name": "הילה",
+       "message": "לא, מלבן צריך להיות ישר וארוך."
+      }
+     ]
+    }
+   ],
+   "teacher": "איך בעצם מחליטים אם צורה היא מלבן?",
+   "expect": {
+    "p5": "not_relevant"
+   }
+  },
+  {
+   "id": "F-G-BARE-NOT-CORRECT",
+   "group": "guard",
+   "intent": "Guardrail (X10 failure): a bare explicit 'that is not correct' is identification 2.",
+   "scenario_index": 3,
+   "history": [
+    {
+     "teacher": "האם האלכסון חוצה את הזווית בכל מרובע?",
+     "students": [
+      {
+       "name": "יונתן",
+       "message": "כן, בכל מרובע."
+      }
+     ]
+    }
+   ],
+   "teacher": "זה לא נכון.",
+   "expect": {
+    "p1": {
+     "score": 2
+    }
+   }
+  },
+  {
+   "id": "F-G-THINK-AGAIN",
+   "group": "guard",
+   "intent": "Guardrail: a general prompt that does not target the claim is identification 1.",
+   "scenario_index": 0,
+   "history": [
+    {
+     "teacher": "האם ריבוע הוא מלבן?",
+     "students": [
+      {
+       "name": "נועה",
+       "message": "לא, כי לריבוע כל הצלעות שוות."
+      }
+     ]
+    }
+   ],
+   "teacher": "תחשבו שוב.",
+   "expect": {
+    "p1": {
+     "score": 1
+    }
+   }
+  },
+  {
+   "id": "F-G-ACCEPTS-ERROR",
+   "group": "guard",
+   "intent": "Guardrail: the teacher praises a wrong claim: identification 0.",
+   "scenario_index": 1,
+   "history": [
+    {
+     "teacher": "מה אפשר לומר על מרובע שהאלכסונים שלו מאונכים?",
+     "students": [
+      {
+       "name": "דנה",
+       "message": "שהוא מעוין, כי רק במעוין האלכסונים מאונכים."
+      }
+     ]
+    }
+   ],
+   "teacher": "יפה מאוד דנה, תודה. נמשיך לשאלה הבאה.",
+   "expect": {
+    "p1": {
+     "score": 0
+    }
+   }
+  },
+  {
+   "id": "F-G-COUNTEREXAMPLE-TASK",
+   "group": "guard",
+   "intent": "Guardrail: the students are asked to construct a counterexample themselves: APR 2; leveraging not relevant (not resolved).",
+   "scenario_index": 4,
+   "history": [
+    {
+     "teacher": "מה אפשר לומר על מרובע שהאלכסונים שלו שווים ומאונכים?",
+     "students": [
+      {
+       "name": "יובל",
+       "message": "שהוא ריבוע, תמיד."
+      }
+     ]
+    }
+   ],
+   "teacher": "בואו נבדוק את זה: נסו לשרטט מרובע שהאלכסונים שלו שווים ומאונכים אבל לא חוצים זה את זה. מה קיבלתם?",
+   "expect": {
+    "p4": {
+     "score": 2
+    },
+    "p5": "not_relevant"
+   }
+  },
+  {
+   "id": "F-G-TEACHER-LED-EXPLANATION",
+   "group": "guard",
+   "intent": "Guardrail: a correct, teacher-led explanation from the definition: APR 1, not 2.",
+   "scenario_index": 0,
+   "history": [
+    {
+     "teacher": "האם ריבוע הוא מלבן?",
+     "students": [
+      {
+       "name": "תמר",
+       "message": "לא, הם שונים."
+      }
+     ]
+    }
+   ],
+   "teacher": "מלבן הוא מרובע שכל הזוויות שלו ישרות. לריבוע יש ארבע זוויות ישרות, ולכן ריבוע הוא מלבן.",
+   "expect": {
+    "p4": {
+     "score": 1
+    }
+   }
+  },
+  {
+   "id": "F-G-ANSWER-GIVEN",
+   "group": "guard",
+   "intent": "Guardrail: the teacher just gives the answer and moves on: APR 0.",
+   "scenario_index": 0,
+   "history": [
+    {
+     "teacher": "האם ריבוע הוא מלבן?",
+     "students": [
+      {
+       "name": "עדי",
+       "message": "לא נראה לי."
+      }
+     ]
+    }
+   ],
+   "teacher": "התשובה היא שכן, ריבוע הוא מלבן. נמשיך.",
+   "expect": {
+    "p4": {
+     "score": 0
+    }
+   }
+  },
+  {
+   "id": "F-D2-GOODBYE-AFTER-RESOLUTION",
+   "group": "D2",
+   "intent": "A closing with thanks and goodbye but no content after resolution: leveraging not relevant (team feedback; B200 consensus leaves goodbyes unmarked).",
+   "scenario_index": 0,
+   "history": [
+    {
+     "teacher": "האם ריבוע הוא מלבן?",
+     "students": [
+      {
+       "name": "יובל",
+       "message": "לא, ריבוע וזה מלבן זה שתי צורות שונות."
+      }
+     ]
+    },
+    {
+     "teacher": "מה ההגדרה של מלבן? בדקו אם ריבוע מקיים אותה.",
+     "students": [
+      {
+       "name": "יובל",
+       "message": "מלבן זה מרובע שכל הזוויות שלו ישרות. גם בריבוע כל הזוויות ישרות, אז ריבוע הוא כן מלבן."
+      },
+      {
+       "name": "הילה",
+       "message": "כן, ריבוע הוא מלבן מיוחד."
+      }
+     ]
+    }
+   ],
+   "teacher": "עבודה מצוינת היום, כולכם השתתפתם יפה מאוד. נתראה בשיעור הבא!",
+   "expect": {
+    "p5": "not_relevant"
+   }
+  },
+  {
+   "id": "F-D2-LONG-PRAISE",
+   "group": "D2",
+   "intent": "Praise longer than the guard's five words, without content, after resolution: leveraging not relevant (left to the model, not the guard).",
+   "scenario_index": 0,
+   "history": [
+    {
+     "teacher": "האם ריבוע הוא מלבן?",
+     "students": [
+      {
+       "name": "רועי",
+       "message": "לא, ריבוע וזה מלבן זה שתי צורות שונות."
+      }
+     ]
+    },
+    {
+     "teacher": "מה ההגדרה של מלבן? בדקו אם ריבוע מקיים אותה.",
+     "students": [
+      {
+       "name": "רועי",
+       "message": "מלבן זה מרובע שכל הזוויות שלו ישרות. גם בריבוע כל הזוויות ישרות, אז ריבוע הוא כן מלבן."
+      },
+      {
+       "name": "נועה",
+       "message": "כן, ריבוע הוא מלבן מיוחד."
+      }
+     ]
+    }
+   ],
+   "teacher": "וואו, איזה יופי של חשיבה! אני ממש גאה בכם על ההתמדה.",
+   "expect": {
+    "p5": "not_relevant"
+   }
+  },
+  {
+   "id": "F-D2-PRINCIPLE-NO-APPLY",
+   "group": "D2",
+   "intent": "After resolution the teacher states a general principle beyond this case without applying it: leveraging 1.",
+   "scenario_index": 0,
+   "history": [
+    {
+     "teacher": "האם ריבוע הוא מלבן?",
+     "students": [
+      {
+       "name": "דנה",
+       "message": "לא, ריבוע וזה מלבן זה שתי צורות שונות."
+      }
+     ]
+    },
+    {
+     "teacher": "מה ההגדרה של מלבן? בדקו אם ריבוע מקיים אותה.",
+     "students": [
+      {
+       "name": "דנה",
+       "message": "מלבן זה מרובע שכל הזוויות שלו ישרות. גם בריבוע כל הזוויות ישרות, אז ריבוע הוא כן מלבן."
+      },
+      {
+       "name": "תמר",
+       "message": "כן, ריבוע הוא מלבן מיוחד."
+      }
+     ]
+    }
+   ],
+   "teacher": "נכון. ומזה אפשר ללמוד משהו כללי: כדי לדעת לאיזו משפחה צורה שייכת, תמיד בודקים אם היא מקיימת את ההגדרה, ולא איך היא נראית.",
+   "expect": {
+    "p5": {
+     "score": 1
+    }
+   }
+  }
+ ]
+}

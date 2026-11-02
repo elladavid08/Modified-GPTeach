@@ -7,6 +7,8 @@
 // demonstrated_skills and missed_opportunities are emptied, so every row's text is the row's own. Everything else,
 // including should_provide_feedback (the Stage-1 decision), is copied. Stage-1 lines without a Stage-2 result
 // (not shown, or Stage 2 failed twice and the display falls back to Stage 1) are copied unchanged.
+// Final-candidate output (apply_final.mjs) marked `suppressed` (no displayable row left) gets should_provide_feedback
+// false: the final policy shows no feedback on that turn.
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 
@@ -18,13 +20,14 @@ const SKILL_IDS = ['error-identification', 'error-characterization', 'diagnostic
 const s2 = new Map();
 for (const l of readFileSync(s2Path, 'utf8').trim().split('\n')) {
   const r = JSON.parse(l);
-  if (r.src === tag && r.rep === rep && r.status === 'stage2') s2.set(r.base, r.rows);
+  if (r.src === tag && r.rep === rep && r.status === 'stage2') s2.set(r.base, r);
 }
 const out = [];
 let replaced = 0;
 for (const l of readFileSync(s1Path, 'utf8').trim().split('\n')) {
   const x = JSON.parse(l);
-  const rows = x.ok && s2.get(x.conversation_id ? `${x.conversation_id}#${x.turn}` : `${x.id}#${x.rep}`);
+  const rec = x.ok && s2.get(x.conversation_id ? `${x.conversation_id}#${x.turn}` : `${x.id}#${x.rep}`);
+  const rows = rec && rec.rows;
   if (rows) {
     const byId = Object.fromEntries(rows.map((r) => [r.skillId, r]));
     const { _x12ctx, ...a } = x.analysis;
@@ -35,6 +38,7 @@ for (const l of readFileSync(s1Path, 'utf8').trim().split('\n')) {
         : { skill_id: id, is_relevant: false })),
       demonstrated_skills: [],
       missed_opportunities: [],
+      ...(rec.suppressed ? { should_provide_feedback: false, _stage2_suppressed: true } : {}),
     };
     replaced++;
   } else if (x.analysis) {
