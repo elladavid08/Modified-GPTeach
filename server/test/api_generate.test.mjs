@@ -120,7 +120,7 @@ test('telemetry: a successful call reports agent, model, latency, finish reason 
   const { meta } = res.body;
   assert.deepEqual(Object.keys(meta).sort(), SUCCESS_META_KEYS);
   assert.equal(meta.agent, 'student');
-  assert.equal(meta.model, 'gemini-3.5-flash-lite'); // 1.4.0: the student agent runs on 3.5 Flash-Lite
+  assert.equal(meta.model, 'gemini-3.5-flash'); // 1.6.1: the student agent runs on 3.5 Flash (1.4.0–1.6.0: 3.5 Flash-Lite)
   assert.equal(meta.finishReason, 'STOP');
   assert.equal(meta.attempts, 1);
   assert.ok(Number.isInteger(meta.latencyMs) && meta.latencyMs >= 35, String(meta.latencyMs));
@@ -285,7 +285,7 @@ test('C9 / 1.4.0: token limit unchanged; the student model is 3.5 Flash-Lite wit
   assert.equal(generationConfig.topP, undefined);
   // Native thinking stays effectively off: the lowest level, set explicitly (3.x models cannot disable it)
   assert.deepEqual(generationConfig.thinkingConfig, { thinkingLevel: 'MINIMAL' });
-  assert.deepEqual(srv.fakeModel.callModels, ['gemini-3.5-flash-lite']);
+  assert.deepEqual(srv.fakeModel.callModels, ['gemini-3.5-flash']);
   assert.ok(srv.fakeModel.modelParams.every((p) => !p.generationConfig?.thinkingConfig));
 });
 

@@ -1,4 +1,4 @@
-# Simulator version history (1.0.0 → 1.6.0)
+# Simulator version history (1.0.0 → 1.6.1)
 
 **Purpose:** one consolidated record of how the teaching simulator changed between its first versioned release and the current released baseline, **1.5.0**, written so that the iterations can later be described in a paper.
 - It records what changed in each version, why it changed, and how the behaviour of the system changed.
@@ -8,6 +8,7 @@
 **Updated:**
 - 2026-10-28, to add **1.5.1**, the first post-1.5.0 iteration (a development version, not yet merged or deployed; §2, §6).
 - 2026-11-02, to add **1.6.0**, the two-stage PCK feedback (A1i; `PCK_STAGE2`, on by default; a development version, not yet merged or deployed).
+- 2026-11-02, to add **1.6.1**, the student model `gemini-3.5-flash` (a development version, not yet merged or deployed).
 
 **Sources (the source of truth, in this order):**
 1. `src/config/version.js`: the `SYSTEM_VERSION` constant and its changelog, read on `main` at `1ce6b21`.
@@ -58,6 +59,7 @@
 | **1.5.0** | 2026-10-14 | Misconception carrier; return before finishing (single exit); drawing Undo and colours; transparent questionnaire images | **production release** (merged to `main` as `1ce6b21`) |
 | 1.5.1 | 2026-10-28 | **First post-1.5.0 iteration:** PCK feedback text consistency (one row-text rule for every view and the summary input; no empty rows; one identical re-ask) | development (`feature/post-1.5-educational-feedback`; not merged or deployed) |
 | 1.6.0 | 2026-11-02 | **Two-stage PCK feedback (A1i)**, on by default (`PCK_STAGE2=off` restores 1.5.1): an independent Stage 2 decides the skill rows, scores, text and the students' PCK input; no feedback when no row remains; fallback to 1.5.1 | development (`feature/post-1.5-educational-feedback`; not merged or deployed) |
+| 1.6.1 | 2026-11-02 | **Student model** `gemini-3.5-flash-lite` → `gemini-3.5-flash` (model only; same settings, prompt and PCK) | development (`feature/post-1.5-educational-feedback`; not merged or deployed) |
 
 **About `1.3.0-gemini3`:**
 - It was **not** a step of the post-pilot development line. It was the pilot code (1.3.0) with only the model migration. It was made because `gemini-2.5-flash-lite` retires on Vertex AI on 2026-10-20, and it was merged to `main` (`7f7fb25`, merge `d7fbe55`).
@@ -383,6 +385,56 @@ The second post-1.5.0 iteration, from the educational team's feedback on 1.5.0 a
     - students +2.1 s at p50 on shown turns.
   - None of this is a fresh blind validation. The next human validation is the educational team's end-to-end review.
 
+### 1.6.1 (2026-11-02): student model `gemini-3.5-flash` [MOD] [STU]
+
+A model-only release on top of 1.6.0.
+- **Evidence for the switch:**
+  - the post-1.5.0 student bakeoff (`post_1.5_feedback_investigation.md` §D: better Hebrew, slightly better pacing, no Mode B regression);
+  - `student_model_pacing_2x2_experiment.md` (fewer carrier jumps, no garbled replies).
+- **Change:** `server/model_config.js` `STUDENT_MODEL_ID` is `gemini-3.5-flash` (1.4.0–1.6.0: `gemini-3.5-flash-lite`).
+  - **Settings unchanged:** MINIMAL thinking, 512 output tokens, the response schema.
+  - **Reported** by `/api/health` (`models.student`) and the startup log.
+  - **Tests:** the server tests pin the configuration constants, the routing and the telemetry model.
+- **Unchanged:**
+  - the student prompt, personas, misconception carrier and pacing;
+  - PCK Stage 1, Stage 2 and the A1i student contract;
+  - `PCK_STAGE2` (on by default);
+  - the PCK / summary / completion / test model (`gemini-3.1-flash-lite`).
+- **Regression check:**
+  - **Setup:** 1.6.0 (the committed code, in a temporary worktree) vs 1.6.1, both with Stage 2 on by default, run concurrently on the same casts with the existing benches and scripts. The evaluation design is the earlier bakeoff's.
+  - **Outage:** a first attempt was voided by a network outage (Vertex "exception posting request to model" on every call in both arms after 19:50, both models alike) and rerun in full. Those runs are kept locally under an `outage-` prefix.
+
+  | measure | 1.6.0 (3.5 Flash-Lite) | **1.6.1 (3.5 Flash)** |
+  |---|---:|---:|
+  | progression bench (36 conversations): carrier voices the misconception (T1–T5) | 36 | 36 |
+  | — carrier drops it before teaching | 1 | 2 |
+  | — carrier confident full conclusion right after the minimal hint | 3 | **0** |
+  | — two-step arc | 21 | 21 |
+  | — peer confident conclusion right after the hint (T6) / at T6–T7 | 12 / 15 | **6 / 8** |
+  | — carrier correct at the check (T8) | 10 | 17 |
+  | — carrier justified by the end / still holds it at the end | 36 / 1 | 34 / 3 |
+  | garbled replies (server counter): progression / Mode B | 7 / 12 | **0 / 0** |
+  | teacher-attribution candidates (automatic): progression / Mode B | 138 / 55 | **12 / 14** |
+  | Mode B (24 conversations) review items: teacher attribution / semantic repetition / contamination | 70 / 4 / 22 | 27 / 3 / 18 |
+  | Mode B exact duplicates, prompt-example copies, leaks, invalid speakers | 0 | 0 |
+  | Mode B repeated question unanswered | 0 | 3 (all justified: a specific follow-up the scripted teacher had not answered) |
+  | Hebrew probe (6 contexts × 12): clear errors (manual review of every flagged reply) / garble | 1 (a "שתי זוגות" agreement error) / 0 | **0 / 0** |
+  | unknown-speaker replies (progression) | 2 | 0 |
+  | student / PCK failures; quota (429) errors | 0 / 0; 0 | 0 / 0; 0 |
+  | student call p50 / p90: progression, Mode B, probe | 1.32 / 1.57, 1.19 / 1.54, 1.44 / 4.04 s | 1.79 / 2.25, 1.72 / 2.15, 1.91 / 4.40 s |
+  | students visible on shown turns p50 / p90 (PCK + Stage 2 + students) | 6.4 / 9.0 s | 6.9 / 9.5 s |
+  | replies per turn / mean length | 2.31 / 100 | 2.10 / 121 |
+
+  - **Reading:**
+    - The results agree with the earlier bakeoff: Flash removes the garbled Hebrew and the carrier's confident jumps, invents far fewer teacher attributions, and gives longer replies.
+    - Peer jumps fall more than in the bakeoff.
+    - "Justified by the end" (34 vs 36) and "still holds at the end" (3 vs 1) are within the ±4 noise band of 36 conversations; the 2×2 experiment had 4 of 36 for Flash.
+    - Cost: the student call takes about +0.5 s at p50, and the student is visible about 0.5 s later.
+    - Not repeated: the blinded 40-reply manual Hebrew review of the bakeoff.
+    - The bench manifests record `systemVersion` 1.6.0 for both arms, because the bench reads the client constant before the bump. The server's `/api/health` was checked to report the two student models.
+- **Data:** conversations carry `systemVersion: "1.6.1"`; the telemetry `model` field of student entries is `gemini-3.5-flash`.
+- **Validation:** client tests 469/469, server tests 407/407, harness tests 82/82, production build OK.
+
 ---
 
 ## 3. Post-pilot work grouped by research purpose
@@ -502,7 +554,8 @@ In short, B200 entered the simulator as evaluation ground truth and as rubric an
   - Their issue list, **"טבלת בעיות סימולטור 22.10.docx"**, therefore describes issues observed on 1.5.0. It is kept outside the repository.
 - **The first change based on that feedback is 1.5.1** (2026-10-28, PCK feedback text consistency, §2).
 - **The second is 1.6.0** (2026-11-02, two-stage PCK feedback, on by default, `PCK_STAGE2`, §2).
-- Both are development versions on `feature/post-1.5-educational-feedback` and are not merged or deployed. Until one is deployed, production data is 1.5.0.
+- **The third is 1.6.1** (2026-11-02, the student model `gemini-3.5-flash`, §2).
+- All are development versions on `feature/post-1.5-educational-feedback` and are not merged or deployed. Until one is deployed, production data is 1.5.0.
 - The next investigation starts from 1.5.0. Any change it produces must be released under a new `SYSTEM_VERSION`, so data from the team's evaluation stays distinguishable from later versions.
 
 Branch state when this document was written:

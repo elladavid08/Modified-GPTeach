@@ -13,10 +13,22 @@
  * - Z: Patch version (bug fixes, minor improvements)
  */
 
-export const SYSTEM_VERSION = "1.6.0";
+export const SYSTEM_VERSION = "1.6.1";
 
 /**
  * Version History:
+ *
+ * 1.6.1 (2026-11-02):
+ * - Student model: gemini-3.5-flash-lite -> gemini-3.5-flash (server/model_config.js STUDENT_MODEL_ID;
+ *   reported by /api/health and the startup log). Same settings: MINIMAL thinking, 512 output
+ *   tokens, the unchanged response schema. Evidence: post_1.5_feedback_investigation.md §D and
+ *   student_model_pacing_2x2_experiment.md; regression check against 1.6.0 on the same benches
+ *   (simulator_version_history.md): no garbled replies (1.6.0: 19), far fewer invented teacher
+ *   attributions, no carrier confident jumps after the minimal hint (1.6.0: 3), fewer peer jumps,
+ *   0 failures and 0 quota errors; student call +0.5 s at p50.
+ * - Unchanged: the student prompt, personas, misconception carrier, pacing, PCK Stage 1, Stage 2
+ *   and the A1i student contract, PCK_STAGE2 (on by default) and the PCK / summary model
+ *   (gemini-3.1-flash-lite).
  *
  * 1.6.0 (2026-11-02):
  * - Two-stage PCK feedback (A1i), ON by default (server flag PCK_STAGE2). Research:
