@@ -67,6 +67,15 @@
 //   The signal (none / partial / strong) is written into the analysis the students see by
 //   pck_eval/x12/stage2_dep.cjs adaptImpact (values the student prompt already defines). Stage 1 is unchanged.
 //
+// 1.4.0 (2026-11-02, A1i student data contract, bench-only): two arms on the FROZEN final Stage-2 candidate
+// (pck_eval/x12/FINAL_FREEZE.md; service route /stage2_final), BEFORE the students, with the final policy
+// (final_pipeline.cjs: leveraging guard; no row left -> no feedback, students steered by the unchanged Stage-1 analysis;
+// Stage 2 failed -> Stage-1 steering). They differ ONLY in what the students receive on a turn with Stage-2 rows:
+//     sequential_final_adapter   the previously evaluated A1i adapter (stage2_dep.cjs adaptImpact: four fields)
+//     sequential_final_contract  the §1a contract (pck_eval/x12/student_view.cjs studentPckView: every current-turn
+//                                quality statement from the Stage-2 rows / signal, no Stage-1 assessment text)
+//   Both record content-free prompt-consistency flags (student_view.cjs auditStudentInput) per Stage-2 turn.
+//
 // Environment: OPP_CASTS (random|designed), OPP_STUDENT (current|carrier|production|pacing), OPP_PLAN (standard|progression), OPP_SCENARIOS ("1,2"), OPP_REPEATS
 // (default 6 random / 2 per designed cast), OPP_RUN_ID, HARNESS_API_URL (local server, default http://127.0.0.1:3101).
 // Output: results/<run id>/conversations/*.json (git-ignored). Run only this file:
@@ -97,11 +106,13 @@ const stage2Post = async (route, body) => {
 };
 const runStage2 = (ctx) => stage2Post('/stage2', { ctx });
 const DEP = require('../../pck_eval/x12/stage2_dep.cjs'); // eslint-disable-line global-require
+const FINAL = require('../../pck_eval/x12/final_pipeline.cjs'); // eslint-disable-line global-require
+const STUDENT = require('../../pck_eval/x12/student_view.cjs'); // eslint-disable-line global-require
 
 jest.setTimeout(6 * 60 * 60 * 1000);
 const HARNESS = path.resolve(__dirname, '..');
 const REPO = path.resolve(HARNESS, '../../..');
-export const OPPORTUNITY_VERSION = '1.3.0';
+export const OPPORTUNITY_VERSION = '1.4.0';
 
 /** T2: a neutral concept question per scenario (does not name or hint the misconception). */
 const OPPORTUNITY_NEUTRAL = {
@@ -334,10 +345,20 @@ it('opportunity', async () => {
           } else if (arch === 'dep_parallel' || arch === 'dep_parallel_cal') {
             x12b.signal = arch === 'dep_parallel_cal' ? DEP.signalFromStage1Calibrated(s1Only) : null;
             stage2P = stage2Post('/dep_full', { ctx: impact._x12ctx, s1: s1Only });
+          } else if (arch === 'sequential_final_adapter' || arch === 'sequential_final_contract') {
+            const s2 = await stage2Post('/stage2_final', { ctx: impact._x12ctx });
+            const f = FINAL.finalizeTurn({ teacherMessage: text, stage1: impact, stage2: s2.status === 'stage2' ? { status: 'stage2', rows: s2.rows } : { status: 'fallback_stage1' }, stage1Rows: [] });
+            x12b.stage2 = s2;
+            x12b.final = { shown: f.shown, suppressed: f.suppressed, guardDropped: f.guardDropped, source: s2.status === 'stage2' ? 'stage2' : 'fallback_stage1', rows: f.rows };
+            x12b.signal = f.signal; // null when suppressed or Stage 2 failed: the students keep the Stage-1 analysis
+            if (f.signal && arch === 'sequential_final_contract') x12b.contractView = STUDENT.studentPckView(impact, f.rows, f.signal);
           } else throw new Error(`unknown OPP_ARCH ${arch}`);
           x12b.preStudentMs = Date.now() - t0;
           x12b.stage1Signal = DEP.signalFromStage1(s1Only);
-          if (x12b.signal) studentImpact = DEP.adaptImpact(impact, x12b.signal);
+          if (x12b.contractView) studentImpact = x12b.contractView;
+          else if (x12b.signal) studentImpact = DEP.adaptImpact(impact, x12b.signal);
+          delete x12b.contractView;
+          if (x12b.final && x12b.signal) x12b.audit = STUDENT.auditStudentInput(studentImpact, x12b.final.rows, x12b.signal);
           x12b.studentSteer = { quality: studentImpact.pedagogical_quality, understanding: studentImpact.predicted_student_state && studentImpact.predicted_student_state.understanding_level,
             addressed: studentImpact.addressed_misconception, hints: ((studentImpact.predicted_student_state && studentImpact.predicted_student_state.student_reaction_hints) || []).map((h) => `${h.student}:${h.reaction_type}`) };
         }

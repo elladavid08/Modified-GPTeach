@@ -1,6 +1,7 @@
 // X12: local-only research service exposing the frozen Stage-2 call (stage2_call.cjs) for live benches that run under
 // the CRA-era Jest, which cannot load the Vertex SDK. POST /stage2 {ctx} -> {status, rows, attempts, ms} (independent, frozen).
 // X12b dependent variants (dep_call.cjs): POST /dep_full {ctx, s1}, /fast {ctx, s1}, /fast_indep {ctx}, /text {ctx, rows}.
+// X12 final candidate (stage2_final_call.cjs, rubric_final.FROZEN.json): POST /stage2_final {ctx} -> {status, rows, attempts, ms}.
 // X12c streamed single call (stream_call.cjs): POST /stream_start {ctx} answers as soon as the scores are complete
 // ({id, scoreRows, tScores} or the finished result when no scores came); POST /stream_result {id} answers when the call ends.
 // Listens on 127.0.0.1 only. Usage: node stage2_service.mjs [port, default 3120]
@@ -8,6 +9,7 @@ import http from 'node:http';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { runStage2 } = require('./stage2_call.cjs');
+const { runStage2Final } = require('./stage2_final_call.cjs');
 const DEP = require('./dep_call.cjs');
 const { runStream } = require('./stream_call.cjs');
 const { runStreamV3 } = require('./stream_v3_call.cjs');
@@ -42,6 +44,7 @@ async function streamResult(b) {
 }
 const ROUTES = {
   '/stage2': (b) => runStage2(b.ctx || null),
+  '/stage2_final': (b) => runStage2Final(b.ctx || null),
   '/dep_full': (b) => DEP.runFull(b.ctx, b.s1),
   '/fast': (b) => DEP.runScores(b.ctx, b.s1),
   '/fast_indep': (b) => DEP.runScoresIndep(b.ctx),

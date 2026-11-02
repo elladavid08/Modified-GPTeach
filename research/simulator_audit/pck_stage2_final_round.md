@@ -126,4 +126,7 @@ Final failures:
 7. **Feedback suppressed on 1.7–2.8% of the turns Stage 1 shows.** All of them have no row left: mostly a Leveraging row dropped by the guard, a few with no relevant skill.
 8. **Not addressed:**
    - text-quality items (masculine forms, occasional harsh tone, third person);
-   - the student prompt still prints the Stage-1 demonstrated / missed lists. This is the configuration A1i was evaluated with, and those lists can disagree with the shown rows.
+   - the student prompt still prints the Stage-1 demonstrated / missed lists, `how_addressed` and the hint reasons. This is the configuration A1i was evaluated with, and those lists can disagree with the shown rows.
+    - On 47% of shown turn-passes the prompt would say neutral / not addressed while listing only demonstrated skills.
+    - On 18.5% a listed demonstrated skill is scored 0 by Stage 2.
+    - Resolved by the student data contract (`pck_a1i_implementation_plan.md` §1a). It passed a targeted live rerun (§5, 2026-11-02) with 0 contradictions and no worse student behaviour, and is now the production target.
