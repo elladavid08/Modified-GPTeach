@@ -8,6 +8,7 @@ import { ConversationLog } from "../services/conversationLogger";
 import { saveConversation, saveOrGetStudentPersona } from "../services/firestoreService";
 import { validateConversationDoc, SESSION_ID_RE } from "../testUtils/conversationContract";
 import personas from "../config/students/personas";
+import { selectSessionCast } from "../services/studentCast";
 import scenarios from "../config/scenarios/geometry_scenarios";
 
 jest.mock("../services/firestoreService", () => ({
@@ -60,6 +61,14 @@ describe("ConversationLog", () => {
 		const log = new ConversationLog(scenario, students, "u1", profile, "9.9.9");
 		await log.endSession();
 		expect(saveConversation).not.toHaveBeenCalled();
+	});
+
+	it("records the session's actual cast, any 3 of the 9 personas, in cast order (B5)", async () => {
+		const cast = selectSessionCast(Object.values(personas.students), 3, () => 0.99); // not the first three
+		const log = new ConversationLog(scenario, cast, "u1", profile, "9.9.9");
+		await log.addTurn("שלום", [{ name: cast[0].name, text: "היי" }], null);
+		expect(lastSavedDoc().studentRefs).toEqual(cast.map((s) => `v${s.version}_${s.id}`));
+		expect(lastSavedDoc().studentRefs).not.toEqual(students.map((s) => `v${s.version}_${s.id}`));
 	});
 
 	it("records the cast as persona refs and stamps systemVersion on first turn", async () => {

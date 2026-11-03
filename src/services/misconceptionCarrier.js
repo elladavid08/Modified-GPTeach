@@ -7,8 +7,8 @@
  * Validated in research/simulator_audit/student_misconception_carrier_experiment.md (prototype v1).
  *
  * Rule "first-non-low-v1": the first cast member whose participation baseline is not "low", else the first.
- * The cast is already a uniform random draw (AppContext), so the carrier stays random while avoiding a student who
- * rarely speaks in class-addressed exchanges.
+ * The cast is already a uniform random draw in random order (studentCast.js, B5), so the carrier stays random while
+ * avoiding a student who rarely speaks in class-addressed exchanges.
  */
 export const MISCONCEPTION_CARRIER_RULE = "first-non-low-v1";
 

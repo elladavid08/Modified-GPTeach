@@ -16,6 +16,7 @@ import { getConversationsByUser } from "../services/firestoreService";
 import { getAttemptedScenarioTexts } from "../services/attemptedScenarios";
 import { ConversationLog } from "../services/conversationLogger";
 import { selectMisconceptionCarrier, withMisconceptionCarrier } from "../services/misconceptionCarrier";
+import { selectSessionCast } from "../services/studentCast";
 import { buildFailedAttempt, FAILURE_MESSAGES_HE } from "../services/turnDiagnostics";
 import { buildCallTelemetry } from "../services/callTelemetry";
 import { buildPckDisplayRows, countRowsWithoutText, countRowsMissingPositive, isEmptyPckRow } from "../services/pckDisplayRows";
@@ -125,7 +126,12 @@ const ChatSession = ({ onReturnToSelection }) => {
 		};
 	}, [currentUserId, scenarioList]);
 	
-	const students = appData.students ? appData.students.slice(0, Constants.NUM_STUDENTS) : [];
+	// B5: this conversation's own cast, drawn once from all personas and fixed for the session (services/studentCast.js)
+	const castRef = useRef(null);
+	if (!castRef.current && appData.students) {
+		castRef.current = selectSessionCast(appData.students, Constants.NUM_STUDENTS);
+	}
+	const students = castRef.current || [];
 	
 	// Initialize conversation logger when scenario and students are ready
 	useEffect(() => {

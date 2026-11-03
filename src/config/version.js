@@ -26,6 +26,13 @@ export const SYSTEM_VERSION = "1.6.1";
  *   (simulator_version_history.md): no garbled replies (1.6.0: 19), far fewer invented teacher
  *   attributions, no carrier confident jumps after the minimal hint (1.6.0: 3), fewer peer jumps,
  *   0 failures and 0 quota errors; student call +0.5 s at p50.
+ * - Student cast (B5, fix added 2026-11-03 before release): each new conversation draws a fresh
+ *   random cast of 3 of the 9 personas (src/services/studentCast.js), also after returning to the
+ *   scenario selection; the cast stays fixed for that conversation and is logged with it
+ *   (studentRefs, cast order). Until now the cast was the first 3 of a list shuffled once per page
+ *   load, so every conversation in a tab got the same three students. The misconception carrier
+ *   rule is unchanged and still picks from the (random-order) cast. The legacy /code and
+ *   /sequence pages are not changed.
  * - Unchanged: the student prompt, personas, misconception carrier, pacing, PCK Stage 1, Stage 2
  *   and the A1i student contract, PCK_STAGE2 (on by default) and the PCK / summary model
  *   (gemini-3.1-flash-lite).

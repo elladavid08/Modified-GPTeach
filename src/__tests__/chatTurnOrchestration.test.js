@@ -3,7 +3,8 @@
 //   B7  a no-feedback decision shows no feedback; A4 (DECIDED) it is logged as pckFeedback: null;
 //   A2  displayed feedback is logged with its fields
 //   B9  previous feedback is cleared as soon as the teacher sends a new message
-//   B5/A6 (DECIDED) the session's cast is fixed across turns and recorded; SYSTEM_VERSION stamped
+//   B5/A6 (DECIDED) the session's cast is fixed across turns and recorded; SYSTEM_VERSION stamped; every
+//       conversation draws its own cast from all personas (also after returning to the selection screen)
 //   #8 (1.4.4) the selection screen marks scenarios this teacher already attempted (own saved
 //       conversations only, via getConversationsByUser); a failed or slow load changes nothing else
 //   1.4.4 after "סיים שיחה" a "חזרה לבחירת תרחיש" button returns to the selection screen (never
@@ -36,8 +37,7 @@
 //   B22 (DECIDED) an image-only submit (opt-in ticked + a real drawing, no text) is a valid turn.
 //       Until the PCK agent is multimodal, image-only turns skip the PCK call silently (E1).
 //       Summary handling of drawings is NOT asserted (B17, future design).
-// Also NOT asserted (REVIEW, undecided): what happens to students when the PCK call fails (B2),
-// how the cast is selected beyond "3 distinct personas" (B5 mechanism), the exact sidebar
+// Also NOT asserted (REVIEW, undecided): what happens to students when the PCK call fails (B2), the exact sidebar
 // placeholder text (B10), and whether the drawing opt-in resets after a send (B15).
 import React from "react";
 import { Chat } from "../pages/Chat";
@@ -52,6 +52,7 @@ import { SYSTEM_VERSION } from "../config/version";
 import { FAILURE_MESSAGES_HE } from "../services/turnDiagnostics";
 import personas from "../config/students/personas";
 import { selectMisconceptionCarrier } from "../services/misconceptionCarrier";
+import { selectSessionCast } from "../services/studentCast";
 import scenarios from "../config/scenarios/geometry_scenarios";
 import { render, flush, click, typeInto, submit, findButtonByText, deferred } from "../testUtils/dom";
 
@@ -160,6 +161,8 @@ const sidebarText = () => view.container.textContent;
 const preLessonBriefing = () => view.container.querySelector('[data-testid="teacher-briefing-prelesson"]');
 const briefingPanel = () => view.container.querySelector('[data-testid="teacher-briefing-panel"]');
 const logger = () => ConversationLog.instances[ConversationLog.instances.length - 1];
+// The stub replies as the first student of the session's cast (B5: a random draw per conversation).
+const castFirstName = () => logger().args[1][0].name;
 
 beforeEach(() => {
 	jest.clearAllMocks();
@@ -309,7 +312,7 @@ it("shows feedback and logs it with its fields when should_provide_feedback is t
 	expect(logger().addTurn).toHaveBeenCalledTimes(1);
 	const [teacherText, studentsLogged, fb, image] = logger().addTurn.mock.calls[0];
 	expect(teacherText).toBe("מה ההגדרה של מלבן?");
-	expect(studentsLogged).toEqual([{ name: allStudents[0].name, text: "STUDENT-REPLY" }]);
+	expect(studentsLogged).toEqual([{ name: castFirstName(), text: "STUDENT-REPLY" }]);
 	expect(fb).toEqual(
 		expect.objectContaining({
 			skills_assessment: FEEDBACK_ANALYSIS.skills_assessment,
@@ -362,7 +365,7 @@ it("the student agent sees the previous student replies on the next turn", async
 		["assistant", "STUDENT-REPLY"],
 		["user", "שאלה שנייה"],
 	]);
-	expect(studentCalls[1].messages[1].agent).toBe(allStudents[0].name);
+	expect(studentCalls[1].messages[1].agent).toBe(castFirstName());
 });
 
 it("attaches an included drawing to the teacher message and logs it with the turn", async () => {
@@ -528,10 +531,10 @@ describe("turn lock (C2/C3)", () => {
 		const calls = logger().addTurn.mock.calls;
 		expect(calls).toHaveLength(2);
 		expect(calls[0][0]).toBe("TURN-A");
-		expect(calls[0][1]).toEqual([{ name: allStudents[0].name, text: "STUDENT-REPLY" }]);
+		expect(calls[0][1]).toEqual([{ name: castFirstName(), text: "STUDENT-REPLY" }]);
 		expect(calls[0][2].feedback_message).toBe("FEEDBACK-MESSAGE");
 		expect(calls[1][0]).toBe("TURN-B");
-		expect(calls[1][1]).toEqual([{ name: allStudents[0].name, text: "REPLY-B" }]);
+		expect(calls[1][1]).toEqual([{ name: castFirstName(), text: "REPLY-B" }]);
 		expect(calls[1][2].feedback_message).toBe("MESSAGE-B");
 	});
 
@@ -670,7 +673,7 @@ describe("empty teacher messages (C4)", () => {
 		expect(logger().addTurn).toHaveBeenCalledTimes(1);
 		const [loggedText, loggedStudents, , loggedImage] = logger().addTurn.mock.calls[0];
 		expect(loggedText).toBe("");
-		expect(loggedStudents).toEqual([{ name: allStudents[0].name, text: "STUDENT-REPLY" }]);
+		expect(loggedStudents).toEqual([{ name: castFirstName(), text: "STUDENT-REPLY" }]);
 		expect(loggedImage).toBe("iVBORimageonly");
 		// The conversation has started: the pre-lesson card is replaced by the collapsible panel
 		expect(preLessonBriefing()).toBeNull();
@@ -836,7 +839,7 @@ describe("PCK handling by turn type (B22 / E1)", () => {
 
 		expect(logger().addTurn).toHaveBeenCalledTimes(1);
 		const [, loggedStudents, loggedFeedback, loggedImage] = logger().addTurn.mock.calls[0];
-		expect(loggedStudents).toEqual([{ name: allStudents[0].name, text: "STUDENT-REPLY" }]);
+		expect(loggedStudents).toEqual([{ name: castFirstName(), text: "STUDENT-REPLY" }]);
 		expect(loggedFeedback).toBeNull();
 		expect(loggedImage).toBe("iVBORimageonly");
 
@@ -1668,6 +1671,38 @@ describe("return to scenario selection (1.4.4)", () => {
 		expect(logger().addTurn).toHaveBeenCalledTimes(1);
 		expect(logger().addTurn.mock.calls[0][0]).toBe("הודעה חדשה");
 		expect(finished.addTurn).toHaveBeenCalledTimes(1);
+	});
+
+	it("draws a new cast from all 9 personas for every conversation; each cast stays fixed and is recorded (B5)", async () => {
+		const random = jest.spyOn(Math, "random").mockReturnValue(0.99);
+		try {
+			await startLesson();
+			const firstCast = selectSessionCast(allStudents, 3, () => 0.99);
+			expect(firstCast).toContain(allStudents[8]); // not the first three of the list
+			expect(logger().args[1]).toEqual(firstCast);
+			expect(view.container.textContent).toContain(firstCast.map((s) => s.name).join(", "));
+			await sendTeacherMessage("שאלה ראשונה");
+			random.mockReturnValue(0.5); // later randomness does not change the running conversation's cast
+			await sendTeacherMessage("שאלה שנייה");
+			expect(studentCalls.map((c) => c.students)).toEqual([firstCast, firstCast]);
+			await finishLesson();
+			const finished = logger();
+
+			random.mockReturnValue(0); // the next conversation draws again
+			click(returnButton());
+			await flush();
+			await chooseScenario(B);
+			const secondCast = selectSessionCast(allStudents, 3, () => 0);
+			expect(secondCast).not.toEqual(firstCast);
+			expect(ConversationLog).toHaveBeenCalledTimes(2);
+			expect(logger()).not.toBe(finished);
+			expect(logger().args[1]).toEqual(secondCast);
+			expect(finished.args[1]).toEqual(firstCast); // the finished conversation keeps its own record
+			await sendTeacherMessage("הודעה חדשה");
+			expect(studentCalls[2].students).toEqual(secondCast);
+		} finally {
+			random.mockRestore();
+		}
 	});
 
 	it("is disabled and ignored while a turn sent after finishing is still pending", async () => {
