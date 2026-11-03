@@ -9,6 +9,7 @@
 - 2026-10-28, to add **1.5.1**, the first post-1.5.0 iteration (a development version, not yet merged or deployed; §2, §6).
 - 2026-11-02, to add **1.6.0**, the two-stage PCK feedback (A1i; `PCK_STAGE2`, on by default; a development version, not yet merged or deployed).
 - 2026-11-02, to add **1.6.1**, the student model `gemini-3.5-flash` (a development version, not yet merged or deployed).
+- 2026-11-03, to add the per-conversation student cast fix (B5) to **1.6.1**, before its release (no version bump).
 
 **Sources (the source of truth, in this order):**
 1. `src/config/version.js`: the `SYSTEM_VERSION` constant and its changelog, read on `main` at `1ce6b21`.
@@ -59,7 +60,7 @@
 | **1.5.0** | 2026-10-14 | Misconception carrier; return before finishing (single exit); drawing Undo and colours; transparent questionnaire images | **production release** (merged to `main` as `1ce6b21`) |
 | 1.5.1 | 2026-10-28 | **First post-1.5.0 iteration:** PCK feedback text consistency (one row-text rule for every view and the summary input; no empty rows; one identical re-ask) | development (`feature/post-1.5-educational-feedback`; not merged or deployed) |
 | 1.6.0 | 2026-11-02 | **Two-stage PCK feedback (A1i)**, on by default (`PCK_STAGE2=off` restores 1.5.1): an independent Stage 2 decides the skill rows, scores, text and the students' PCK input; no feedback when no row remains; fallback to 1.5.1 | development (`feature/post-1.5-educational-feedback`; not merged or deployed) |
-| 1.6.1 | 2026-11-02 | **Student model** `gemini-3.5-flash-lite` → `gemini-3.5-flash` (model only; same settings, prompt and PCK) | development (`feature/post-1.5-educational-feedback`; not merged or deployed) |
+| 1.6.1 | 2026-11-02 | **Student model** `gemini-3.5-flash-lite` → `gemini-3.5-flash` (model only; same settings, prompt and PCK); **student cast** drawn fresh for every conversation (B5 fix, added 2026-11-03) | development (`feature/post-1.5-educational-feedback`; not merged or deployed) |
 
 **About `1.3.0-gemini3`:**
 - It was **not** a step of the post-pilot development line. It was the pilot code (1.3.0) with only the model migration. It was made because `gemini-2.5-flash-lite` retires on Vertex AI on 2026-10-20, and it was merged to `main` (`7f7fb25`, merge `d7fbe55`).
@@ -385,9 +386,9 @@ The second post-1.5.0 iteration, from the educational team's feedback on 1.5.0 a
     - students +2.1 s at p50 on shown turns.
   - None of this is a fresh blind validation. The next human validation is the educational team's end-to-end review.
 
-### 1.6.1 (2026-11-02): student model `gemini-3.5-flash` [MOD] [STU]
+### 1.6.1 (2026-11-02): student model `gemini-3.5-flash`; per-conversation student cast [MOD] [STU]
 
-A model-only release on top of 1.6.0.
+A model release on top of 1.6.0, plus one student-cast fix added before release (2026-11-03, same version).
 - **Evidence for the switch:**
   - the post-1.5.0 student bakeoff (`post_1.5_feedback_investigation.md` §D: better Hebrew, slightly better pacing, no Mode B regression);
   - `student_model_pacing_2x2_experiment.md` (fewer carrier jumps, no garbled replies).
@@ -432,8 +433,14 @@ A model-only release on top of 1.6.0.
     - Cost: the student call takes about +0.5 s at p50, and the student is visible about 0.5 s later.
     - Not repeated: the blinded 40-reply manual Hebrew review of the bakeoff.
     - The bench manifests record `systemVersion` 1.6.0 for both arms, because the bench reads the client constant before the bump. The server's `/api/health` was checked to report the two student models.
+- **Student cast (B5), fix added 2026-11-03:**
+  - **Before:** `AppContext.js` shuffled the 9 personas once per page load and `Chat.jsx` took the first 3. So every conversation in the same tab, including each new one after "חזרה לבחירת תרחיש" (1.4.4 onward), got the same three students; only a reload drew a new cast. This dates from the original code and is not a 1.6.x regression.
+  - **Now:** every conversation draws its own cast once, when it starts. It is 3 distinct personas, uniformly at random and in random order, from all 9 (`src/services/studentCast.js`). The cast stays fixed for that conversation and is logged with it (`studentRefs`, cast order, at the first logged turn as before).
+  - **Unchanged:** the misconception carrier rule (`first-non-low-v1`), which still picks from the cast; the cast's random order keeps the carrier random. The legacy `/code` (`ChatWithCode.jsx`) and `/sequence/:num` (`StudyScenario.jsx`) pages are not changed. They are not linked from the active UI and do not use PCK or logging.
+  - **Tests:** `studentCast.test.js` (draws from all 9, distinct members, uniform membership and order, all 84 casts occur); `chatTurnOrchestration.test.js` (fixed within a conversation, a new draw for the next conversation, the logged cast is the one the students use); `conversationLogger.test.js` (a cast other than the first three is saved as `studentRefs` in cast order).
+  - **Data:** a 1.6.1 conversation's `studentRefs` is any 3 of the 9 personas. Local test conversations recorded with 1.6.1 before this fix used the per-page-load cast.
 - **Data:** conversations carry `systemVersion: "1.6.1"`; the telemetry `model` field of student entries is `gemini-3.5-flash`.
-- **Validation:** client tests 469/469, server tests 407/407, harness tests 82/82, production build OK.
+- **Validation:** client tests 477/477 (469 + 8 for the cast fix), server tests 407/407, harness tests 82/82, production build OK.
 
 ---
 
@@ -554,7 +561,7 @@ In short, B200 entered the simulator as evaluation ground truth and as rubric an
   - Their issue list, **"טבלת בעיות סימולטור 22.10.docx"**, therefore describes issues observed on 1.5.0. It is kept outside the repository.
 - **The first change based on that feedback is 1.5.1** (2026-10-28, PCK feedback text consistency, §2).
 - **The second is 1.6.0** (2026-11-02, two-stage PCK feedback, on by default, `PCK_STAGE2`, §2).
-- **The third is 1.6.1** (2026-11-02, the student model `gemini-3.5-flash`, §2).
+- **The third is 1.6.1** (2026-11-02, the student model `gemini-3.5-flash`, plus the per-conversation student cast fix, §2).
 - All are development versions on `feature/post-1.5-educational-feedback` and are not merged or deployed. Until one is deployed, production data is 1.5.0.
 - The next investigation starts from 1.5.0. Any change it produces must be released under a new `SYSTEM_VERSION`, so data from the team's evaluation stays distinguishable from later versions.
 
