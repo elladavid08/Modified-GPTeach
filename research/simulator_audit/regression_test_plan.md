@@ -1272,6 +1272,99 @@ The 1.4.4 tests are kept. One was replaced: "not offered before finishing" no lo
 
 **Not implemented (deferred):** partial erasing of shapes, line straightening, Redo.
 
+### 0.35 PCK row text: one rule for every view, no empty rows, one identical re-ask (2026-10-28, version 1.5.1)
+
+**Defect** (`post_1.5_feedback_investigation.md`):
+- **Empty rows:** 96 of 1,077 shown feedbacks had at least one skill row with no text, mostly score-2 rows (about 6%, mostly random: 36 of 47 pairs). The sidebar rendered them as a bare skill name.
+- **Score 0:** the row ignored the matching `missed_opportunities` text.
+- **Summary input:** read the raw fields, not what the teacher saw.
+
+**Change (B28 extended; scores, relevance, the decision, the prompt, the model, B27 and the carrier are unchanged):**
+- **One row-text rule:**
+  - **score 2:** positive evidence;
+  - **score 1:** positive + improvement;
+  - **score 0:** improvement = own `what_could_be_better`, else the single exactly-matching `missed_opportunities` text (new).
+- **Two copies of the rule:** `src/services/pckDisplayRows.js` (client) and `server/pck_row_text.js` (server; the server cannot import from `src`), kept identical by a parity test.
+- **Teacher-facing views** (sidebar, conversation-log viewer, admin screen) never render a row with no text (`dropEmpty`). Shown feedback with no displayable row at all is neither displayed nor logged (measured 0 of 1,077). The **exports** (Excel, admin CSV) keep every scored skill.
+- **`/api/pck-feedback`:** if feedback that will be shown (after B27) has a row with no text, attempt 2 of the existing 2-attempt policy re-asks with the **identical** request, and attempt 1 is the fallback.
+  - No third attempt.
+  - A row that is still empty is accepted and then not displayed.
+  - Score-1 rows that lack only the positive part are **not** re-asked (structural: 0/152 in the data, so a re-ask cannot fix them). They are shown with the improvement and counted.
+- **`/api/pck-summary`:** the moments use the same row text (so non-relevant entries, score-0 `evidence` and score-2 `what_could_be_better` no longer reach the summary input).
+- **Telemetry (A17, additive):**
+  - `pckRowsMissingPositive` (client, shown feedback);
+  - `pckRowTextRetries` (server, 0/1, every PCK entry).
+
+**Tests:**
+- **New:**
+  - `pckRowTextParity.test.js`: every combination of score, own fields and fallback lists, 18,816 cases;
+  - `server/test/api_pck_row_text.test.mjs`, 12 tests:
+    - re-ask once with the identical request;
+    - still empty → accepted;
+    - technical or parse failure on the re-ask → fallback;
+    - parse failure then an empty row → accepted;
+    - hidden or B27-suppressed feedback → no re-ask;
+    - fallback texts count as text;
+    - score-1 without a positive part → no re-ask;
+    - summary input.
+- **Updated:**
+  - `pckDisplayRows.test.js`, `pckSkillsDisplay.test.js` and `pckDisplayConsistency.test.js` (teacher views drop text-less rows, exports keep them);
+  - `chatTurnOrchestration.test.js`: an all-empty shown feedback is not displayed or logged; a score-1 row without a positive part is shown and counted; the re-ask count is logged;
+  - `callTelemetry.test.js`;
+  - two server key-shape expectations (`pckRowTextRetries`).
+- **Mutation check:** with the re-ask disabled, 3 of the 12 server tests fail.
+
+**Results:** 462 frontend and 340 backend tests pass (`npm run test:all`); the harness has 78; the build compiles (pre-existing lint warnings only).
+
+**Not done:** a live run on the real model (expected cost: one extra PCK call on about 9% of shown turns).
+
+### 0.36 Two-stage PCK feedback (A1i), PCK_STAGE2 on by default (2026-11-02, version 1.6.0)
+
+**Change (B32 new; A17 extended):**
+- **Flag on:** an independent Stage 2 (the frozen candidate `x12-final-v5c`) runs before the students on turns Stage 1 shows. Its rows are the display rows and the source of the students' PCK input (the tested student contract).
+- **No row left:** no feedback.
+- **Failure:** the 1.5.1 behaviour exactly.
+- **Flag off:** 1.5.1 exactly.
+- **Activation:**
+  - unset / empty / `on` / `1` / `true` → ON (the default);
+  - `off` / `0` / `false` → OFF;
+  - unrecognised → ON with a warning;
+  - state reported in the startup log and by `/api/health` (`pckStage2Enabled`, `pckStage2Source`).
+- Details: `pck_a1i_implementation_plan.md` §1a, §6a.
+
+**Tests (stubbed model):**
+- **`server/test/pck_stage2_parity.test.mjs`:**
+  - the research reference matches its recorded hashes;
+  - rubric, prompt (byte-identical), schema, validator, context extraction, guard list and decisions, signal, the no-feedback rule and the student view equal the frozen research functions.
+- **`server/test/api_pck_stage2.test.mjs`:**
+  - ON for unset, empty, `on` / `1` / `true` (any case) and unrecognised values; OFF (`off` / `0` / `false`, any case): one call and the 1.5.1 response;
+  - `/api/health` reports the resolved state and source;
+- **`server/test/pck_stage2_flag.test.mjs`:** every value, its source, the warning and the startup line;
+- **`api_model_routing.test.mjs`:** the startup line and the health field;
+- **Pinned off:** the other 1.5.1 endpoint suites run with `PCK_STAGE2=off` (pinned by `test-support/startServer.mjs` unless a test sets it), i.e. they test the explicit-off path;
+  - flag on: no Stage 2 on hidden turns; the live Stage-2 request equals the research request built from the live Stage-1 prompt;
+  - display and student fields per the contract, and the Stage-1 history fields unmodified;
+  - one identical retry; fallback on invalid output, no relevant skill, model error or timeout; skip after `PCK_STAGE2_SKIP_AFTER_MS`;
+  - suppression on an acknowledgement; the guard keeps a missed identification; B27 still decides first;
+  - a Stage-1 failure is still a 500; the row-text re-ask still runs first.
+- **Client:**
+  - `callTelemetry` (Stage-2 keys, enums, omitted when not reported);
+  - `genaiErrors` (`onStage1`);
+  - `chatTurnOrchestration` (feedback history from the Stage-1 fields; the 1.5.1 response handled as before).
+
+**Live pre-release checks** (real model; R1–R7 of `pck_eval/x12/REGRESSION_PROTOCOL.md`):
+- **Result:** all pass except R6 consensus Interpretation, a documented accepted exception (about 4 of 45 gold samples; the identical candidate; the agreed and dev tiers match research).
+- **Live opportunity bench, flag on vs off:**
+  - peer jumps right after the hint: 12.5 vs 23 per 36;
+  - carrier premature resolution: 1 per 36;
+  - 0 failed turns;
+  - 0 student-contract inconsistencies;
+  - students +2.1 s at p50 on shown turns.
+
+**Not covered live:**
+- The bench's fixed teacher script has no bare acknowledgement after resolution, so the guard and suppression were exercised only offline and in the stubbed tests.
+- No fresh blind validation. The next human check is the educational team's end-to-end review.
+
 ## Original proposal (kept for reference; see §0.6 for what is still open)
 
 ## 1. Starting state (before the baseline)

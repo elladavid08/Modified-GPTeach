@@ -207,7 +207,8 @@ test('telemetry: a successful PCK call reports agent, model, latency, finish rea
   srv.fakeModel.respond = () => delayed(40, textResult(JSON.stringify(VALID_ANALYSIS), 'STOP'));
   const res = await request();
   const { meta } = res.body;
-  assert.deepEqual(Object.keys(meta).sort(), ['agent', 'attempts', 'finishReason', 'latencyMs', 'model']);
+  assert.deepEqual(Object.keys(meta).sort(), ['agent', 'attempts', 'finishReason', 'latencyMs', 'model', 'pckRowTextRetries']);
+  assert.equal(meta.pckRowTextRetries, 0); // 1.5.1: every shown row has text, no re-ask
   assert.equal(meta.agent, 'pck');
   assert.equal(meta.model, 'gemini-3.1-flash-lite'); // 1.4.0: PCK runs on 3.1 Flash-Lite
   assert.equal(meta.finishReason, 'STOP');

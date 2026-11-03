@@ -16,9 +16,17 @@ export const TELEMETRY_QUOTE_CUT_KEYS = ["quoteCutSuspected", "quoteCutPaddedAtt
 export const TELEMETRY_GARBLE_KEYS = ["garbleForeignScript", "garbleMixedScriptToken", "garbleCantillation", "garbleRepeatedFunctionWord", "garbleMarkup", "garbleReplies"];
 // Unknown speaker (1.4.2): optional, content-free client counter; only the browser knows the active cast
 export const TELEMETRY_SPEAKER_KEYS = ["unknownSpeaker"];
-// PCK display (1.4.3): optional, content-free; displayed relevant skill rows with no usable text (shown feedback only)
-export const TELEMETRY_PCK_DISPLAY_KEYS = ["pckRowsWithoutText"];
-export const TELEMETRY_KEYS = [...TELEMETRY_BASE_KEYS, ...TELEMETRY_DUPLICATE_KEYS, ...TELEMETRY_QUOTE_CUT_KEYS, ...TELEMETRY_GARBLE_KEYS, ...TELEMETRY_SPEAKER_KEYS, ...TELEMETRY_PCK_DISPLAY_KEYS];
+// PCK display (1.4.3): optional, content-free; relevant skill rows of shown feedback with no usable text. Since the
+// 1.5.1 row-text fix these rows are left out of the display; pckRowsMissingPositive counts score-1 rows shown
+// with the improvement only (no positive part anywhere in the output). Client counters, shown feedback only.
+export const TELEMETRY_PCK_DISPLAY_KEYS = ["pckRowsWithoutText", "pckRowsMissingPositive"];
+// PCK row-text re-ask (1.5.1): optional, content-free server field; 1 if the identical re-ask was sent
+export const TELEMETRY_PCK_ROW_TEXT_KEYS = ["pckRowTextRetries"];
+// Two-stage PCK (A1i, server PCK_STAGE2=on): optional, content-free server fields; present only when the server reports them
+export const TELEMETRY_PCK_STAGE2_KEYS = ["stage2Status", "stage2Candidate", "stage2Attempts", "stage2LatencyMs", "stage2GuardDropped", "stage2Suppressed", "stage2Signal"];
+export const STAGE2_STATUSES = ["not_run", "ok", "fallback", "skipped"];
+export const STAGE2_SIGNALS = ["none", "partial", "strong"];
+export const TELEMETRY_KEYS = [...TELEMETRY_BASE_KEYS, ...TELEMETRY_DUPLICATE_KEYS, ...TELEMETRY_QUOTE_CUT_KEYS, ...TELEMETRY_GARBLE_KEYS, ...TELEMETRY_SPEAKER_KEYS, ...TELEMETRY_PCK_DISPLAY_KEYS, ...TELEMETRY_PCK_ROW_TEXT_KEYS, ...TELEMETRY_PCK_STAGE2_KEYS];
 export const DUPLICATE_OUTCOMES = ["none", "resolved", "dropped", "kept", "reask_failed"];
 const MAX_STRING_CHARS = 64;
 
@@ -52,6 +60,24 @@ export function buildCallTelemetry(status, meta = null, reason = null) {
 		...countersIfReported(meta, TELEMETRY_GARBLE_KEYS),
 		...countersIfReported(meta, TELEMETRY_SPEAKER_KEYS),
 		...countersIfReported(meta, TELEMETRY_PCK_DISPLAY_KEYS),
+		...countersIfReported(meta, TELEMETRY_PCK_ROW_TEXT_KEYS),
+		...stage2Fields(meta),
+	};
+}
+
+/** Two-stage PCK fields (A1i), only if the server reported a Stage-2 status. */
+function stage2Fields(meta) {
+	if (!meta || typeof meta !== "object" || !("stage2Status" in meta)) {
+		return {};
+	}
+	return {
+		stage2Status: STAGE2_STATUSES.includes(meta.stage2Status) ? meta.stage2Status : null,
+		stage2Candidate: shortString(meta.stage2Candidate),
+		stage2Attempts: nonNegativeInt(meta.stage2Attempts),
+		stage2LatencyMs: nonNegativeInt(meta.stage2LatencyMs),
+		stage2GuardDropped: nonNegativeInt(meta.stage2GuardDropped),
+		stage2Suppressed: nonNegativeInt(meta.stage2Suppressed),
+		stage2Signal: STAGE2_SIGNALS.includes(meta.stage2Signal) ? meta.stage2Signal : null,
 	};
 }
 

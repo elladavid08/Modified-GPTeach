@@ -1,0 +1,44 @@
+{
+ "_comment": "X12 Stage-2 rubric v4b (2026-10-29) = rubric_v3.FROZEN with ONLY interpretation and leveraging changed, per the educational team's rubric decisions: (1) interpretation: the teacher articulating what they think lies behind the error without probing, verifying or eliciting it from the student is 1; 2 requires actual probing / verification / elicitation; (2) leveraging after resolution: a local confirmation (e.g. 'yes') is not a missed opportunity; leveraging is evaluated only when the turn itself creates a genuine opportunity to generalise, extend, compare or extract further learning. Developed on the A1-only tier only. No participant text. v4b = v4 + two general relevance bullets (the leveraging decision stated next to the skill choice, where v4's per-skill wording was not followed on dev) and a leveraging 0 limited to the teacher's own summary / closing / 'what did we learn' move.",
+ "error-identification": {
+  "name": "Error Identification",
+  "relevant": "Evaluate when the most recent student turn(s) contain an incorrect or inaccurate mathematical claim or a misconception that the teacher has not yet clearly addressed. This includes a hedged claim, a claim phrased as a question (\"..., לא?\"), an error inside an otherwise good answer, and an error by one of several students. Not relevant when the recent student statements are correct, or when the error was already identified earlier and the class is now working on it.",
+  "scores": [
+   "0 = the teacher does not notice or address the error: accepts or praises it, ignores it or moves on.",
+   "1 = the teacher reacts only with a general prompt that does not target the specific claim (e.g. \"think again\", a general question about the definition), so it stays unclear that this claim is the problem.",
+   "2 = the teacher directly targets exactly that claim: says it is wrong or inaccurate (a short \"that is not correct\" / \"not accurate\" counts), corrects it, or challenges exactly that claim with a targeted question or counterexample (e.g. \"is that always enough?\", a shape for which the claim fails). An explicit label \"wrong\" is not required."
+  ]
+ },
+ "error-characterization": {
+  "name": "Error Characterization",
+  "relevant": "Evaluate only when the teacher's latest move itself deals with what is wrong in a student's error: it corrects or explains the error, or names what kind of error it is. Not relevant when the teacher only asks a question, gives a task or a hint, confirms, or when no error is being handled.",
+  "scores": [
+   "0 = the teacher corrects or explains the error but does not say what kind of error it is or where it comes from, although that would help the student.",
+   "1 = the teacher partly characterises the error (e.g. \"one property alone is not enough\") without naming its type or source precisely.",
+   "2 = the teacher names the specific type or source of the error (e.g. judging by the typical appearance of a shape, confusing a property with the definition, necessary vs sufficient, over-generalising from one example)."
+  ]
+ },
+ "diagnostic-interpretation": {
+  "name": "Interpretation of Student Thinking (diagnostic interpretation)",
+  "relevant": "Evaluate when the teacher's latest move responds to a specific student's INCORRECT claim from the most recent student turn(s) (a wrong statement, not only a question or an expression of uncertainty) and how that student reached the idea is not yet established. It is also relevant whenever the teacher's move states or guesses what lies behind a student's error. Not relevant when the move is a general question or task for the class, when the students' recent statements are correct, when a student only asks a question or is unsure, or when the reasoning behind the error has already been explored with the student.",
+  "scores": [
+   "0 = the teacher responds to that student's idea by correcting, explaining or confirming, without addressing how the student reached it (a missed chance to ask the student how they reasoned).",
+   "1 = the teacher states, names or guesses what they think lies behind the error (e.g. \"it seems you decide by how the shape looks\"), however precisely, but does not probe, verify or elicit it from the student; or asks \"why\" in passing without letting the student explain.",
+   "2 = the teacher actually probes, verifies or elicits the student's reasoning: asks the student to explain how they reasoned or why they think so (e.g. \"why do you think...?\", \"how did you decide?\"), or states a hypothesis about the reasoning and asks the student whether that is how they thought. Articulating the reasoning without checking it with the student is never 2."
+  ]
+ },
+ "error-leveraging": {
+  "name": "Leveraging the Error for Learning",
+  "relevant": "Evaluate only when an error discussed earlier in this conversation is resolved (in the most recent student turn(s) the students themselves state the correct idea and NO student there still holds the error or is unsure) AND the teacher's latest move itself creates a genuine opportunity to learn more from it: it generalises the conclusion, extends or applies it to another case, compares it with another shape, property or idea, asks what was learned from the error, or explicitly summarises or closes the episode. A local confirmation, praise or acknowledgement (e.g. \"yes\", \"right\", \"well done\", repeating the student's correct answer) is NOT a missed leveraging opportunity: leveraging is not relevant then. Also not relevant while the error is being identified, explored or corrected, when no error has occurred, or when the move turns to a new task that does not relate to the resolved error (that is an adapted pedagogical response).",
+  "scores": [
+   "0 = only when the teacher's own move explicitly summarises or closes the episode, or asks what was learned, and keeps it to this case without generalising or applying it beyond it. A confirmation or praise is never 0 for leveraging: it is not relevant.",
+   "1 = the teacher invites applying the idea to a new case (another shape, property or example), a comparison, or a broader question, but does not develop it or state the general principle. Opening a new direction without developing it is 1, not 2.",
+   "2 = the teacher states the general principle behind the error AND applies or transfers it to a new case (another shape, property or example), or has the students do so."
+  ]
+ },
+ "_general": [
+  "Leveraging after a resolved error: a local confirmation, praise or acknowledgement of the students' correct conclusion (for example \"yes\", \"right\", \"exactly\", \"well done\", or repeating their answer) is NOT a missed leveraging opportunity. Do not mark leveraging as relevant for it; judge such a move on the other skills only, if any applies.",
+  "Leveraging is relevant only when the teacher's latest move itself creates the opportunity to learn more from the resolved error: it generalises, extends or applies the conclusion to another case, compares it with another shape, property or idea, asks what was learned, or explicitly summarises or closes the episode.",
+  "Interpretation: stating what you think lies behind a student's error is at most 1; a 2 needs the teacher to actually ask, probe or check the student's reasoning with the student."
+ ]
+}

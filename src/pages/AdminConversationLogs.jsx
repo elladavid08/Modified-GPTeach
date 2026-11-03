@@ -264,7 +264,7 @@ const AdminConversationLogs = () => {
           return;
         }
         // Same text as the sidebar / log viewer (B28); a score-1 cell holds both parts on separate lines.
-        var explanation = formatPckRowText(buildAssessedPckRow(skill, feedback.detected_skills));
+        var explanation = formatPckRowText(buildAssessedPckRow(skill, feedback.detected_skills, feedback.missed_opportunities));
         skillData.push(skill.score, explanation);
       });
       var date = t.date ? new Date(t.date).toLocaleDateString('he-IL') : '';

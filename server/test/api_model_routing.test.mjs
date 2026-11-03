@@ -1,5 +1,5 @@
 // Split-model configuration (1.4.0, student_model_bakeoff.md §9): the student agent runs on
-// gemini-3.5-flash-lite; PCK feedback, the summary, completion and test endpoints run on
+// gemini-3.5-flash (1.6.1; 1.4.0–1.6.0: gemini-3.5-flash-lite); PCK feedback, the summary, completion and test endpoints run on
 // gemini-3.1-flash-lite. All calls go through the Vertex `global` endpoint with explicit MINIMAL
 // thinking and no temperature / topP. Schemas, token limits, the retry policy, the duplicate guard
 // and telemetry fields are unchanged. Uses the real server.js with a fake Vertex SDK (no network).
@@ -12,7 +12,7 @@ import { VALID_ANALYSIS } from '../test-support/pckFixtures.mjs';
 import { PCK_RESPONSE_SCHEMA } from '../pck_feedback_contract.js';
 import { LLM_CALL_POLICY } from '../llm_call_policy.js';
 
-const STUDENT_MODEL = 'gemini-3.5-flash-lite';
+const STUDENT_MODEL = 'gemini-3.5-flash';
 const GENERAL_MODEL = 'gemini-3.1-flash-lite';
 const MINIMAL = { thinkingLevel: 'MINIMAL' };
 
@@ -62,9 +62,18 @@ test('model instances: only the two split models; both per-turn instances keep t
   assert.deepEqual(timed.map((p) => p.model).sort(), [GENERAL_MODEL, STUDENT_MODEL].sort());
 });
 
+// 1.6.1: the configuration constants themselves (a model change must be a deliberate, versioned edit of model_config.js)
+test('model_config pins the student model gemini-3.5-flash and keeps PCK / summary / completion / test on gemini-3.1-flash-lite', async () => {
+  const cfg = await import('../model_config.js');
+  assert.equal(cfg.STUDENT_MODEL_ID, 'gemini-3.5-flash');
+  assert.equal(cfg.GENERAL_MODEL_ID, 'gemini-3.1-flash-lite');
+  assert.deepEqual(cfg.MODEL_IDS, { student: 'gemini-3.5-flash', pck: 'gemini-3.1-flash-lite', summary: 'gemini-3.1-flash-lite', completion: 'gemini-3.1-flash-lite', test: 'gemini-3.1-flash-lite' });
+  assert.deepEqual(cfg.baseGenerationConfig(), { thinkingConfig: { thinkingLevel: 'MINIMAL' } });
+});
+
 // ─── Routing and generation settings per endpoint ───────────────────────────
 
-test('/api/generate (student) runs on gemini-3.5-flash-lite with MINIMAL thinking, no sampling params, 512 tokens and the unchanged schema', async () => {
+test('/api/generate (student) runs on gemini-3.5-flash with MINIMAL thinking, no sampling params, 512 tokens and the unchanged schema', async () => {
   srv.fakeModel.respond = () => textResult(STUDENT_JSON);
   const res = await postJson(srv.baseUrl, '/api/generate', { messages: studentMessages });
   assert.equal(res.status, 200);
@@ -131,7 +140,7 @@ test('/api/test runs on gemini-3.1-flash-lite with MINIMAL thinking, no temperat
 
 // ─── Retries and the duplicate re-ask keep the agent's model and settings ───
 
-test('student retry (invalid output, then valid): both attempts on gemini-3.5-flash-lite with the same settings; max 2 attempts', async () => {
+test('student retry (invalid output, then valid): both attempts on gemini-3.5-flash with the same settings; max 2 attempts', async () => {
   let i = 0;
   srv.fakeModel.respond = () => (i++ === 0 ? textResult('{"responses": [', 'MAX_TOKENS') : textResult(STUDENT_JSON));
   const res = await postJson(srv.baseUrl, '/api/generate', { messages: studentMessages });
@@ -141,7 +150,7 @@ test('student retry (invalid output, then valid): both attempts on gemini-3.5-fl
   for (const call of srv.fakeModel.calls) assertThreeXSettings(call.generationConfig, 512);
 });
 
-test('student duplicate re-ask: attempt 2 on gemini-3.5-flash-lite with the same settings', async () => {
+test('student duplicate re-ask: attempt 2 on gemini-3.5-flash with the same settings', async () => {
   const earlier = 'אני חושבת שריבוע הוא לא מלבן כי הוא נראה אחרת לגמרי';
   const messages = [
     { role: 'system', content: 'S' },
@@ -169,7 +178,7 @@ test('PCK retry (parse failure, then valid): both attempts on gemini-3.1-flash-l
 
 // ─── Telemetry reports the model of each agent ──────────────────────────────
 
-test('telemetry: student success reports gemini-3.5-flash-lite; PCK success reports gemini-3.1-flash-lite', async () => {
+test('telemetry: student success reports gemini-3.5-flash; PCK success reports gemini-3.1-flash-lite', async () => {
   srv.fakeModel.respond = () => textResult(STUDENT_JSON);
   const student = await postJson(srv.baseUrl, '/api/generate', { messages: studentMessages });
   assert.equal(student.body.meta.agent, 'student');
@@ -206,10 +215,19 @@ test('/api/health reports the split models and the global location', async () =>
 
 test('startup log reports the student and PCK/general models and the global location', () => {
   const log = srv.startupLog.join('\n');
-  assert.match(log, /Student model: gemini-3\.5-flash-lite/);
+  assert.match(log, /Student model: gemini-3\.5-flash$/m); // exact: not flash-lite
   assert.match(log, /PCK \/ summary \/ completion \/ test model: gemini-3\.1-flash-lite/);
   assert.match(log, /Location: global/);
   assert.ok(!log.includes('gemini-2.5'));
+});
+
+// 1.6.0: the resolved PCK_STAGE2 state is printed on every start and exposed by /api/health (the test server pins
+// "off" for the 1.5.1 suites; every value is covered in pck_stage2_flag.test.mjs and api_pck_stage2.test.mjs)
+test('startup log and /api/health report the PCK Stage 2 state and its source', async () => {
+  assert.match(srv.startupLog.join('\n'), /PCK Stage 2: OFF \(explicit override, PCK_STAGE2=off\)/);
+  const body = await (await fetch(`${srv.baseUrl}/api/health`)).json();
+  assert.equal(body.pckStage2Enabled, false);
+  assert.equal(body.pckStage2Source, 'environment');
 });
 
 // ─── No 2.5 model or sampling parameter left in active runtime configuration ─

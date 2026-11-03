@@ -1,0 +1,39 @@
+{
+ "_comment": "X12 Stage-2 rubric v3 (dev tier A1-only only) = v2 with two changes from the v2 dev errors: (1) leveraging is judged only when the latest move explicitly relates to the resolved error (refers back to it, generalises it or applies it); a new task or explanation that does not is judged as an adapted pedagogical response; (2) interpretation only for a specific student's incorrect claim, not for a question or uncertainty. Overrides four skills of stage2.cjs RUBRIC (v1); APR is unchanged. Changes, from the v1 dev errors: (1) identification 2 = the teacher directly targets exactly that claim (saying it is inaccurate, correcting it, or challenging it with a targeted question or counterexample), 1 = a general prompt that does not target the claim; (2) characterisation only when the teacher's move itself deals with what is wrong in the error; (3) interpretation 0 only when the teacher responds directly to a specific student's incorrect idea without probing it; (4) leveraging only when the episode is resolved in the most recent student turns, and restating this case's conclusion is 0 even in general words. No participant text.",
+ "error-identification": {
+  "name": "Error Identification",
+  "relevant": "Evaluate when the most recent student turn(s) contain an incorrect or inaccurate mathematical claim or a misconception that the teacher has not yet clearly addressed. This includes a hedged claim, a claim phrased as a question (\"..., לא?\"), an error inside an otherwise good answer, and an error by one of several students. Not relevant when the recent student statements are correct, or when the error was already identified earlier and the class is now working on it.",
+  "scores": [
+   "0 = the teacher does not notice or address the error: accepts or praises it, ignores it or moves on.",
+   "1 = the teacher reacts only with a general prompt that does not target the specific claim (e.g. \"think again\", a general question about the definition), so it stays unclear that this claim is the problem.",
+   "2 = the teacher directly targets exactly that claim: says it is wrong or inaccurate (a short \"that is not correct\" / \"not accurate\" counts), corrects it, or challenges exactly that claim with a targeted question or counterexample (e.g. \"is that always enough?\", a shape for which the claim fails). An explicit label \"wrong\" is not required."
+  ]
+ },
+ "error-characterization": {
+  "name": "Error Characterization",
+  "relevant": "Evaluate only when the teacher's latest move itself deals with what is wrong in a student's error: it corrects or explains the error, or names what kind of error it is. Not relevant when the teacher only asks a question, gives a task or a hint, confirms, or when no error is being handled.",
+  "scores": [
+   "0 = the teacher corrects or explains the error but does not say what kind of error it is or where it comes from, although that would help the student.",
+   "1 = the teacher partly characterises the error (e.g. \"one property alone is not enough\") without naming its type or source precisely.",
+   "2 = the teacher names the specific type or source of the error (e.g. judging by the typical appearance of a shape, confusing a property with the definition, necessary vs sufficient, over-generalising from one example)."
+  ]
+ },
+ "diagnostic-interpretation": {
+  "name": "Interpretation of Student Thinking (diagnostic interpretation)",
+  "relevant": "Evaluate when the teacher's latest move responds to a specific student's INCORRECT claim from the most recent student turn(s) (a wrong statement, not only a question or an expression of uncertainty), and how that student reached the idea is not yet clear. Not relevant when the move is a general question or task for the class, when the students' recent statements are correct, when a student only asks a question or is unsure, or when the reasoning behind the error has already been explored.",
+  "scores": [
+   "0 = the teacher responds to that student's idea by correcting, explaining or confirming, without trying to understand how the student reached it (a missed chance to ask the student how they reasoned).",
+   "1 = the teacher names or guesses the student's reasoning (e.g. \"it seems you decide by how the shape looks\") without asking the student to explain it, or asks \"why\" in passing without letting the student explain.",
+   "2 = the teacher asks the student to explain how they reasoned or why they think so (e.g. \"why do you think...?\", \"how did you decide?\") before correcting, or articulates the specific assumption behind the idea and checks it with the student."
+  ]
+ },
+ "error-leveraging": {
+  "name": "Leveraging the Error for Learning",
+  "relevant": "Evaluate only when (a) an error was discussed earlier in this conversation, (b) it is resolved: in the most recent student turn(s) the students themselves state the correct idea and NO student there still holds the error or says they are unsure or do not understand, and (c) the teacher's latest move relates to that resolved error: it confirms or summarises the conclusion, refers back to it, generalises it or applies it. A new task, question or explanation that does not relate to the resolved error is judged as an adapted pedagogical response, not as leveraging. Not relevant while the error is being identified, explored or corrected, when no error has occurred, and not for a bare acknowledgement (\"yes\", \"right\") of a conclusion the students reached themselves.",
+  "scores": [
+   "0 = the teacher only confirms, praises or restates the conclusion of this case, even in general words (e.g. \"so every square is a rectangle\"), without applying it to a new case (a missed chance to generalise and transfer it).",
+   "1 = the teacher invites applying the idea to a new case (another shape, property or example) or asks a broader question, but does not develop it or state the general principle. Opening a new direction without developing it is 1, not 2.",
+   "2 = the teacher states the general principle behind the error AND applies or transfers it to a new case (another shape, property or example), or has the students do so."
+  ]
+ }
+}

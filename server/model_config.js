@@ -2,7 +2,9 @@
  * Gemini model configuration (1.4.0): split models, validated in
  * research/simulator_audit/student_model_bakeoff.md §9.
  *
- * - The student agent (/api/generate) runs on gemini-3.5-flash-lite.
+ * - The student agent (/api/generate) runs on gemini-3.5-flash (1.6.1; 1.4.0–1.6.0: gemini-3.5-flash-lite). Evidence:
+ *   post_1.5_feedback_investigation.md §D, student_model_pacing_2x2_experiment.md, and the 1.6.1 regression check
+ *   (simulator_version_history.md). Same settings as before: MINIMAL thinking, 512 output tokens, the same schema.
  * - PCK feedback (/api/pck-feedback), the summary (/api/pck-summary) and the completion / test
  *   endpoints run on gemini-3.1-flash-lite.
  *
@@ -13,7 +15,7 @@
  * per endpoint in server.js and are unchanged.
  */
 
-export const STUDENT_MODEL_ID = 'gemini-3.5-flash-lite';
+export const STUDENT_MODEL_ID = 'gemini-3.5-flash';
 export const GENERAL_MODEL_ID = 'gemini-3.1-flash-lite';
 
 /** Model per agent / endpoint, as reported by /api/health. */

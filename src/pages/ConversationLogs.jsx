@@ -59,9 +59,10 @@ function PCKLegend() {
   );
 }
 
-// Rows and text come from the shared display contract (B28), the same as the teacher sidebar.
+// Rows and text come from the shared display contract (B28), the same as the teacher sidebar
+// (rows with no text at all are not shown, 1.5.1 row-text fix).
 function PCKFeedbackBullets({ pckFeedback }) {
-  const skillRows = buildPckDisplayRows(pckFeedback);
+  const skillRows = buildPckDisplayRows(pckFeedback, { dropEmpty: true });
 
   if (skillRows.length === 0) return null;
 

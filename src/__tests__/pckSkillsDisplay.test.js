@@ -151,13 +151,37 @@ describe("PCKFeedbackSidebar display contract (1.4.3)", () => {
 		expect(view.container.textContent).toContain("תגובה פדגוגית מותאמת: FROM-DEMONSTRATED");
 	});
 
-	it("score 2 with no usable text anywhere still shows the skill name only (nothing invented)", () => {
+	it("1.5.1: a score-2 row with no usable text anywhere is not shown at all (no bare green skill name)", () => {
 		view = render(<PCKFeedbackSidebar isVisible={true} feedback={{
-			skills_assessment: [{ skill_id: "error-leveraging", is_relevant: true, score: 2, what_could_be_better: "MISPLACED" }],
+			skills_assessment: [
+				{ skill_id: "error-identification", is_relevant: true, score: 2, evidence: "DONE-WELL" },
+				{ skill_id: "error-leveraging", is_relevant: true, score: 2, what_could_be_better: "MISPLACED" },
+			],
 		}} />);
-		expect(view.container.textContent).toContain("מינוף השגיאה ללמידה");
+		expect(view.container.textContent).toContain("זיהוי השגיאה: DONE-WELL");
+		expect(view.container.textContent).not.toContain("מינוף השגיאה ללמידה");
 		expect(view.container.textContent).not.toContain("MISPLACED");
-		expect(view.container.textContent).not.toContain("מינוף השגיאה ללמידה:");
+	});
+
+	it("1.5.1: score-1 and score-0 rows with no text at all are not shown either", () => {
+		view = render(<PCKFeedbackSidebar isVisible={true} feedback={{
+			skills_assessment: [
+				{ skill_id: "error-identification", is_relevant: true, score: 0, what_could_be_better: "MISSED-MOVE" },
+				{ skill_id: "adapted-pedagogical-response", is_relevant: true, score: 1 },
+				{ skill_id: "error-characterization", is_relevant: true, score: 0 },
+			],
+		}} />);
+		expect(view.container.textContent).toContain("זיהוי השגיאה: MISSED-MOVE");
+		expect(view.container.textContent).not.toContain("תגובה פדגוגית מותאמת");
+		expect(view.container.textContent).not.toContain("אפיון");
+	});
+
+	it("1.5.1: score 0 without its own text uses the matching missed_opportunities text", () => {
+		view = render(<PCKFeedbackSidebar isVisible={true} feedback={{
+			skills_assessment: [{ skill_id: "error-characterization", is_relevant: true, score: 0, what_could_be_better: "" }],
+			missed_opportunities: [{ skill_id: "error-characterization", what_could_have_been_done: "FROM-MISSED" }],
+		}} />);
+		expect(view.container.textContent).toContain(": FROM-MISSED");
 	});
 
 	it("score 0 is unchanged: the skill's what_could_be_better", () => {

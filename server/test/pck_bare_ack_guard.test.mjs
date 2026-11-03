@@ -217,7 +217,7 @@ test('non-bare message: shown criticism and no-feedback decisions are also uncha
 test('the guard does not change the response shape or telemetry keys', async () => {
   const res = await pck('יפה', PRAISE_APR);
   assert.deepEqual(Object.keys(res.body).sort(), ['analysis', 'meta', 'success']);
-  assert.deepEqual(Object.keys(res.body.meta).sort(), ['agent', 'attempts', 'finishReason', 'latencyMs', 'model']);
+  assert.deepEqual(Object.keys(res.body.meta).sort(), ['agent', 'attempts', 'finishReason', 'latencyMs', 'model', 'pckRowTextRetries']);
 });
 
 for (const [label, raw, kind] of MALFORMED_OUTPUTS.slice(0, 6)) {

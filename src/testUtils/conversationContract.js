@@ -7,7 +7,7 @@
 // extensions must be additive (A2). It returns a list of violations (empty = valid).
 
 import contract from "./contracts/pckSkillsContract.json";
-import { TELEMETRY_KEYS, TELEMETRY_STATUSES, DUPLICATE_OUTCOMES } from "../services/callTelemetry";
+import { TELEMETRY_KEYS, TELEMETRY_STATUSES, DUPLICATE_OUTCOMES, STAGE2_STATUSES, STAGE2_SIGNALS } from "../services/callTelemetry";
 
 export const SESSION_ID_RE = /^session_\d+_[a-z0-9]+$/;
 export const PERSONA_REF_RE = /^v[^_]+_[a-z0-9]+$/;
@@ -32,12 +32,14 @@ function validateTelemetryEntry(entry, where, errors) {
 	if ("duplicateOutcome" in entry && entry.duplicateOutcome !== null && !DUPLICATE_OUTCOMES.includes(entry.duplicateOutcome)) {
 		errors.push(`${where}.duplicateOutcome invalid`);
 	}
-	for (const key of ["latencyMs", "clientLatencyMs", "attempts", "duplicateRetries", "duplicateRepliesDropped", "duplicateRepliesKept", "quoteCutSuspected", "quoteCutPaddedAttempts", "garbleForeignScript", "garbleMixedScriptToken", "garbleCantillation", "garbleRepeatedFunctionWord", "garbleMarkup", "garbleReplies", "unknownSpeaker", "pckRowsWithoutText"]) {
+	for (const key of ["latencyMs", "clientLatencyMs", "attempts", "duplicateRetries", "duplicateRepliesDropped", "duplicateRepliesKept", "quoteCutSuspected", "quoteCutPaddedAttempts", "garbleForeignScript", "garbleMixedScriptToken", "garbleCantillation", "garbleRepeatedFunctionWord", "garbleMarkup", "garbleReplies", "unknownSpeaker", "pckRowsWithoutText", "pckRowsMissingPositive", "pckRowTextRetries", "stage2Attempts", "stage2LatencyMs", "stage2GuardDropped", "stage2Suppressed"]) {
 		if (key in entry && !isNullableInt(entry[key])) errors.push(`${where}.${key} must be a non-negative integer or null`);
 	}
-	for (const key of ["reason", "model", "finishReason"]) {
+	for (const key of ["reason", "model", "finishReason", "stage2Candidate"]) {
 		if (key in entry && !isNullableStr(entry[key])) errors.push(`${where}.${key} must be a string or null`);
 	}
+	if ("stage2Status" in entry && entry.stage2Status !== null && !STAGE2_STATUSES.includes(entry.stage2Status)) errors.push(`${where}.stage2Status invalid`);
+	if ("stage2Signal" in entry && entry.stage2Signal !== null && !STAGE2_SIGNALS.includes(entry.stage2Signal)) errors.push(`${where}.stage2Signal invalid`);
 }
 
 function validateTurnTelemetry(telemetry, where, errors) {

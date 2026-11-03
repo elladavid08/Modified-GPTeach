@@ -13,10 +13,93 @@
  * - Z: Patch version (bug fixes, minor improvements)
  */
 
-export const SYSTEM_VERSION = "1.5.0";
+export const SYSTEM_VERSION = "1.6.1";
 
 /**
  * Version History:
+ *
+ * 1.6.1 (2026-11-02):
+ * - Student model: gemini-3.5-flash-lite -> gemini-3.5-flash (server/model_config.js STUDENT_MODEL_ID;
+ *   reported by /api/health and the startup log). Same settings: MINIMAL thinking, 512 output
+ *   tokens, the unchanged response schema. Evidence: post_1.5_feedback_investigation.md §D and
+ *   student_model_pacing_2x2_experiment.md; regression check against 1.6.0 on the same benches
+ *   (simulator_version_history.md): no garbled replies (1.6.0: 19), far fewer invented teacher
+ *   attributions, no carrier confident jumps after the minimal hint (1.6.0: 3), fewer peer jumps,
+ *   0 failures and 0 quota errors; student call +0.5 s at p50.
+ * - Unchanged: the student prompt, personas, misconception carrier, pacing, PCK Stage 1, Stage 2
+ *   and the A1i student contract, PCK_STAGE2 (on by default) and the PCK / summary model
+ *   (gemini-3.1-flash-lite).
+ *
+ * 1.6.0 (2026-11-02):
+ * - Two-stage PCK feedback (A1i), ON by default (server flag PCK_STAGE2). Research:
+ *   pck_stage2_final_round.md, pck_a1i_implementation_plan.md; frozen candidate
+ *   pck_eval/x12/FINAL_FREEZE.md (x12-final-v5c).
+ * - Stage 1 is the unchanged 1.5.1 PCK call (prompt, schema, model, retries, row-text re-ask,
+ *   bare-acknowledgement guard). It remains the first show/hide gate and the source of context.
+ * - Stage 2 (server/pck_stage2.js): on every turn Stage 1 shows, one independent call with the
+ *   frozen Stage-2 rubric runs BEFORE the students. It receives the lesson context, history and
+ *   teacher message of the Stage-1 prompt and nothing from the Stage-1 output, and decides the
+ *   relevant skills, the 0/1/2 scores and the teacher-facing text (score 2: what exists; 1: what
+ *   exists + what to improve; 0: what to improve). Same model and settings as Stage 1
+ *   (gemini-3.1-flash-lite, MINIMAL thinking), at most 2 identical attempts, own budget
+ *   (8 s per attempt, 12 s total). Byte-identical to the frozen research version (parity tests).
+ * - Leveraging acknowledgement guard (server/pck_leveraging_guard.js): a teacher message that is
+ *   only an acknowledgement ("כן", "בדיוק", "כל הכבוד", a name; at most 5 words, no "?") gets no
+ *   leveraging row.
+ * - Stage-2-derived student contract (server/pck_stage2_policy.js): on a Stage-2 turn every
+ *   current-turn PCK quality statement the students receive comes from the shown rows and their
+ *   signal (none / partial / strong). demonstrated_skills / missed_opportunities are projected
+ *   from the rows (score >= 1 / score 0). Quality, understanding and hint types never imply more
+ *   progress than the signal. No Stage-1 assessment text reaches the student prompt (hint
+ *   reasons, likely reactions and the description of an unaddressed misconception are dropped).
+ *   Only Stage-1 context is kept: who is likely to speak, tone, misconception risk, and, under
+ *   "none", a more negative Stage-1 state. The student prompt and the student model are unchanged.
+ * - No displayable Stage-2 row left (after the guard): no feedback that turn (no sidebar entry,
+ *   nothing logged as shown). The students get the Stage-1 analysis, as on any 1.5.1 turn
+ *   without feedback.
+ * - Stage 2 failed after its attempts, timed out, or was skipped because Stage 1 took more than
+ *   30 s: the 1.5.1 feedback and student input, exactly.
+ * - The client keeps the server's unmodified Stage-1 fields as feedback history (onStage1), so
+ *   Stage 1's own input is as in 1.5.1. The general feedback message is empty on Stage-2 turns.
+ * - Telemetry (A17, additive, content-free, PCK entries, only while Stage 2 is on): stage2Status
+ *   (not_run | ok | fallback | skipped), stage2Candidate, stage2Attempts, stage2LatencyMs,
+ *   stage2GuardDropped, stage2Suppressed, stage2Signal.
+ * - PCK_STAGE2 (server environment, trimmed, case-insensitive): unset or empty -> ON (default);
+ *   on / 1 / true -> ON; off / 0 / false -> OFF, the explicit override to the 1.5.1 behaviour
+ *   exactly (no Stage-2 call, the 1.5.1 response); any other value -> ON with a warning. The
+ *   server prints the resolved state on every start ("PCK Stage 2: ON (default)", "PCK Stage 2:
+ *   OFF (explicit override, PCK_STAGE2=off)") and /api/health reports pckStage2Enabled (boolean)
+ *   and pckStage2Source (default | environment).
+ * - With Stage 2 on: students and sidebar about 2.1 s later at p50 on shown turns; about +49%
+ *   PCK tokens per shown turn.
+ * - Unchanged: the student model and prompt code, the Stage-1 PCK prompt, schema and model, the
+ *   misconception carrier, and the stored conversation format (additive telemetry only).
+ *
+ * 1.5.1 (2026-10-28):
+ * - First post-1.5.0 iteration (post_1.5_feedback_investigation.md, from the educational team's
+ *   feedback on 1.5.0): PCK feedback text consistency. One row-text rule for the teacher sidebar,
+ *   the conversation-log and admin viewers, the Excel / CSV exports and the summary input
+ *   (src/services/pckDisplayRows.js; the server copy server/pck_row_text.js is kept identical by
+ *   a parity test). Score 2: the positive evidence (own evidence, else the single matching
+ *   demonstrated_skills item). Score 1: the same positive text plus what_could_be_better.
+ *   Score 0: what_could_be_better, else (new) the single matching missed_opportunities text.
+ *   Every displayed string is a field the PCK model returned.
+ * - Teacher-facing views never show a skill row with no text (previously a bare skill name).
+ *   Shown feedback with no displayable row at all is neither displayed nor logged (0 of 1,077 in
+ *   the 1.5.0 data). Exports keep every scored skill. A score-1 row without a positive part keeps
+ *   showing its improvement (interim; the full contract is left to the two-stage PCK work).
+ * - Retry: when feedback that will be shown (after the bare-acknowledgement guard) has a row with
+ *   no text, the server re-asks once with the identical request, as the existing second attempt
+ *   (still at most 2 attempts). If the re-ask fails, the first answer is kept; if it is still
+ *   incomplete, it is accepted and the empty row is not displayed. Score-1 rows missing only the
+ *   positive part are not re-asked. Expected: one extra PCK call on about 9% of shown turns.
+ * - Summary input: the real-time moments carry the same row text the teacher saw (non-relevant
+ *   entries, score-0 evidence and score-2 what_could_be_better no longer reach it).
+ * - Telemetry (A17, additive, content-free): pckRowsMissingPositive on PCK entries of shown
+ *   feedback; pckRowTextRetries (0/1) on every PCK entry the server reports.
+ * - Unchanged: models, the PCK prompt and rubric, the response schema, the show/hide decision
+ *   (should_provide_feedback and the bare-acknowledgement guard), the misconception carrier, the
+ *   student prompt and the stored PCK fields.
  * 
  * 1.5.0 (2026-10-14):
  * - Misconception carrier (release blocker #12, "students drop the scenario misconception before

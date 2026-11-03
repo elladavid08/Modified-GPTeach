@@ -137,8 +137,9 @@ export const PCKFeedbackSidebar = ({ feedback, isVisible, errorMessage }) => {
     );
   }
 
-  // Per-skill rows from the display view-model (1.4.3; legacy feedback without skills_assessment included)
-  var skillRows = buildPckDisplayRows(feedback);
+  // Per-skill rows from the display view-model (1.4.3; legacy feedback without skills_assessment included).
+  // A row with no text at all is never shown (1.5.1 row-text fix).
+  var skillRows = buildPckDisplayRows(feedback, { dropEmpty: true });
 
   return (
     <div style={SIDEBAR_STYLE}>

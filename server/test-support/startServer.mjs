@@ -10,6 +10,10 @@ export async function startServer() {
 
   process.env.PORT = '0';
   process.env.NODE_ENV = 'test';
+  // 1.6.0: two-stage PCK (PCK_STAGE2) is ON by default. The 1.5.1 endpoint suites assert the single-call 1.5.1
+  // response, which is now the explicit-off path, so it is pinned here unless a test sets it. The Stage-2 suites
+  // (api_pck_stage2, pck_stage2_flag) clear or set it per test to exercise the real default and every value.
+  if (process.env.PCK_STAGE2 === undefined) process.env.PCK_STAGE2 = 'off';
 
   // server.js logs very verbosely; keep test output readable unless asked.
   // Lines logged until the server is listening (configuration, startup banner) are kept in `startupLog`.
